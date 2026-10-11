@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+// TestNormalizarPosicion verifica que una posición cruda de OpenF1 se
+// convierte al formato que espera la colección eventos_carrera.
 func TestNormalizarPosicion(t *testing.T) {
 	raw := PosicionOpenF1{
 		Date:         time.Date(2024, 9, 1, 13, 0, 0, 0, time.UTC),
@@ -36,6 +38,8 @@ func TestNormalizarPosicion(t *testing.T) {
 	}
 }
 
+// TestOpenF1ClientPosiciones levanta un servidor falso y verifica que el
+// cliente parsea bien la respuesta.
 func TestOpenF1ClientPosiciones(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/position" {
@@ -46,12 +50,23 @@ func TestOpenF1ClientPosiciones(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]map[string]any{
-			{"date": "2024-09-01T13:00:00Z", "driver_number": 1, "position": 1, "session_key": 9472},
-			{"date": "2024-09-01T13:00:01Z", "driver_number": 4, "position": 2, "session_key": 9472},
+			{
+				"date":          "2024-09-01T13:00:00Z",
+				"driver_number": 1,
+				"position":      1,
+				"session_key":   9472,
+			},
+			{
+				"date":          "2024-09-01T13:00:01Z",
+				"driver_number": 4,
+				"position":      2,
+				"session_key":   9472,
+			},
 		})
 	}))
 	defer srv.Close()
 
+	// Apuntamos el cliente al servidor falso.
 	oldBase := baseURLConst
 	baseURLConst = srv.URL
 	defer func() { baseURLConst = oldBase }()
@@ -69,3 +84,4 @@ func TestOpenF1ClientPosiciones(t *testing.T) {
 	if pos[0].Position != 1 || pos[1].Position != 2 {
 		t.Fatalf("posiciones mal parseadas: %+v", pos)
 	}
+}

@@ -33,11 +33,11 @@ type SesionOpenF1 struct {
 // ---- Tipo normalizado que va a MongoDB ----
 
 type EventoCarrera struct {
-	CarreraID string         `bson:"carrera_id"`
-	Timestamp time.Time      `bson:"timestamp"`
-	Tipo      string         `bson:"tipo"`
-	Datos     map[string]any `bson:"datos"`
-	LeidoEn   time.Time      `bson:"leido_en"`
+	CarreraID string         `bson:"carrera_id" json:"carrera_id"`
+	Timestamp time.Time      `bson:"timestamp"  json:"timestamp"`
+	Tipo      string         `bson:"tipo"       json:"tipo"`
+	Datos     map[string]any `bson:"datos"      json:"datos"`
+	LeidoEn   time.Time      `bson:"leido_en"   json:"leido_en"`
 }
 
 func NormalizarPosicion(carreraID string, p PosicionOpenF1) EventoCarrera {

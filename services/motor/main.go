@@ -23,9 +23,9 @@ import (
 	"github.com/arquisoft/motor/internal/config"
 	"github.com/arquisoft/motor/internal/health"
 	"github.com/arquisoft/motor/internal/httpx"
+	"github.com/arquisoft/motor/internal/ingest"
 	"github.com/arquisoft/motor/internal/mongodb"
 	"github.com/arquisoft/motor/internal/ws"
-	"github.com/arquisoft/motor/internal/ingest"
 )
 
 func main() {
@@ -62,7 +62,7 @@ func main() {
 	health.Register(mux, db)
 	ws.Register(mux, hub, autenticador, origenes.Permite)
 	registrarApuestas(mux, db, cfg, autenticador) // HU-06
-	
+
 	ingest.Register(mux, db, hub, autenticador) // HU-04
 	// Aqui se registran los modulos de cada HU, p. ej.:
 	//   posiciones.Register(mux, db.DB, hub)                 // HU-05

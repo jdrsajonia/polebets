@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 )
 
@@ -35,6 +36,12 @@ func (s *Servicio) IngestaOpenF1(ctx context.Context, carreraID string, sessionK
 
 	if len(posiciones) == 0 && len(pilotos) == 0 {
 		return 0, fmt.Errorf("OpenF1 no devolvio datos para session_key=%d", sessionKey)
+	}
+
+	// Idempotencia: borrar eventos previos de esta carrera antes de insertar.
+	// Asi, ejecutar dos veces el endpoint no duplica datos.
+	if _, err := s.eventos.DeleteMany(ctx, bson.M{"carrera_id": carreraID}); err != nil {
+		return 0, fmt.Errorf("borrando eventos previos: %w", err)
 	}
 
 	docs := make([]any, 0, len(posiciones)+1)
