@@ -83,7 +83,7 @@ describe("HU-03 · ver el saldo", () => {
   it("el admin no tiene billetera: no se le pide el saldo a Pagos", async () => {
     abrir("/admin", USUARIOS_SIMULADOS.admin);
 
-    await screen.findByRole("heading", { name: "Panel de administración" });
+    await screen.findByRole("heading", { name: "Admin (herramienta de prueba)" });
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/billetera"))).toBe(false);
   });
 });

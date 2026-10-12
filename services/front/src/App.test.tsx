@@ -63,13 +63,14 @@ describe("rutas", () => {
     expect(screen.queryByRole("heading", { name: "Abrir un mercado" })).not.toBeInTheDocument();
   });
 
-  it("el admin entra a /admin y solo ve su enlace en el menu", async () => {
+  it("el admin entra a /admin, una herramienta de prueba sin el header de PoleBet", async () => {
     abrir("/admin", USUARIOS_SIMULADOS.admin);
+    expect(screen.getByRole("heading", { name: "Admin (herramienta de prueba)" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Abrir un mercado" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Principal" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "En vivo" })).not.toBeInTheDocument();
     // Espera la carga inicial del mercado (el 404 de arriba = sin mercado).
-    expect(await screen.findByText("Todavía no se ha abierto ningún mercado.")).toBeInTheDocument();
+    expect(await screen.findByText("Ningún mercado abierto todavía.")).toBeInTheDocument();
   });
 
   it("la raiz lleva al jugador a /carrera", async () => {

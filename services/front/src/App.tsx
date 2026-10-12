@@ -5,7 +5,7 @@
 //   /login      HU-02            publica
 //   /carrera    HU-05/06/08      jugador
 //   /billetera  HU-03            jugador
-//   /admin      HU-11/12         solo admin
+//   /admin      HU-11/12         solo admin (herramienta de prueba, sin Layout)
 //   /estado     diagnostico      publica
 
 import { Navigate, Route, Routes } from "react-router-dom";
@@ -49,12 +49,13 @@ export default function App() {
             <Route path="/billetera" element={<Billetera />} />
           </Route>
 
-          {/* Solo admin */}
-          <Route element={<RutaProtegida roles={["admin"]} />}>
-            <Route path="/admin" element={<Admin />} />
-          </Route>
-
           <Route path="*" element={<NoEncontrada />} />
+        </Route>
+
+        {/* Solo admin. Va fuera del Layout: es una herramienta provisional del
+            prototipo y no debe verse como una pantalla del producto. */}
+        <Route element={<RutaProtegida roles={["admin"]} />}>
+          <Route path="/admin" element={<Admin />} />
         </Route>
       </Routes>
     </BilleteraProvider>
