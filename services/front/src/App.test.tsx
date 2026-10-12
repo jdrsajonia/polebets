@@ -32,10 +32,11 @@ beforeEach(() => {
 });
 
 describe("rutas", () => {
-  it("/registro es publica y muestra su placeholder", () => {
+  // HU-01: /registro ya no es un placeholder (ver auth/registro.test.tsx).
+  it("/registro es publica y muestra el formulario", () => {
     abrir("/registro", null);
     expect(screen.getByRole("heading", { name: "Crear cuenta" })).toBeInTheDocument();
-    expect(screen.getByText("Pendiente: HU-01")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Crear cuenta" })).toBeInTheDocument();
   });
 
   // HU-02: /login ya no es un placeholder (ver auth/sesion.test.tsx).

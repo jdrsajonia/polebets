@@ -1,5 +1,6 @@
-// Llamadas REST de la sesion contra Pagos (HU-02).
+// Llamadas REST de la sesion contra Pagos (HU-01 y HU-02).
 //
+//   POST /auth/register { name, email, password } -> Usuario (201), sin cookie
 //   POST /auth/login   { email, password } -> Usuario  + cookie HttpOnly "session"
 //   POST /auth/logout  -> 204, borra la cookie
 //   GET  /auth/me      -> Usuario, o 401 si no hay sesion
@@ -43,4 +44,28 @@ export async function login(email: string, password: string): Promise<Usuario> {
 // Le pide a Pagos que borre la cookie.
 export async function logout(): Promise<void> {
   await http.post<void>("pagos", "/auth/logout");
+}
+
+// ---------------------------------------------------------------------------
+// HU-01: registro
+// ---------------------------------------------------------------------------
+
+// Mensaje cuando Pagos rechaza los datos (422). FastAPI responde una lista de
+// errores por campo que no sirve para mostrar tal cual; el formulario ya
+// valida lo mismo antes de enviar, asi que esto solo pasaria si cambian las
+// reglas del backend.
+export const MENSAJE_DATOS_INVALIDOS = "Revisa los datos: nombre, correo válido y contraseña de al menos 8 caracteres.";
+
+// Crea un jugador (rol "player", saldo 0). Pagos NO deja cookie: para entrar
+// hay que llamar a login despues. Un 409 llega con el mensaje de Pagos
+// («Este correo ya está registrado»).
+export async function registrar(nombre: string, email: string, password: string): Promise<Usuario> {
+  try {
+    return await http.post<Usuario>("pagos", "/auth/register", { name: nombre, email, password });
+  } catch (error) {
+    if (error instanceof ErrorHttp && error.status === 422) {
+      throw new ErrorHttp(422, MENSAJE_DATOS_INVALIDOS);
+    }
+    throw error;
+  }
 }
