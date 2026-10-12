@@ -156,51 +156,16 @@ const eventos = [
 db.eventos_carrera.insertMany(eventos, { ordered: false });
 print('  ✅ ' + eventos.length + ' eventos insertados');
 
-// ------------------------------------------------------------
-// 3. MERCADO DE PRUEBA (abierto)
-// ------------------------------------------------------------
-const ahora = new Date();
-const ventanaApuestas = 30;    // segundos
-const ventanaObservacion = 60; // segundos
-
-const mercadoId = new ObjectId();
-db.mercados.insertOne({
-  _id: mercadoId,
-  carrera_id: carreraId,
-  pregunta: '¿Quién irá primero al terminar la ventana?',
-  opciones: ['Max Verstappen', 'Lando Norris', 'Charles Leclerc'],
-  estado: 'abierto',
-  abre_en: ahora,
-  cierra_en: new Date(ahora.getTime() + ventanaApuestas * 1000),
-  observa_hasta: new Date(ahora.getTime() + (ventanaApuestas + ventanaObservacion) * 1000),
-  resultado: null,
-  puntos_otorgados: null,
-  creado_por: 'admin@polebets.local',
-  creado_en: ahora,
-  liquidado_en: null
-});
-print('  ✅ Mercado insertado (abierto)');
-
-// ------------------------------------------------------------
-// 4. APUESTA DE CONTEXTO DE PRUEBA
-// ------------------------------------------------------------
-db.apuestas_contexto.insertOne({
-  apuesta_id: 'apuesta_seed_0001',
-  mercado_id: mercadoId,
-  usuario_id: 'usuario_seed_0001',
-  opcion: 'Max Verstappen',
-  monto: 100,
-  snapshot_evento: {
-    posiciones: ['Max Verstappen', 'Lando Norris', 'Charles Leclerc'],
-    lap: 1
-  },
-  creada_en: new Date(),
-  liquidada: false,
-  gano: null
-});
-print('  ✅ Apuesta de contexto insertada');
+// No se siembra ningún mercado: los abre el admin desde /admin (HU-11).
+// Un mercado sembrado nacía con la ventana corriendo desde el arranque de
+// MongoDB: el motor lo cerraba al iniciar, el worker de HU-07 lo reintentaba
+// cada 2 s para siempre (sin reproducción no hay forma de liquidarlo) y
+// aparecía como mercado actual en /admin.
 
 print('');
 print('========================================');
 print('✅ Datos de prueba insertados');
+print('  - Carrera: ' + carreraId);
+print('  - Eventos: ' + eventos.length);
+print('  - Mercados: ninguno (los abre el admin)');
 print('========================================');

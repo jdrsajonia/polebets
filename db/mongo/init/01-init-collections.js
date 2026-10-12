@@ -92,6 +92,12 @@ db.createCollection('eventos_carrera', {
         leido_en: {
           bsonType: 'date',
           description: 'Cuándo lo leyó el motor del sistema'
+        },
+        emitido_en: {
+          bsonType: 'date',
+          description: 'Hora REAL en que la reproducción (POST /ingest/replay) ' +
+            'emitió el evento por WebSocket. La liquidación (HU-07) la ' +
+            'compara con la ventana del mercado; timestamp es histórico.'
         }
       }
     }
@@ -103,6 +109,8 @@ db.createCollection('eventos_carrera', {
 db.eventos_carrera.createIndex({ carrera_id: 1, timestamp: 1 });
 // Índice para filtrar por tipo dentro de una carrera
 db.eventos_carrera.createIndex({ carrera_id: 1, tipo: 1, timestamp: 1 });
+// HU-07: "¿se emitió algún evento de posición entre cierra_en y observa_hasta?"
+db.eventos_carrera.createIndex({ carrera_id: 1, tipo: 1, emitido_en: 1 });
 
 print('✅ Colección "eventos_carrera" creada con índices');
 
@@ -118,13 +126,20 @@ db.createCollection('mercados', {
     $jsonSchema: {
       bsonType: 'object',
       required: [
-        'carrera_id', 'pregunta', 'opciones', 'estado',
+        'carrera_id', 'tipo', 'pregunta', 'opciones', 'estado',
         'abre_en', 'cierra_en', 'creado_en'
       ],
       properties: {
         carrera_id: {
           bsonType: 'string',
           description: 'Carrera a la que pertenece el mercado'
+        },
+        tipo: {
+          // Único tipo del prototipo: mercado Sí/No "¿habrá algún cambio de
+          // posición durante la ventana de observación?". El motor lo fija al
+          // abrir el mercado y la liquidación (HU-07) se guía solo por él.
+          enum: ['cambio_posicion'],
+          description: 'Tipo de mercado; decide cómo se liquida'
         },
         pregunta: {
           bsonType: 'string',
@@ -157,8 +172,24 @@ db.createCollection('mercados', {
           description: 'Opción ganadora tras la liquidación'
         },
         puntos_otorgados: {
-          bsonType: ['int', 'null'],
+          bsonType: ['int', 'double', 'null'],
           description: 'Fórmula aplicada al liquidar'
+        },
+        liquidacion_error: {
+          bsonType: 'string',
+          description: 'Diagnóstico del último intento fallido de liquidación'
+        },
+        liquidacion_reintento_en: {
+          bsonType: 'date',
+          description: 'Momento mínimo del próximo intento automático'
+        },
+        liquidacion_lease: {
+          bsonType: 'string',
+          description: 'Token de adquisición temporal del mercado'
+        },
+        liquidacion_lease_hasta: {
+          bsonType: 'date',
+          description: 'Vencimiento del lease para recuperación tras caída'
         },
         creado_por: {
           bsonType: 'string',
@@ -180,6 +211,7 @@ db.createCollection('mercados', {
 // El motor consulta constantemente:
 // "¿hay mercados abiertos o por cerrar?"
 db.mercados.createIndex({ estado: 1, cierra_en: 1 });
+db.mercados.createIndex({ estado: 1, observa_hasta: 1, liquidacion_reintento_en: 1 });
 // Índice por carrera para listar mercados de una sesión
 db.mercados.createIndex({ carrera_id: 1, creado_en: -1 });
 
@@ -238,6 +270,11 @@ db.createCollection('apuestas_contexto', {
         gano: {
           bsonType: ['bool', 'null'],
           description: 'Resultado tras la liquidación'
+        },
+        puntos_obtenidos: {
+          bsonType: ['double', 'int'],
+          minimum: 0,
+          description: 'Puntos confirmados por Pagos'
         }
       }
     }
@@ -255,6 +292,53 @@ print('✅ Colección "apuestas_contexto" creada con índices');
 
 
 // ============================================================
+// 5. COLECCIÓN: reproducciones
+// Una por carrera (_id = carrera_id). La escribe la reproducción
+// (POST /ingest/replay) mientras emite eventos: un "latido" cada
+// pocos segundos. La liquidación (HU-07) la usa para saber si la
+// reproducción estuvo corriendo durante TODA la ventana de un
+// mercado: solo así "no hubo eventos" significa que ganó "No"
+// y no que nadie lanzó la reproducción.
+// ============================================================
+db.createCollection('reproducciones', {
+  validator: {
+    $jsonSchema: {
+      bsonType: 'object',
+      required: ['_id', 'iniciada_en', 'latido_en'],
+      properties: {
+        _id: {
+          bsonType: 'string',
+          description: 'carrera_id de la carrera que se reproduce'
+        },
+        iniciada_en: {
+          bsonType: 'date',
+          description: 'Hora real en que arrancó la reproducción actual'
+        },
+        latido_en: {
+          bsonType: 'date',
+          description: 'Último latido: la reproducción seguía viva a esta hora'
+        },
+        terminada_en: {
+          bsonType: ['date', 'null'],
+          description: 'Hora real en que terminó (null mientras corre)'
+        },
+        desde: {
+          bsonType: 'date',
+          description: 'Instante de la carrera (histórico) desde el que se reproduce'
+        },
+        factor: {
+          bsonType: 'double',
+          description: 'Velocidad de la reproducción (1 = tiempo real)'
+        }
+      }
+    }
+  }
+});
+
+print('✅ Colección "reproducciones" creada');
+
+
+// ============================================================
 // RESUMEN FINAL
 // ============================================================
 print('');
@@ -266,7 +350,8 @@ print('  1. carreras             (metadata de carreras)');
 print('  2. eventos_carrera      (datos crudos de OpenF1)');
 print('  3. mercados             (mercados del admin)');
 print('  4. apuestas_contexto    (contexto de apuestas del motor)');
+print('  5. reproducciones       (latido de la reproducción, HU-07)');
 print('');
-print('Índices creados: 9');
-print('Validaciones: 4 (una por colección)');
+print('Índices creados: 11');
+print('Validaciones: 5 (una por colección)');
 print('========================================');

@@ -20,7 +20,7 @@ Admin ──POST /mercados──▶ Motor ──guarda──▶ MongoDB (mercado
               cierra_en ────┼─ estado = cerrado
                             ├─ WS mercado_cerrado ──▶ todos los jugadores
                             │
-          observa_hasta ────┴─ Liquidador.Liquidar()  (HU-07)
+          observa_hasta ────┴─ el worker de HU-07 lo liquida
 ```
 
 1. El admin envía la pregunta y las opciones. El motor guarda el mercado con
@@ -29,8 +29,9 @@ Admin ──POST /mercados──▶ Motor ──guarda──▶ MongoDB (mercado
 2. Un temporizador del servidor lo pasa a `cerrado` en `cierra_en`. El cambio
    es una actualización condicional (`estado: abierto → cerrado`), así que no
    pasa nada si se intenta cerrar dos veces.
-3. Al terminar la observación se llama al `Liquidador`, que lo implementa HU-07.
-   Mientras HU-07 no exista, el motor solo lo deja en el log.
+3. Al terminar la observación, el worker de HU-07 consulta los mercados ya
+   `cerrado` y los liquida. HU-11 es el único que cierra mercados; HU-07 solo
+   reacciona a los cerrados.
 
 Las apuestas no dependen de que el temporizador llegue a tiempo: HU-06 también
 compara `cierra_en` con el reloj del servidor y rechaza con «Mercado cerrado».
@@ -43,13 +44,19 @@ compara `cierra_en` con el reloj del servidor y rechaza con «Mercado cerrado».
 | `GET /mercados/actual`  | cualquier sesión | `200` mercado más reciente o `null`                  |
 
 ```json
-{ "pregunta": "¿Quién irá primero al terminar el minuto?", "opciones": ["VER", "NOR", "LEC"] }
+{ "pregunta": "¿Habrá algún cambio de posición durante la ventana de observación?", "opciones": ["Sí", "No"] }
 ```
 
 - `carrera_id` es opcional; sin él se usa la última carrera cargada (HU-04).
-- La pregunta puede tener de 1 a 200 caracteres. Se permiten de 2 a 10
-  opciones, sin repetir, de máximo 100 caracteres cada una (es el largo de
-  `bets.option` en Pagos).
+- El prototipo tiene **un solo tipo de mercado**, Sí/No sobre la carrera
+  (`tipo: "cambio_posicion"`, lo fija el motor al abrir). Las opciones deben
+  ser exactamente `["Sí", "No"]`, en ese orden; si no, `400`. Cómo se decide el
+  ganador está en `hu-07-liquidacion-apuestas.md`.
+- La pregunta puede tener de 1 a 200 caracteres; su texto no se valida contra
+  la regla (la liquidación se guía solo por el tipo).
+- Las validaciones genéricas (de 2 a 10 opciones, sin repetir, máximo 100
+  caracteres, el largo de `bets.option` en Pagos) se conservan para cuando
+  haya más tipos de mercado.
 - Sin sesión se responde 401 y con rol jugador 403 (`auth.ExigirRol`).
 
 `mercado_abierto`, `mercado_cerrado` y `GET /mercados/actual` envían el mismo
@@ -67,14 +74,18 @@ regresiva que el servidor.
   que vencieron mientras estaba apagado y vuelve a programar los demás. Por
   eso la liquidación de HU-07 debe ser idempotente: puede volver a llamarse
   para un mercado cerrado que no se liquidó.
-- **El admin escribe la pregunta y las opciones** (pregunta abierta n.º 3 del
-  documento del prototipo).
+- **Mercado de tipo fijo (Sí/No).** Antes el admin escribía la pregunta y las
+  opciones (pregunta abierta n.º 3 del documento del prototipo), pero el motor
+  no puede liquidar texto libre. Ahora hay un tipo, `cambio_posicion`: el
+  front muestra su pregunta y sus opciones prellenadas y en solo lectura, y el
+  contrato `{pregunta, opciones}` de `POST /mercados` no cambia. Cuando haya
+  más tipos, el admin elegirá un tipo y el sistema pondrá su pregunta fija.
 
 ## Front
 
-- `/admin`: formulario para abrir un mercado (pregunta y de 2 a 10 opciones,
-  validados con las mismas reglas del motor) y el mercado actual con su estado
-  y su cuenta regresiva.
+- `/admin`: formulario para abrir el mercado Sí/No (pregunta y opciones
+  prellenadas y en solo lectura, constantes en `src/mercados/mercado.ts`) y el
+  mercado actual con su estado y su cuenta regresiva.
 - `/carrera`: el mercado aparece y cambia solo, por WebSocket. Mientras está
   abierto se ve el formulario de apuesta de HU-06; cuando cierra, el
   formulario desaparece. Se muestra el ciclo
@@ -103,6 +114,6 @@ regresiva que el servidor.
 
 ## Pendiente (otras HU)
 
-- **HU-07:** implementar `mercados.Liquidador`, asignarlo en
-  `registrarMercados` y difundir `mercado_liquidado`. El front ya lo escucha,
+- **HU-07:** hecho por el worker `liquidacion.Worker` (no usa el gancho
+  `mercados.Liquidador`), que difunde `mercado_liquidado`. El front ya lo escucha,
   con el mercado completo o solo con su `id`.

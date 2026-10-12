@@ -39,7 +39,8 @@ Un solo comando desde la raíz del repositorio:
 
 ```bash
 cp .env.example .env     # solo la primera vez
-# Edita .env y define ADMIN_EMAIL y ADMIN_PASSWORD antes de continuar.
+# Edita .env, define ADMIN_EMAIL y ADMIN_PASSWORD, y genera un
+# INTERNAL_API_TOKEN aleatorio (el mismo valor se usa en Motor y Pagos).
 docker compose up --build
 ```
 
@@ -73,7 +74,57 @@ Todo se configura en `.env` (copiado de `.env.example`). Variables clave:
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credenciales del admin (RF-13 / HU-12)    |
 | `BETTING_WINDOW_SECONDS`     | Duración de la ventana de apuestas (RF-07/09) |
 | `OBSERVATION_WINDOW_SECONDS` | Ventana de observación antes de liquidar      |
+| `INTERNAL_API_TOKEN`         | Token compartido Motor→Pagos para operaciones internas |
 | `MONGO_USER` / `MONGO_PASSWORD` / `MONGO_DB` | Credenciales de MongoDB       |
+
+## Liquidación HU-07
+
+Hay un solo tipo de mercado, Sí/No: **«¿Habrá algún cambio de posición durante
+la ventana de observación?»**. Gana "Sí" si la reproducción de la carrera
+(`POST /ingest/replay`) emite algún evento de posición durante la ventana, y
+"No" si no emite ninguno mientras está corriendo. Para la demo:
+
+1. Ingesta la carrera una vez (`POST /ingest/openf1`).
+2. Lanza `POST /ingest/replay` con `"factor": 1` y déjala corriendo; empieza
+   en un punto aleatorio de la carrera, después de las primeras vueltas.
+3. Abre el mercado desde `/admin` y apuesta desde `/carrera`; 30 s + 60 s
+   después queda liquidado.
+
+Usa siempre `carrera_id` **`2024_monza`**: el mercado se abre sobre la última
+carrera de la colección `carreras`, que hoy solo llena el seed con ese id. Con
+otro id, el mercado no ve los eventos ni el latido y queda pendiente.
+
+Comandos exactos (PowerShell, con el stack levantado):
+
+```powershell
+# 1. JWT de admin (cookie session para el motor)
+$TOKEN = docker exec arqui_pagos python -c "import os, jwt, datetime; secret = os.environ['JWT_SECRET']; token = jwt.encode({'sub': '00000000-0000-0000-0000-000000000001', 'rol': 'admin', 'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)}, secret, algorithm='HS256'); print(token)"
+
+# 2. Ingesta de Monza 2024 (Race, session_key 9590) desde OpenF1, una sola vez
+Set-Content -Path body.json -Value '{"carrera_id":"2024_monza","session_key":9590}'
+curl.exe -X POST http://localhost:8080/ingest/openf1 `
+  -H "Cookie: session=$TOKEN" `
+  -H "Content-Type: application/json" `
+  --data-binary "@body.json"
+
+# 3. Reproduccion en tiempo real desde un punto aleatorio (dura hasta 30 min)
+Set-Content -Path body.json -Value '{"carrera_id":"2024_monza","factor":1}'
+curl.exe -X POST http://localhost:8080/ingest/replay `
+  -H "Cookie: session=$TOKEN" `
+  -H "Content-Type: application/json" `
+  --data-binary "@body.json"
+Remove-Item body.json
+```
+
+La respuesta de la reproducción incluye `offset_segundos` (dónde empezó).
+Para repetir exactamente la misma prueba, agrega `"offset_segundos": 1800`
+al cuerpo del paso 3.
+
+Requiere `PAGOS_MOCK=false`, `INTERNAL_API_TOKEN` idéntico en ambos servicios
+y apuestas debitadas en Pagos. Si cambias `db/mongo/init`, recrea el volumen
+de MongoDB (`docker compose down -v`). La regla completa, el contrato con
+Pagos, las decisiones y los límites están en
+[`documentation/hu-07-liquidacion-apuestas.md`](documentation/hu-07-liquidacion-apuestas.md).
 
 ## Ingesta de datos de carrera (HU-04)
 
@@ -124,11 +175,10 @@ Resumen rápido:
 
 ## Datos de prueba
 
-`db/mongo/init/02-seed-data.js` carga una carrera, eventos, un mercado
-abierto y una apuesta de contexto al primer arranque del volumen. Si ya
-tenías el volumen creado:
-
-```bash
-docker compose down -v
-docker compose up --build
-```
+`db/mongo/init/02-seed-data.js` carga la carrera `2024_monza` y unos eventos
+solo al primer arranque de un volumen Mongo vacío. No crea mercados: los abre
+el admin desde `/admin`. Los volúmenes existentes no se recrean ni migran
+automáticamente: si un volumen viejo tiene mercados sin `tipo:
+"cambio_posicion"` (p. ej. el mercado que sembraban versiones anteriores),
+HU-07 no los liquidará; recrea el volumen o bórralos.
+No borres volúmenes que contengan datos que quieras conservar.

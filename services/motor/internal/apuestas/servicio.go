@@ -33,10 +33,14 @@ var (
 	ErrSaldoInsuficiente = errors.New("saldo insuficiente")
 	ErrUsuarioNoExiste   = errors.New("el usuario no existe")
 	ErrPagosNoDisponible = errors.New("pagos no esta disponible")
+	ErrPagosConflicto    = errors.New("pagos rechazo la idempotencia")
 )
 
 // Estado del mercado, como lo define el validador de la coleccion "mercados".
 const EstadoAbierto = "abierto"
+
+// MontoMaximo es el mayor entero positivo que puede persistirse como BSON int32.
+const MontoMaximo int64 = 1<<31 - 1
 
 // Mercado es lo minimo que HU-06 necesita saber de un mercado. Lo crea y lo
 // cierra HU-11; aqui solo se lee.
@@ -121,7 +125,7 @@ func PuntosPotenciales(monto int64) float64 {
 func (s *Servicio) Apostar(ctx context.Context, userID string, p Peticion, claveCliente string) (Apuesta, error) {
 	p.MercadoID = strings.TrimSpace(p.MercadoID)
 	p.Opcion = strings.TrimSpace(p.Opcion)
-	if userID == "" || p.MercadoID == "" || p.Opcion == "" || p.Monto <= 0 {
+	if userID == "" || p.MercadoID == "" || p.Opcion == "" || p.Monto <= 0 || p.Monto > MontoMaximo {
 		return Apuesta{}, ErrPeticionInvalida
 	}
 

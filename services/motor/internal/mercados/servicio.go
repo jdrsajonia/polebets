@@ -38,6 +38,32 @@ const (
 	EstadoLiquidado = "liquidado"
 )
 
+// Tipo de mercado del prototipo: un mercado Si/No sobre la carrera.
+//
+//	¿Habra algun cambio de posicion durante la ventana de observacion?
+//
+// Gana "Sí" si la reproduccion de la carrera emite al menos un evento de
+// posicion entre cierra_en y observa_hasta; gana "No" si no emite ninguno
+// mientras la reproduccion esta corriendo. La regla completa esta en
+// internal/liquidacion y en documentation/hu-07-liquidacion-apuestas.md.
+//
+// Decisiones:
+//   - El tipo lo fija Abrir; el admin no lo elige. El validador de la
+//     coleccion "mercados" exige el campo tipo y el liquidador (HU-07) se
+//     guia SOLO por el tipo, nunca por el texto de la pregunta.
+//   - El contrato de POST /mercados no cambia ({pregunta, opciones}): el front
+//     envia la pregunta y las opciones prellenadas en solo lectura, y aqui se
+//     exige que las opciones sean exactamente [OpcionSi, OpcionNo]. Cuando haya
+//     mas tipos, el admin elegira uno y cada tipo traera su pregunta fija.
+//   - Estas constantes son la unica fuente de verdad en el motor: liquidacion
+//     las importa de aqui. El front tiene una copia en src/mercados/mercado.ts.
+const (
+	TipoCambioPosicion     = "cambio_posicion"
+	PreguntaCambioPosicion = "¿Habrá algún cambio de posición durante la ventana de observación?"
+	OpcionSi               = "Sí"
+	OpcionNo               = "No"
+)
+
 // Limites de la peticion. MaxLargoOpcion coincide con bets.option
 // VARCHAR(100) de Pagos: una opcion mas larga no se podria apostar.
 const (
@@ -74,6 +100,7 @@ type Peticion struct {
 type Mercado struct {
 	ID           string
 	CarreraID    string
+	Tipo         string
 	Pregunta     string
 	Opciones     []string
 	Estado       string
@@ -208,6 +235,7 @@ func (s *Servicio) Abrir(ctx context.Context, adminID string, p Peticion) (Vista
 	abre := s.Ahora().UTC().Truncate(time.Millisecond)
 	m := Mercado{
 		CarreraID:    p.CarreraID,
+		Tipo:         TipoCambioPosicion,
 		Pregunta:     p.Pregunta,
 		Opciones:     p.Opciones,
 		Estado:       EstadoAbierto,
@@ -291,7 +319,7 @@ func (s *Servicio) programarFinObservacion(m Mercado) {
 			return
 		}
 		if s.Liquidador == nil {
-			log.Printf("mercados: termino la observacion de %s; liquidacion pendiente (HU-07)", m.ID)
+			log.Printf("mercados: termino la observacion de %s; lo liquida el worker de HU-07", m.ID)
 			return
 		}
 		ctx, cancel := context.WithTimeout(s.base, time.Minute)
@@ -361,6 +389,12 @@ func normalizar(p Peticion) (Peticion, error) {
 		}
 		vistas[clave] = true
 		opciones = append(opciones, o)
+	}
+	// El unico tipo de mercado (TipoCambioPosicion) se liquida a "Sí" o "No":
+	// cualquier otra opcion nunca podria ganar. Se exige el orden exacto para
+	// que el front y el motor muestren siempre lo mismo.
+	if len(opciones) != 2 || opciones[0] != OpcionSi || opciones[1] != OpcionNo {
+		return p, ErrorValidacion{fmt.Sprintf("Este mercado solo admite las opciones %q y %q, en ese orden", OpcionSi, OpcionNo)}
 	}
 	p.Opciones = opciones
 	return p, nil
