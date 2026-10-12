@@ -20,6 +20,7 @@ type PilotoOpenF1 struct {
 	FullName     string `json:"full_name"`
 	NameAcronym  string `json:"name_acronym"`
 	TeamName     string `json:"team_name"`
+	TeamColour   string `json:"team_colour"` // hex sin "#", p. ej. "3671C6"; puede venir vacio
 	SessionKey   int    `json:"session_key"`
 }
 
@@ -82,6 +83,7 @@ func NormalizarPilotos(carreraID string, pilotos []PilotoOpenF1) EventoCarrera {
 			"full_name":     p.FullName,
 			"name_acronym":  p.NameAcronym,
 			"team_name":     p.TeamName,
+			"team_colour":   p.TeamColour,
 		})
 	}
 	return EventoCarrera{

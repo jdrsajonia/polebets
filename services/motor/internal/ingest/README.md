@@ -49,6 +49,31 @@ colección (ver `db/mongo/init/01-init-collections.js`):
 - `sector`
 - `pit_stop`
 
+Además de las posiciones, la ingesta guarda **un** evento `tipo: "vuelta"` con
+la lista de pilotos de la sesión (`/drivers` de OpenF1). Las posiciones en
+vivo (HU-05) sacan de ahí el código, el nombre, el equipo y el color:
+
+```json
+{
+  "tipo": "vuelta",
+  "datos": {
+    "tipo_vuelta": "lista_pilotos",
+    "pilotos": [
+      { "driver_number": 1, "full_name": "Max VERSTAPPEN", "name_acronym": "VER",
+        "team_name": "Red Bull Racing", "team_colour": "3671C6" }
+    ]
+  }
+}
+```
+
+`team_colour` es el hex de OpenF1 sin `#` (puede venir vacío). Se agregó con
+HU-05: si la carrera se ingirió antes, **vuelve a correr la ingesta** (paso 3
+de "Cómo probar") para que la tabla de posiciones muestre los colores. La
+ingesta es idempotente: borra los eventos de esa carrera y los reinserta.
+Hazlo **antes** de lanzar la reproducción, nunca con una reproducción en
+curso: los eventos reinsertados tienen otro `_id` y la reproducción ya no
+podría marcarles `emitido_en`.
+
 ## Endpoints
 
 | Método | Ruta             | Rol   | Descripción                                                       |
