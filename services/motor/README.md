@@ -139,21 +139,31 @@ El `payload` de cada tipo lo define quien implementa la HU; documéntalo aquí c
 
 `ahora` es la hora del servidor al enviar el mensaje: el front calcula con ella el desfase de su reloj para que la cuenta regresiva no dependa del navegador. Igual, quien decide el cierre es el motor (RNF-05). Se propone que `mercado_liquidado` (HU-07) use el mismo payload con `estado: "liquidado"`; el front ya lo escucha así.
 
-Propuesta para `resultado_apuesta` (HU-08):
+`resultado_apuesta` (HU-08) se envía solo al dueño de la apuesta, una vez por apuesta, justo después de guardar su resultado en MongoDB:
 
 ```json
 {
   "type": "resultado_apuesta",
   "payload": {
-    "mercado_id": "…",
-    "apuesta_id": "…",
-    "resultado": "ganada",
-    "puntos_obtenidos": 60,
-    "puntaje_total": 120,
-    "saldo_tokens": 400
+    "mercado_id": "6708f1c2a1b2c3d4e5f60718",
+    "apuesta_id": "6708f1d0a1b2c3d4e5f60720",
+    "opcion": "Sí",
+    "opcion_ganadora": "Sí",
+    "gano": true,
+    "puntos_obtenidos": 12.5,
+    "puntaje_total": 132.5
   }
 }
 ```
+
+| Campo | Qué es |
+| --- | --- |
+| `opcion` / `opcion_ganadora` | lo que apostó el jugador y lo que ganó el mercado |
+| `gano` | `opcion == opcion_ganadora` |
+| `puntos_obtenidos` | `10 + monto × 0,5` si ganó, `0` si perdió; puede tener decimales |
+| `puntaje_total` | puntos acumulados del jugador después de esta apuesta (`points_total` de Pagos) |
+
+No lleva saldo porque los tokens apostados no se devuelven y la liquidación no cambia el saldo. Si el jugador no está conectado o el envío falla, el motor solo lo registra en el log: la liquidación sigue y no se reintenta por eso. En un reintento del mercado, las apuestas que ya estaban liquidadas no se vuelven a notificar. Todos los `resultado_apuesta` de un mercado salen antes de su `mercado_liquidado`, así que el front puede concluir que el jugador no apostó si recibe `mercado_liquidado` sin un resultado previo.
 
 Por ahora el front no envía mensajes por el WebSocket: las acciones (apostar, abrir mercado) van por REST. Si la conexión se cae, el front debe reconectarse solo (HU-05).
 

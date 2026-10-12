@@ -106,15 +106,35 @@ type Pagos interface {
 	Liquidar(context.Context, apuestas.Liquidacion) (apuestas.ResultadoLiquidacion, error)
 }
 
+// Notificador es lo que el Worker usa del hub de WebSocket. *ws.Hub lo
+// cumple; en las pruebas se reemplaza por un hub falso.
+type Notificador interface {
+	Difundir(ws.Mensaje) error
+	EnviarA(string, ws.Mensaje) error
+}
+
+// ResultadoApuesta es el payload de resultado_apuesta (HU-08), que se envia
+// solo al dueño de la apuesta al liquidarla. Los tokens apostados no se
+// devuelven, por eso no lleva saldo: la liquidacion no lo cambia.
+type ResultadoApuesta struct {
+	MercadoID       string  `json:"mercado_id"`
+	ApuestaID       string  `json:"apuesta_id"`
+	Opcion          string  `json:"opcion"`
+	OpcionGanadora  string  `json:"opcion_ganadora"`
+	Gano            bool    `json:"gano"`
+	PuntosObtenidos float64 `json:"puntos_obtenidos"`
+	PuntajeTotal    float64 `json:"puntaje_total"` // points_total de Pagos
+}
+
 type Worker struct {
 	store     Store
 	pagos     Pagos
 	intervalo time.Duration
-	hub       *ws.Hub
+	hub       Notificador
 	ahora     func() time.Time
 }
 
-func NuevoWorker(store Store, pagos Pagos, hub *ws.Hub) *Worker {
+func NuevoWorker(store Store, pagos Pagos, hub Notificador) *Worker {
 	return &Worker{
 		store:     store,
 		pagos:     pagos,
@@ -232,6 +252,17 @@ func (w *Worker) procesarMercado(ctx context.Context, mercado Mercado, ahora tim
 		if err := w.store.GuardarResultadoApuesta(ctx, mercado.ID, contexto, gano, puntos); err != nil {
 			return liberarConError(fmt.Errorf("guardar resultado de apuesta: %w", err))
 		}
+		// HU-08: solo despues de guardar, para que un reintento (que salta las
+		// apuestas ya liquidadas) no lo reenvie.
+		w.enviarA(contexto.UsuarioID, ws.TipoResultadoApuesta, ResultadoApuesta{
+			MercadoID:       mercado.ID,
+			ApuestaID:       contexto.ApuestaID,
+			Opcion:          contexto.Opcion,
+			OpcionGanadora:  resultado,
+			Gano:            gano,
+			PuntosObtenidos: puntos,
+			PuntajeTotal:    respuesta.PuntosTotales,
+		})
 		totalPuntos += respuesta.PuntosOtorgados
 	}
 
@@ -248,8 +279,23 @@ func (w *Worker) procesarMercado(ctx context.Context, mercado Mercado, ahora tim
 }
 
 func (w *Worker) difundir(tipo string, payload any) {
-	if w.hub != nil {
-		w.hub.Difundir(ws.Mensaje{Type: tipo, Payload: payload})
+	if w.hub == nil {
+		return
+	}
+	if err := w.hub.Difundir(ws.Mensaje{Type: tipo, Payload: payload}); err != nil {
+		log.Printf("HU-07: no se pudo difundir %s: %v", tipo, err)
+	}
+}
+
+// enviarA notifica a un solo usuario. Si falla (hub detenido, sin user_id)
+// solo se registra: la apuesta ya quedo liquidada y no se reintenta por esto.
+// Si el usuario no esta conectado el hub descarta el mensaje sin error.
+func (w *Worker) enviarA(userID, tipo string, payload any) {
+	if w.hub == nil {
+		return
+	}
+	if err := w.hub.EnviarA(userID, ws.Mensaje{Type: tipo, Payload: payload}); err != nil {
+		log.Printf("HU-08: no se pudo enviar %s a user_id=%q: %v", tipo, userID, err)
 	}
 }
 

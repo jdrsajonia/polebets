@@ -10,6 +10,7 @@ import (
 
 	"github.com/arquisoft/motor/internal/apuestas"
 	"github.com/arquisoft/motor/internal/mercados"
+	"github.com/arquisoft/motor/internal/ws"
 )
 
 var instante = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
@@ -99,7 +100,10 @@ type storeFalso struct {
 	finalizado    bool
 	errorUltimo   string
 	fallarGuardar bool
-	resumen       LiquidacionMercado
+	// fallarGuardarEn: falla una vez al guardar esa apuesta (las anteriores
+	// ya quedan guardadas).
+	fallarGuardarEn string
+	resumen         LiquidacionMercado
 }
 
 func (s *storeFalso) MercadosVencidos(_ context.Context, ahora time.Time) ([]Mercado, error) {
@@ -136,6 +140,10 @@ func (s *storeFalso) GuardarResultadoApuesta(_ context.Context, _ string, contex
 	defer s.mu.Unlock()
 	if s.fallarGuardar {
 		s.fallarGuardar = false
+		return errors.New("mongo temporalmente no disponible")
+	}
+	if s.fallarGuardarEn != "" && s.fallarGuardarEn == contexto.ApuestaID {
+		s.fallarGuardarEn = ""
 		return errors.New("mongo temporalmente no disponible")
 	}
 	for i := range s.contextos {
@@ -191,8 +199,56 @@ func (p *pagosFalso) Liquidar(_ context.Context, l apuestas.Liquidacion) (apuest
 	}
 	return apuestas.ResultadoLiquidacion{
 		BetID: l.BetID, Estado: l.Resultado, PuntosOtorgados: l.Puntos,
-		Nueva: !existe,
+		PuntosTotales: puntajePrevio + l.Puntos, Nueva: !existe,
 	}, nil
+}
+
+// puntajePrevio: puntos que el pagosFalso dice que cada jugador ya tenia.
+const puntajePrevio = 20
+
+// hubFalso guarda, en orden, lo que el Worker envia por WebSocket. Con fallar
+// distinto de nil, EnviarA devuelve ese error (como un hub detenido).
+type hubFalso struct {
+	mu      sync.Mutex
+	envios  []envioFalso
+	fallar  error
+	intento int
+}
+
+type envioFalso struct {
+	userID  string // "" = difusion a todos
+	mensaje ws.Mensaje
+}
+
+func (h *hubFalso) Difundir(m ws.Mensaje) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.envios = append(h.envios, envioFalso{mensaje: m})
+	return nil
+}
+
+func (h *hubFalso) EnviarA(userID string, m ws.Mensaje) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.intento++
+	if h.fallar != nil {
+		return h.fallar
+	}
+	h.envios = append(h.envios, envioFalso{userID: userID, mensaje: m})
+	return nil
+}
+
+// resultados devuelve solo los mensajes resultado_apuesta enviados.
+func (h *hubFalso) resultados() []envioFalso {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var r []envioFalso
+	for _, e := range h.envios {
+		if e.mensaje.Type == ws.TipoResultadoApuesta {
+			r = append(r, e)
+		}
+	}
+	return r
 }
 
 func NuevoWorkerPrueba(s Store, p Pagos) *Worker {
@@ -341,5 +397,104 @@ func TestDosWorkersNoReclamanElMismoMercado(t *testing.T) {
 	wg.Wait()
 	if !s.finalizado || len(p.efectos) != 1 {
 		t.Fatalf("liquidación concurrente no segura: finalizado=%v efectos=%v", s.finalizado, p.efectos)
+	}
+}
+
+// --- HU-08: resultado de la apuesta por WebSocket ---
+
+func TestResultadoApuestaLlegaAGanadorYPerdedor(t *testing.T) {
+	s := &storeFalso{
+		mercado: mercadoPrueba(), datos: datosPrueba(),
+		contextos: []ContextoApuesta{
+			{ApuestaID: "bet-won", UsuarioID: "u-gana", Opcion: si, Monto: 5},
+			{ApuestaID: "bet-lost", UsuarioID: "u-pierde", Opcion: no, Monto: 20},
+		},
+	}
+	h := &hubFalso{}
+	w := NuevoWorkerPrueba(s, &pagosFalso{efectos: map[string]float64{}})
+	w.hub = h
+	if err := w.Procesar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.finalizado {
+		t.Fatalf("el mercado no se finalizó: %+v", s)
+	}
+	esperados := []envioFalso{
+		{userID: "u-gana", mensaje: ws.Mensaje{Type: ws.TipoResultadoApuesta, Payload: ResultadoApuesta{
+			MercadoID: "mercado-1", ApuestaID: "bet-won", Opcion: si, OpcionGanadora: si,
+			Gano: true, PuntosObtenidos: 12.5, PuntajeTotal: puntajePrevio + 12.5,
+		}}},
+		{userID: "u-pierde", mensaje: ws.Mensaje{Type: ws.TipoResultadoApuesta, Payload: ResultadoApuesta{
+			MercadoID: "mercado-1", ApuestaID: "bet-lost", Opcion: no, OpcionGanadora: si,
+			Gano: false, PuntosObtenidos: 0, PuntajeTotal: puntajePrevio,
+		}}},
+	}
+	got := h.resultados()
+	if len(got) != len(esperados) {
+		t.Fatalf("se enviaron %d resultados, se esperaban %d: %+v", len(got), len(esperados), got)
+	}
+	for i := range esperados {
+		if got[i] != esperados[i] {
+			t.Errorf("envio %d = %+v, se esperaba %+v", i, got[i], esperados[i])
+		}
+	}
+	// El front deduce "no apostaste" si llega mercado_liquidado sin un
+	// resultado antes: la difusion tiene que ir despues de los envios.
+	if ultimo := h.envios[len(h.envios)-1]; ultimo.userID != "" || ultimo.mensaje.Type != ws.TipoMercadoLiquidado {
+		t.Fatalf("mercado_liquidado no fue lo último enviado: %+v", h.envios)
+	}
+}
+
+func TestErrorDeEnvioNoRompeLaLiquidacion(t *testing.T) {
+	s := &storeFalso{
+		mercado: mercadoPrueba(), datos: datosPrueba(),
+		contextos: []ContextoApuesta{
+			{ApuestaID: "bet-won", UsuarioID: "u-1", Opcion: si, Monto: 100},
+			{ApuestaID: "bet-lost", UsuarioID: "u-2", Opcion: no, Monto: 20},
+		},
+	}
+	p := &pagosFalso{efectos: map[string]float64{}}
+	h := &hubFalso{fallar: ws.ErrHubDetenido}
+	w := NuevoWorkerPrueba(s, p)
+	w.hub = h
+	if err := w.Procesar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !s.finalizado || s.errorUltimo != "" || p.llamadas != 2 || h.intento != 2 {
+		t.Fatalf("el fallo de envío afectó la liquidación: finalizado=%v error=%q llamadas Pagos=%d intentos=%d",
+			s.finalizado, s.errorUltimo, p.llamadas, h.intento)
+	}
+	if !s.contextos[0].Liquidada || !s.contextos[1].Liquidada {
+		t.Fatalf("apuestas sin liquidar: %+v", s.contextos)
+	}
+}
+
+// Mongo falla al guardar la segunda apuesta: la primera ya se guardo y se
+// notifico. En el reintento solo se notifica la que faltaba.
+func TestReintentoNoReenviaApuestasYaLiquidadas(t *testing.T) {
+	s := &storeFalso{
+		mercado: mercadoPrueba(), datos: datosPrueba(),
+		contextos: []ContextoApuesta{
+			{ApuestaID: "bet-a", UsuarioID: "u-a", Opcion: si, Monto: 10},
+			{ApuestaID: "bet-b", UsuarioID: "u-b", Opcion: no, Monto: 10},
+		},
+		fallarGuardarEn: "bet-b",
+	}
+	h := &hubFalso{}
+	w := NuevoWorkerPrueba(s, &pagosFalso{efectos: map[string]float64{}})
+	w.hub = h
+	if err := w.Procesar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s.finalizado || len(h.resultados()) != 1 || h.resultados()[0].userID != "u-a" {
+		t.Fatalf("primer intento: finalizado=%v envios=%+v", s.finalizado, h.envios)
+	}
+	w.ahora = func() time.Time { return instante.Add(70 * time.Second) }
+	if err := w.Procesar(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := h.resultados()
+	if !s.finalizado || len(got) != 2 || got[0].userID != "u-a" || got[1].userID != "u-b" {
+		t.Fatalf("reintento: finalizado=%v envios=%+v", s.finalizado, got)
 	}
 }
