@@ -16,6 +16,7 @@ internal/ws          # hub de WebSocket: GET /ws, Difundir y EnviarA
 internal/apuestas    # HU-06: POST /apuestas
 internal/mercados    # HU-11: abrir mercado y ciclo abierto → cerrado → liquidar
 internal/ingest      # HU-04: ingesta de OpenF1 y replay
+internal/posiciones  # HU-05: tablero de posiciones, GET /posiciones y difusión de la foto
 ```
 
 Para agregar una HU, crea un paquete en `internal/` con una función `Register(mux, ...)` y llámala desde `main.go`. Así nadie edita el paquete de otro:
@@ -103,7 +104,7 @@ El front decide qué hacer según `type`. Los tipos están en `internal/ws/mensa
 
 | `type` | A quién | HU | Cuándo |
 | --- | --- | --- | --- |
-| `posiciones` | todos | HU-05 | cambia la posición de un piloto |
+| `posiciones` | todos | HU-05 | arranca la reproducción y cada vez que un piloto cambia de posición (foto completa) |
 | `mercado_abierto` | todos | HU-11 | el administrador abre un mercado |
 | `mercado_cerrado` | todos | HU-11 | termina la ventana de apuestas (empieza la observación) |
 | `mercado_liquidado` | todos | HU-07 | el mercado se resolvió |
@@ -201,9 +202,60 @@ curl -X POST http://localhost:8080/mercados -H "Cookie: session=$TOKEN" -H "Cont
 curl http://localhost:8080/mercados/actual -H "Cookie: session=$TOKEN"
 ```
 
+## Posiciones en vivo (HU-05)
+
+La reproducción (`POST /ingest/replay`, ver `internal/ingest/README.md`) no difunde nada por sí misma: avisa a un `ingest.ObservadorCarrera`. En `main.go` ese observador es el `posiciones.Difusor`, que mantiene en memoria un `Tablero` con la carrera en curso y difunde la **foto completa** (todos los pilotos, ordenados) en un mensaje `posiciones`:
+
+1. Al lanzar la reproducción, el motor reconstruye dónde iba cada piloto en el punto de inicio (`desde`): para cada piloto, su última posición con `timestamp < desde`. Los datos de cada piloto salen del evento `lista_pilotos` de la ingesta. Difunde esa foto de una vez.
+2. Por cada evento de posición que emite la reproducción, actualiza el tablero y difunde la foto nueva.
+3. Al terminar la reproducción (fin de carrera o 30 min) la última foto se queda como está.
+
+Payload de `posiciones`, que también es la respuesta de `GET /posiciones` (sin `emitido_en`):
+
+```json
+{
+  "type": "posiciones",
+  "payload": {
+    "carrera_id": "2024_monza",
+    "actualizado_en": "2026-10-12T15:00:41.207Z",
+    "emitido_en": "2026-10-12T15:00:41.207Z",
+    "pilotos": [
+      { "posicion": 1, "numero": 16, "codigo": "LEC", "nombre": "Charles LECLERC", "equipo": "Ferrari", "color_equipo": "#E80020", "diferencia": "Líder" },
+      { "posicion": 2, "numero": 81, "codigo": "PIA", "nombre": "Oscar PIASTRI", "equipo": "McLaren", "color_equipo": "#FF8000", "diferencia": "—" }
+    ]
+  }
+}
+```
+
+| Campo | Qué es |
+| --- | --- |
+| `actualizado_en` | hora **real** del servidor al aplicar el cambio. No es el `timestamp` histórico: el front descarta fotos más viejas que la que tiene, y con la hora de 2024 relanzar la reproducción desde un punto anterior congelaría la tabla |
+| `emitido_en` | hora real del envío por WebSocket, para medir la latencia (RNF-04) |
+| `color_equipo` | `team_colour` de OpenF1 con `#`; se omite si OpenF1 no lo da |
+| `diferencia` | `"Líder"` para P1 y `"—"` para el resto: no se ingieren intervalos (OpenF1 `/intervals` queda como mejora) |
+| `codigo` / `nombre` | si un piloto no está en `lista_pilotos`, sale con su número como código y sin nombre |
+
+No hay `vuelta`, porque OpenF1 `/position` no la trae. Si dos pilotos tienen un instante la misma posición (OpenF1 manda los dos lados de un adelantamiento en eventos separados), salen los dos con ella y el siguiente evento lo corrige.
+
+| Ruta | Quién | Respuesta |
+| --- | --- | --- |
+| `GET /posiciones` | cualquier sesión (401 sin sesión) | `200` con la última foto, o `404 {"error": "no hay una carrera en curso"}` si no se ha lanzado ninguna reproducción desde que arrancó el motor |
+
+El mensaje `evento_carrera` (cada evento suelto de la reproducción) **ya no se difunde**: nadie lo usaba y duplicaba el tráfico del WebSocket.
+
+**Después de actualizar a esta versión, vuelve a correr la ingesta** (`POST /ingest/openf1`, README de la raíz): `team_colour` se agregó con HU-05 y las carreras ingeridas antes no lo tienen (la tabla sale sin colores). La ingesta es idempotente. Hazlo antes de lanzar la reproducción, nunca con una en curso.
+
 ## Correr y probar
 
 ```bash
 docker compose up --build motor      # desde la raíz del repo
 cd services/motor && gofmt -l . && go vet ./... && go test ./...
+```
+
+`TestEstadoInicialMongo` (`internal/ingest`) prueba la reconstrucción de posiciones de HU-05 contra un MongoDB real y se salta si no existe `MOTOR_TEST_MONGO_URI`. Usa la base `motor_test_hu05`, que borra al terminar; no toca `apuestas_db`. Con el stack levantado:
+
+```bash
+docker run --rm --network arquisoft-prototipo1_arqui_net -v "$PWD":/app -w /app \
+  -e MOTOR_TEST_MONGO_URI='mongodb://arqui:arqui_pass@arqui_mongo:27017/?authSource=admin' \
+  golang:1.25 go test -race -run TestEstadoInicialMongo -v ./internal/ingest/
 ```

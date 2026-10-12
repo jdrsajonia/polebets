@@ -12,20 +12,21 @@ import (
 
 	"github.com/arquisoft/motor/internal/auth"
 	"github.com/arquisoft/motor/internal/mongodb"
-	"github.com/arquisoft/motor/internal/ws"
 )
 
 // Register monta las rutas de ingesta (HU-04).
 //
 //	POST /ingest/openf1  → trae datos reales de OpenF1 y los guarda en Mongo
-//	POST /ingest/replay  → reproduce por WebSocket una carrera ya guardada
+//	POST /ingest/replay  → reproduce una carrera ya guardada
 //
-// Ambas rutas exigen rol administrador.
+// Ambas rutas exigen rol administrador. La reproduccion no difunde nada por
+// si misma: avisa a observador (en main, el difusor de posiciones de HU-05),
+// que arma la foto completa de posiciones y la envia por WebSocket.
 func Register(
 	mux *http.ServeMux,
 	db *mongodb.Conexion,
-	hub *ws.Hub,
 	a *auth.Autenticador,
+	observador ObservadorCarrera,
 ) {
 	svc := NuevoServicio(db.DB)
 
@@ -106,10 +107,21 @@ func Register(
 			offset = OffsetAleatorio(duracion, rand.Int64N)
 		}
 		desde := inicio.Add(offset)
+
+		// HU-05: donde iba cada piloto en desde, para que la tabla arranque
+		// completa aunque la reproduccion empiece a mitad de carrera.
+		pilotos, posiciones, err := svc.EstadoInicial(r.Context(), body.CarreraID, desde)
+		if err != nil {
+			http.Error(w, "no se pudo leer el estado inicial: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		observador.Iniciar(body.CarreraID, pilotos, posiciones)
 		log.Printf("replay %s: desde %s (offset %s de %s), factor %g",
 			body.CarreraID, desde.Format(time.RFC3339), offset.Round(time.Second), duracion.Round(time.Second), body.Factor)
 
-		// La reproducción corre en background y difunde cada evento.
+		// La reproducción corre en background. Solo los eventos de posicion le
+		// interesan al observador; los demas tipos solo quedan marcados con
+		// emitido_en por Replay.
 		go func(carreraID string, factor float64) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 			defer cancel()
@@ -123,12 +135,8 @@ func Register(
 			}()
 
 			for ev := range eventos {
-				if err := hub.Difundir(ws.Mensaje{
-					Type:    ws.TipoEventoCarrera,
-					Payload: ev,
-				}); err != nil {
-					log.Printf("no se pudo difundir evento: %v", err)
-					return
+				if numero, posicion, ok := posicionDe(ev); ok {
+					observador.Actualizar(numero, posicion)
 				}
 			}
 			log.Printf("replay %s terminado", carreraID)

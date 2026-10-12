@@ -24,8 +24,7 @@ export const TIPOS_WS = {
 // ---------------------------------------------------------------------------
 // HU-05: posiciones en vivo
 // ---------------------------------------------------------------------------
-// PENDIENTE: formato propuesto. El esquema final lo define HU-04 (datos de
-// carrera en MongoDB); cuando se cierre, se ajusta aqui y en scripts/mock-ws.mjs.
+// Contrato con el motor (services/motor/README.md, "Posiciones en vivo").
 
 export interface Piloto {
   posicion: number;
@@ -34,14 +33,14 @@ export interface Piloto {
   nombre: string;
   equipo: string;
   color_equipo?: string; // color hex del equipo (opcional)
-  diferencia: string; // con el lider: "Lider", "+2.4"
+  diferencia: string; // con el lider: "Líder" para P1; el motor manda "—" al resto (no hay intervalos)
 }
 
 // Foto de las posiciones en un instante. Es el payload del mensaje
 // "posiciones" y tambien la respuesta de GET /posiciones.
 export interface FotoPosiciones {
   carrera_id: string;
-  vuelta?: number;
+  vuelta?: number; // el motor aun no la manda (OpenF1 /position no la trae)
   actualizado_en: string; // ISO: cuando cambio el dato en la carrera
   emitido_en?: string; // ISO: cuando el motor envio el mensaje (latencia, RNF-04)
   pilotos: Piloto[];

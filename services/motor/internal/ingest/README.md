@@ -11,6 +11,9 @@ OpenF1 API  ──HTTP──▶  ingest.Servicio  ──InsertMany──▶  Mon
                             │
                             │ Replay
                             ▼
+              ObservadorCarrera (posiciones.Difusor, HU-05)
+                            │ foto completa "posiciones"
+                            ▼
                        WebSocket (hub)  ──▶  Front
 ```
 
@@ -33,7 +36,7 @@ Las tres fechas significan cosas distintas:
 | ------------ | ------------------------------------------------------------- | ---------------- |
 | `timestamp`  | Momento del evento en la carrera (`date` de OpenF1). Histórico | Ingesta          |
 | `leido_en`   | Hora real en que se descargó de OpenF1                         | Ingesta          |
-| `emitido_en` | Hora real en que la reproducción lo emitió por WebSocket       | Replay           |
+| `emitido_en` | Hora real en que la reproducción lo emitió                     | Replay           |
 
 `emitido_en` no existe hasta que el evento se reproduce, y se sobrescribe si
 se vuelve a reproducir. Es la fecha que usa la liquidación (HU-07): ver
@@ -79,7 +82,7 @@ podría marcarles `emitido_en`.
 | Método | Ruta             | Rol   | Descripción                                                       |
 | ------ | ---------------- | ----- | ----------------------------------------------------------------- |
 | POST   | `/ingest/openf1` | admin | Lee posiciones y pilotos de OpenF1 y los guarda en MongoDB        |
-| POST   | `/ingest/replay` | admin | Reproduce por WebSocket los eventos ya guardados de una carrera   |
+| POST   | `/ingest/replay` | admin | Reproduce los eventos ya guardados; las posiciones van por WebSocket |
 
 Ambas rutas exigen el rol `admin`. El JWT se manda en la cookie `session`,
 no en el header `Authorization` (ver `internal/auth/auth.go`).
@@ -93,7 +96,8 @@ no en el header `Authorization` (ver `internal/auth/auth.go`).
 | `servicio.go`    | Orquestador: OpenF1 → normalización → `InsertMany` en MongoDB          |
 | `replay.go`      | Lee eventos de MongoDB y los emite por un canal, respetando intervalos; marca `emitido_en`, escribe el latido y elige el offset |
 | `handler.go`     | Registro de rutas y handlers HTTP                                      |
-| `ingest_test.go` | Tests unitarios del cliente y la normalización                        |
+| `observador.go`  | Contrato con HU-05 (`ObservadorCarrera`) y estado inicial de la carrera en `desde` |
+| `ingest_test.go`, `observador_test.go` | Tests unitarios; `TestEstadoInicialMongo` necesita `MOTOR_TEST_MONGO_URI` |
 
 ## Cómo probar
 
@@ -177,8 +181,13 @@ Respuesta (la reproducción sigue en segundo plano, máximo 30 min):
 {"estado":"reproduciendo","carrera_id":"2024_monza","factor":1,"offset_segundos":1834.2,"desde":"2024-09-01T13:33:12Z"}
 ```
 
-El motor lee de `eventos_carrera` en orden cronológico y difunde cada evento
-por WebSocket con `type: "evento_carrera"`. Campos del cuerpo:
+El motor lee de `eventos_carrera` en orden cronológico y le avisa a un
+`ObservadorCarrera` (`observador.go`): primero `Iniciar`, con la lista de
+pilotos y la última posición de cada uno antes de `desde`, y luego
+`Actualizar` por cada evento de posición. En `main.go` el observador es el
+difusor de HU-05, que difunde la foto completa de posiciones con
+`type: "posiciones"` (ver el README del motor). El mensaje `evento_carrera`
+con cada evento suelto ya no se difunde. Campos del cuerpo:
 
 - `factor`: velocidad. `1` es tiempo real, `10` es 10× más rápido. Para los
   mercados Sí/No usa `1`: la ventana de observación son 60 s reales, que con
@@ -232,5 +241,5 @@ presentación.
   carrera, para que las apuestas se basen en lo que pasa en la pista."
 - **RF-05**: el motor lee datos de una API externa, los normaliza y los
   guarda en MongoDB.
-- **RF-06**: el front los recibe por WebSocket (implementado en el hub;
-  el endpoint de replay es la pieza que faltaba).
+- **RF-06**: el front los recibe por WebSocket: el replay alimenta la foto
+  de posiciones que difunde HU-05.

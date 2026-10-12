@@ -120,8 +120,8 @@ Cookie: session=<JWT con rol admin>
 ```
 
 - `factor`: divisor del intervalo original. `1` = tiempo real, `10` = 10×.
-- Cada evento se emite con `type: "evento_carrera"` y el `EventoCarrera`
-  completo en `payload`.
+- Se difunde `type: "posiciones"`: ahora se envía la foto completa de
+  posiciones en cada cambio, no cada evento suelto (HU-05).
 
 Esto también sirve para las **pruebas de carga** (HU-09): con factor alto
 se puede simular una carrera completa en segundos.
