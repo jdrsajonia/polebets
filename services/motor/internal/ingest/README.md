@@ -175,7 +175,9 @@ curl -X POST http://localhost:8080/ingest/replay \
   -d '{"carrera_id":"2024_monza","factor":1}'
 ```
 
-Respuesta (la reproducción sigue en segundo plano, máximo 30 min):
+Respuesta (la reproducción sigue en segundo plano, máximo 30 min). Hay una
+sola reproducción a la vez: si se lanza otra, la anterior se cancela y el
+motor espera a que pare del todo (latido incluido) antes de arrancar la nueva.
 
 ```json
 {"estado":"reproduciendo","carrera_id":"2024_monza","factor":1,"offset_segundos":1834.2,"desde":"2024-09-01T13:33:12Z"}

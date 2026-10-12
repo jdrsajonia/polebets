@@ -90,6 +90,9 @@ la ventana de observación?»**. Gana "Sí" si la reproducción de la carrera
 3. Abre el mercado desde `/admin` y apuesta desde `/carrera`; 30 s + 60 s
    después queda liquidado.
 
+Lanza la reproducción ANTES de abrir mercados y no la relances con un mercado
+abierto o en observación; ese mercado no podría liquidarse como "No".
+
 Usa siempre `carrera_id` **`2024_monza`**: el mercado se abre sobre la última
 carrera de la colección `carreras`, que hoy solo llena el seed con ese id. Con
 otro id, el mercado no ve los eventos ni el latido y queda pendiente.

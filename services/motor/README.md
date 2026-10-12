@@ -87,7 +87,7 @@ la ventana de observación?»** (`tipo: "cambio_posicion"`). El worker
 (`internal/ingest/replay.go`); el `timestamp` de los eventos es histórico y no
 se compara con la ventana. Para la demo: ingesta una vez, lanza
 `POST /ingest/replay` con `factor: 1` y déjala corriendo mientras se abren
-mercados. La regla completa, el contrato con Pagos y las decisiones están en
+mercados. Lanza la reproducción ANTES de abrir mercados y no la relances con un mercado abierto o en observación; ese mercado no podría liquidarse como "No". La regla completa, el contrato con Pagos y las decisiones están en
 [`../../documentation/hu-07-liquidacion-apuestas.md`](../../documentation/hu-07-liquidacion-apuestas.md).
 
 ## Mensajes del WebSocket

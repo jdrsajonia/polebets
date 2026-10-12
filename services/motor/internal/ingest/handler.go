@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand/v2"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/arquisoft/motor/internal/auth"
@@ -29,6 +30,7 @@ func Register(
 	observador ObservadorCarrera,
 ) {
 	svc := NuevoServicio(db.DB)
+	activa := &reproduccionActiva{}
 
 	soloAdmin := func(h http.Handler) http.Handler {
 		return a.ExigirRol(auth.RolAdmin, h)
@@ -115,32 +117,32 @@ func Register(
 			http.Error(w, "no se pudo leer el estado inicial: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		observador.Iniciar(body.CarreraID, pilotos, posiciones)
-		log.Printf("replay %s: desde %s (offset %s de %s), factor %g",
-			body.CarreraID, desde.Format(time.RFC3339), offset.Round(time.Second), duracion.Round(time.Second), body.Factor)
+		carreraID, factor := body.CarreraID, body.Factor
 
-		// La reproducción corre en background. Solo los eventos de posicion le
-		// interesan al observador; los demas tipos solo quedan marcados con
-		// emitido_en por Replay.
-		go func(carreraID string, factor float64) {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-			defer cancel()
-
-			eventos := make(chan EventoCarrera, 64)
-			go func() {
-				defer close(eventos)
-				if err := svc.Replay(ctx, carreraID, desde, factor, eventos); err != nil {
-					log.Printf("replay %s termino con error: %v", carreraID, err)
-				}
-			}()
-
-			for ev := range eventos {
-				if numero, posicion, ok := posicionDe(ev); ok {
-					observador.Actualizar(numero, posicion)
-				}
-			}
-			log.Printf("replay %s terminado", carreraID)
-		}(body.CarreraID, body.Factor)
+		// Una sola reproduccion a la vez: si ya habia una, se cancela y se
+		// espera a que termine antes de iniciar el tablero de la nueva.
+		activa.lanzar(30*time.Minute,
+			func() {
+				observador.Iniciar(carreraID, pilotos, posiciones)
+				log.Printf("replay %s: desde %s (offset %s de %s), factor %g",
+					carreraID, desde.Format(time.RFC3339), offset.Round(time.Second), duracion.Round(time.Second), factor)
+			},
+			func(ctx context.Context) {
+				eventos := make(chan EventoCarrera, 64)
+				go func() {
+					defer close(eventos)
+					err := svc.Replay(ctx, carreraID, desde, factor, eventos)
+					switch {
+					case errors.Is(err, context.Canceled):
+						log.Printf("replay %s cancelado (se lanzo otro)", carreraID)
+					case err != nil:
+						log.Printf("replay %s termino con error: %v", carreraID, err)
+					}
+				}()
+				consumir(ctx, eventos, observador)
+				log.Printf("replay %s terminado", carreraID)
+			},
+		)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -151,4 +153,56 @@ func Register(
 			"desde":           desde, // instante (historico) de la carrera
 		})
 	})))
+}
+
+// consumir pasa al observador los eventos de posicion de la reproduccion; los
+// demas tipos solo quedan marcados con emitido_en por Replay. Si ctx se
+// cancela, vacia el canal sin aplicar nada: los eventos que quedaron en el
+// buffer son de la reproduccion vieja y no deben tocar el tablero de la nueva.
+// Termina cuando Replay cierra el canal, es decir, cuando ya paro del todo
+// (latido incluido).
+func consumir(ctx context.Context, eventos <-chan EventoCarrera, observador ObservadorCarrera) {
+	for ev := range eventos {
+		if ctx.Err() != nil {
+			continue
+		}
+		if numero, posicion, ok := posicionDe(ev); ok {
+			observador.Actualizar(numero, posicion)
+		}
+	}
+}
+
+// reproduccionActiva guarda la reproduccion en curso. Sin esto, lanzar
+// POST /ingest/replay dos veces dejaba dos goroutines emitiendo a la vez
+// (eventos duplicados y la tabla de posiciones saltando entre las dos).
+type reproduccionActiva struct {
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+// lanzar cancela la reproduccion anterior y espera a que termine; luego
+// llama a antes (iniciar el tablero) y arranca correr en una goroutine con
+// su propio contexto, que vence a los timeout. El mutex se mantiene durante
+// todo el cambio, asi dos relanzamientos simultaneos no se cruzan.
+//
+// El latido de la vieja no pisa a la nueva: Replay lo detiene al salir y sus
+// escrituras filtran por su propio iniciada_en (ver iniciarLatido).
+func (a *reproduccionActiva) lanzar(timeout time.Duration, antes func(), correr func(ctx context.Context)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.cancel != nil {
+		a.cancel()
+		<-a.done
+	}
+	antes()
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	done := make(chan struct{})
+	a.cancel, a.done = cancel, done
+	go func() {
+		defer close(done)
+		defer cancel()
+		correr(ctx)
+	}()
 }
