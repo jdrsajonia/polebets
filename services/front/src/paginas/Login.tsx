@@ -32,6 +32,8 @@ export default function Login() {
   const navegar = useNavigate();
   const ubicacion = useLocation();
   const desde = (ubicacion.state as { desde?: string } | null)?.desde;
+  // HU-01: si venimos de /registro, mostrar un aviso de "cuenta creada".
+  const recienRegistrado = (ubicacion.state as { registrado?: boolean } | null)?.registrado;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -71,6 +73,13 @@ export default function Login() {
     <section className={`tarjeta ${estilos.contenedor}`}>
       <h1 className="titulo-pagina">Iniciar sesión</h1>
       <p className="texto-secundario">Entra con el correo y la contraseña de tu cuenta.</p>
+
+      {/* HU-01: aviso de exito tras registrarse. */}
+      {recienRegistrado && (
+        <p className={estilos.aviso} role="status">
+          Cuenta creada. Ahora inicia sesión.
+        </p>
+      )}
 
       {errorGeneral && (
         <p className={estilos.error} role="alert">

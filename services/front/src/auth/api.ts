@@ -44,3 +44,9 @@ export async function login(email: string, password: string): Promise<Usuario> {
 export async function logout(): Promise<void> {
   await http.post<void>("pagos", "/auth/logout");
 }
+
+// HU-01: crea la cuenta. Si el correo ya existe, Pagos responde 409 con un
+// mensaje claro; http.ts lo convierte en ErrorHttp y la pantalla lo muestra.
+export async function register(name: string, email: string, password: string): Promise<Usuario> {
+  return http.post<Usuario>("pagos", "/auth/register", { name, email, password });
+}
