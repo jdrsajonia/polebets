@@ -12,8 +12,7 @@ export interface MensajeWs<T = unknown> {
   payload: T;
 }
 
-// Tipos de mensaje acordados con el motor. Los de HU-07 y HU-08 quedan
-// reservados para sus historias.
+// Tipos de mensaje acordados con el motor.
 export const TIPOS_WS = {
   posiciones: "posiciones", // HU-05
   mercadoAbierto: "mercado_abierto", // HU-11
@@ -73,6 +72,23 @@ export interface PeticionMercado {
   pregunta: string;
   opciones: string[];
   carrera_id?: string; // sin el, el motor usa la ultima carrera cargada
+}
+
+// ---------------------------------------------------------------------------
+// HU-08: resultado de la apuesta
+// ---------------------------------------------------------------------------
+// Payload de "resultado_apuesta": el motor lo envia solo al dueño de la
+// apuesta al liquidarla (services/motor/README.md). No trae saldo: los tokens
+// apostados no se devuelven y la liquidacion no lo cambia.
+
+export interface ResultadoApuesta {
+  mercado_id: string;
+  apuesta_id: string;
+  opcion: string; // lo que aposto el jugador
+  opcion_ganadora: string;
+  gano: boolean;
+  puntos_obtenidos: number; // 10 + monto x 0,5 si gano; puede tener decimales
+  puntaje_total: number; // puntos acumulados del jugador (points_total de Pagos)
 }
 
 // ---------------------------------------------------------------------------

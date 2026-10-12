@@ -1,0 +1,67 @@
+/* Resultado de la apuesta (HU-08). */
+
+.contenido > p {
+  margin: 0;
+}
+
+.resultado {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* "¡Ganaste!" en verde, "Perdiste" en el rojo de marca. */
+.veredicto {
+  align-self: flex-start;
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 24px;
+  text-transform: uppercase;
+}
+
+.gano {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.perdio {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+  color: var(--accent-text);
+}
+
+/* Cuatro datos en rejilla; en celular se apilan de a dos o de a uno. */
+.datos {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.datos > div {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.datos dt {
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.datos dd {
+  margin: 4px 0 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.puntosGanados {
+  color: var(--ok);
+}
