@@ -97,7 +97,31 @@ Usa siempre `carrera_id` **`2024_monza`**: el mercado se abre sobre la última
 carrera de la colección `carreras`, que hoy solo llena el seed con ese id. Con
 otro id, el mercado no ve los eventos ni el latido y queda pendiente.
 
-Comandos exactos (PowerShell, con el stack levantado):
+Comandos exactos, con el stack levantado. En **Linux / macOS (bash)**, todos
+en la misma terminal (la variable `TOKEN` solo existe en esa sesión):
+
+```bash
+# 1. JWT de admin (cookie session para el motor)
+TOKEN=$(docker exec arqui_pagos python -c "import os, jwt, datetime; print(jwt.encode({'sub': '00000000-0000-0000-0000-000000000001', 'rol': 'admin', 'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)}, os.environ['JWT_SECRET'], algorithm='HS256'))")
+echo "${TOKEN:0:20}"   # debe empezar por eyJ; si sale vacío, revisa el docker exec
+
+# 2. Ingesta de Monza 2024 (Race, session_key 9590) desde OpenF1, una sola vez
+#    (o después de actualizar el motor). Nunca con una reproducción en curso.
+curl -X POST http://localhost:8080/ingest/openf1 \
+  -H "Cookie: session=$TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"carrera_id":"2024_monza","session_key":9590}'
+
+# 3. Reproducción en tiempo real desde un punto aleatorio (dura hasta 30 min;
+#    responde de inmediato y sigue corriendo dentro del motor)
+curl -X POST http://localhost:8080/ingest/replay \
+  -H "Cookie: session=$TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"carrera_id":"2024_monza","factor":1}'
+```
+
+En **Windows (PowerShell)** el cuerpo va en un archivo para que PowerShell no
+rompa las comillas:
 
 ```powershell
 # 1. JWT de admin (cookie session para el motor)
@@ -146,13 +170,29 @@ Resumen rápido:
 
    Para Monza 2024 Race: `session_key=9590`.
 
-2. Genera un JWT de admin (temporal, hasta que HU-02 esté lista):
+2. Genera un JWT de admin. La ingesta no tiene pantalla, así que el token se
+   firma a mano con el `JWT_SECRET` del contenedor de Pagos:
+
+   ```bash
+   TOKEN=$(docker exec arqui_pagos python -c "import os, jwt, datetime; print(jwt.encode({'sub': '00000000-0000-0000-0000-000000000001', 'rol': 'admin', 'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)}, os.environ['JWT_SECRET'], algorithm='HS256'))")
+   ```
+
+   En PowerShell:
 
    ```powershell
    docker exec -it arqui_pagos python -c "import os, jwt, datetime; secret = os.environ['JWT_SECRET']; token = jwt.encode({'sub': '00000000-0000-0000-0000-000000000001', 'rol': 'admin', 'exp': datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)}, secret, algorithm='HS256'); print(token)"
    ```
 
-3. Dispara la ingesta (ojo con los escapes de PowerShell):
+3. Dispara la ingesta:
+
+   ```bash
+   curl -X POST http://localhost:8080/ingest/openf1 \
+     -H "Cookie: session=$TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"carrera_id":"2024_monza","session_key":9590}'
+   ```
+
+   En PowerShell (ojo con los escapes):
 
    ```powershell
    Set-Content -Path body.json -Value '{"carrera_id":"2024_monza","session_key":9590}'
@@ -165,7 +205,14 @@ Resumen rápido:
    Remove-Item body.json
    ```
 
-4. Verifica en MongoDB:
+4. Verifica en MongoDB (debe dar 483 para Monza 2024):
+
+   ```bash
+   docker exec arqui_mongo mongosh --quiet "mongodb://arqui:arqui_pass@localhost:27017/apuestas_db?authSource=admin" \
+     --eval "print(db.eventos_carrera.countDocuments({carrera_id:'2024_monza'}))"
+   ```
+
+   En PowerShell:
 
    ```powershell
    docker exec -it arqui_mongo mongosh "mongodb://arqui:arqui_pass@localhost:27017/apuestas_db?authSource=admin" `
