@@ -38,6 +38,25 @@ func TestNormalizarPosicion(t *testing.T) {
 	}
 }
 
+// TestNormalizarPilotosGuardaColor: la lista de pilotos guarda el color del
+// equipo tal como lo da OpenF1 (HU-05 le agrega el "#" al armar la foto).
+func TestNormalizarPilotosGuardaColor(t *testing.T) {
+	ev := NormalizarPilotos("2024_monza", []PilotoOpenF1{
+		{DriverNumber: 1, FullName: "Max VERSTAPPEN", NameAcronym: "VER", TeamName: "Red Bull Racing", TeamColour: "3671C6"},
+		{DriverNumber: 43, FullName: "Franco COLAPINTO", NameAcronym: "COL", TeamName: "Williams"},
+	})
+	if ev.Tipo != "vuelta" || ev.Datos["tipo_vuelta"] != "lista_pilotos" {
+		t.Fatalf("evento = %+v, quiero la lista_pilotos", ev)
+	}
+	pilotos, ok := ev.Datos["pilotos"].([]map[string]any)
+	if !ok || len(pilotos) != 2 {
+		t.Fatalf("datos.pilotos = %#v", ev.Datos["pilotos"])
+	}
+	if pilotos[0]["team_colour"] != "3671C6" || pilotos[1]["team_colour"] != "" {
+		t.Fatalf("team_colour = %q y %q", pilotos[0]["team_colour"], pilotos[1]["team_colour"])
+	}
+}
+
 // TestOpenF1ClientPosiciones levanta un servidor falso y verifica que el
 // cliente parsea bien la respuesta.
 func TestOpenF1ClientPosiciones(t *testing.T) {

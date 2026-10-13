@@ -7,6 +7,7 @@
 //   - GET /health : healthcheck (503 si MongoDB no responde)
 //   - GET /ws     : WebSocket para datos en vivo (exige la cookie de sesion)
 //   - POST /mercados, GET /mercados/actual : ciclo del mercado (HU-11)
+//   - GET /posiciones : tabla de posiciones en vivo (HU-05)
 package main
 
 import (
@@ -28,6 +29,7 @@ import (
 	"github.com/arquisoft/motor/internal/liquidacion"
 	"github.com/arquisoft/motor/internal/mercados"
 	"github.com/arquisoft/motor/internal/mongodb"
+	"github.com/arquisoft/motor/internal/posiciones"
 	"github.com/arquisoft/motor/internal/ws"
 )
 
@@ -77,9 +79,11 @@ func main() {
 		log.Println("HU-07 desactivada: PAGOS_MOCK no puede liquidar apuestas reales")
 	}
 
-	ingest.Register(mux, db, hub, autenticador) // HU-04
-	// Aqui se registran los modulos de cada HU, p. ej.:
-	//   posiciones.Register(mux, db.DB, hub) // HU-05
+	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
+	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
+	tablero := posiciones.NuevoTablero()
+	ingest.Register(mux, db, autenticador, posiciones.NuevoDifusor(tablero, hub)) // HU-04
+	posiciones.Register(mux, tablero, autenticador.ExigirSesion)                  // HU-05
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

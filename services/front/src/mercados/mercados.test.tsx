@@ -165,28 +165,25 @@ const llamadas = (metodo: string, ruta: string) =>
 // Un mercado "de ahora" para las pantallas (usan el reloj real).
 const mercadoAhora = (cambios: Partial<Mercado> = {}) => mercado(Date.now(), cambios);
 
-describe("HU-11 · panel del administrador", () => {
+describe("HU-11 · panel del administrador (herramienta de prueba)", () => {
   const botonAbrir = () => screen.getByRole("button", { name: /Abrir mercado|Abriendo/ });
+  const SIN_MERCADO = "Ningún mercado abierto todavía.";
 
   it("sin mercados, lo dice", async () => {
     rutas = { "GET /mercados/actual": { status: 200, body: null } };
     abrir("/admin", USUARIOS_SIMULADOS.admin);
-    expect(await screen.findByText("Todavía no se ha abierto ningún mercado.")).toBeInTheDocument();
+    expect(await screen.findByText(SIN_MERCADO)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Admin (herramienta de prueba)" })).toBeInTheDocument();
   });
 
-  it("la pregunta y las opciones del mercado Sí/No vienen prellenadas y en solo lectura", async () => {
+  it("la pregunta y las opciones del mercado Sí/No son texto fijo, no campos", async () => {
     rutas = { "GET /mercados/actual": { status: 200, body: null } };
     abrir("/admin", USUARIOS_SIMULADOS.admin);
-    await screen.findByText("Todavía no se ha abierto ningún mercado.");
+    await screen.findByText(SIN_MERCADO);
 
-    expect(screen.getByLabelText("Pregunta")).toHaveValue(PREGUNTA_CAMBIO_POSICION);
-    expect(screen.getByLabelText("Pregunta")).toHaveAttribute("readonly");
-    expect(screen.getByLabelText("Opción 1")).toHaveValue("Sí");
-    expect(screen.getByLabelText("Opción 2")).toHaveValue("No");
-    expect(screen.getByLabelText("Opción 1")).toHaveAttribute("readonly");
-    expect(screen.getByLabelText("Opción 2")).toHaveAttribute("readonly");
-    expect(screen.queryByLabelText("Opción 3")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Agregar opción" })).not.toBeInTheDocument();
+    expect(screen.getByText(`Pregunta: ${PREGUNTA_CAMBIO_POSICION}`)).toBeInTheDocument();
+    expect(screen.getByText("Opciones: Sí / No")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(botonAbrir()).toBeEnabled();
   });
 
@@ -194,7 +191,7 @@ describe("HU-11 · panel del administrador", () => {
     const creado = mercadoAhora({ pregunta: PREGUNTA_CAMBIO_POSICION, opciones: ["Sí", "No"] });
     rutas = { "GET /mercados/actual": { status: 200, body: null }, "POST /mercados": { status: 201, body: creado } };
     abrir("/admin", USUARIOS_SIMULADOS.admin);
-    await screen.findByText("Todavía no se ha abierto ningún mercado.");
+    await screen.findByText(SIN_MERCADO);
 
     fireEvent.click(botonAbrir());
 
@@ -203,10 +200,9 @@ describe("HU-11 · panel del administrador", () => {
     // El contrato de POST /mercados no cambia: {pregunta, opciones}.
     expect(JSON.parse(init.body)).toEqual({ pregunta: PREGUNTA_CAMBIO_POSICION, opciones: ["Sí", "No"] });
     expect(init.credentials).toBe("include"); // viaja la cookie de sesion con el rol admin
-    expect(screen.getByTestId("fase-mercado")).toHaveTextContent("Abierto");
-    expect(screen.getByTestId("cuenta-mercado")).toHaveTextContent(/Cierra en 0:(30|29)/);
+    expect(screen.getByTestId("estado-mercado")).toHaveTextContent(/abierto · cierra en 0:(30|29)/);
     // No deja abrir otro mientras este siga abierto.
-    expect(screen.getByText(/Ya hay un mercado abierto/)).toBeInTheDocument();
+    expect(screen.getByText("Ya hay un mercado abierto")).toBeInTheDocument();
     expect(botonAbrir()).toBeDisabled();
   });
 
@@ -216,26 +212,52 @@ describe("HU-11 · panel del administrador", () => {
       "POST /mercados": { status: 409, body: { error: "Ya hay un mercado abierto; espera a que cierre para abrir otro" } },
     };
     abrir("/admin", USUARIOS_SIMULADOS.admin);
-    await screen.findByText("Todavía no se ha abierto ningún mercado.");
+    await screen.findByText(SIN_MERCADO);
 
     fireEvent.click(botonAbrir());
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Ya hay un mercado abierto; espera a que cierre");
-    expect(screen.getByLabelText("Pregunta")).toHaveValue(PREGUNTA_CAMBIO_POSICION);
+    expect(botonAbrir()).toBeEnabled();
   });
 
-  it("ve como el servidor lo cierra: Abierto → Cerrado (en observacion)", async () => {
+  it("si no se puede cargar el mercado, permite reintentar", async () => {
+    rutas = { "GET /mercados/actual": { status: 500, body: { error: "falla" } } };
+    abrir("/admin", USUARIOS_SIMULADOS.admin);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+
+    rutas = { "GET /mercados/actual": { status: 200, body: null } };
+    fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
+    expect(await screen.findByText(SIN_MERCADO)).toBeInTheDocument();
+  });
+
+  it("ve las 4 fases con el reloj del servidor: abierto → observación → liquidando → liquidado", async () => {
     const m = mercadoAhora();
     rutas = { "GET /mercados/actual": { status: 200, body: m } };
     abrir("/admin", USUARIOS_SIMULADOS.admin);
-    expect(await screen.findByTestId("fase-mercado")).toHaveTextContent("Abierto");
+    expect(await screen.findByTestId("estado-mercado")).toHaveTextContent(/^Estado: abierto · cierra en 0:/);
+    expect(screen.getByText(m.pregunta)).toBeInTheDocument();
     expect(botonAbrir()).toBeDisabled(); // hay uno abierto
 
-    enviarWs("mercado_cerrado", { ...m, estado: "cerrado", ahora: iso(Date.now()) });
-
-    expect(screen.getByTestId("fase-mercado")).toHaveTextContent("Cerrado · en observación");
+    // Cerro hace 10 s: queda 0:50 de observacion.
+    enviarWs("mercado_cerrado", mercado(Date.now() - 40_000, { id: m.id, estado: "cerrado", ahora: iso(Date.now()) }));
+    expect(screen.getByTestId("estado-mercado")).toHaveTextContent(/cerrado, en observación · se liquida en 0:(50|49)/);
     expect(screen.getByRole("button", { name: "Abrir mercado" })).toBeEnabled(); // ya se puede abrir el siguiente
-    expect(screen.queryByText(/Ya hay un mercado abierto/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Ya hay un mercado abierto")).not.toBeInTheDocument();
+
+    // Termino la observacion pero aun no llega mercado_liquidado.
+    enviarWs("mercado_cerrado", mercado(Date.now() - 95_000, { id: m.id, estado: "cerrado", ahora: iso(Date.now()) }));
+    expect(screen.getByTestId("estado-mercado")).toHaveTextContent("cerrado, liquidando…");
+
+    enviarWs("mercado_liquidado", { mercado_id: m.id, resultado: "Sí", puntos_otorgados: 0 });
+    expect(screen.getByTestId("estado-mercado")).toHaveTextContent("Estado: liquidado");
+  });
+
+  it("es una herramienta aparte: sin el header de PoleBet", async () => {
+    rutas = { "GET /mercados/actual": { status: 200, body: null } };
+    abrir("/admin", USUARIOS_SIMULADOS.admin);
+    await screen.findByText(SIN_MERCADO);
+    expect(screen.queryByRole("link", { name: "PoleBet, inicio" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Principal" })).not.toBeInTheDocument();
   });
 });
 

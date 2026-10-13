@@ -118,7 +118,7 @@ describe("HU-02 · iniciar sesion", () => {
 
     await llenarYEnviar("admin@demo.local", "admin1234");
 
-    expect(await screen.findByRole("link", { name: "Admin" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Admin (herramienta de prueba)" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Acceso denegado" })).not.toBeInTheDocument();
   });
 });
@@ -157,6 +157,19 @@ describe("HU-02 · cerrar sesion", () => {
 
     expect(await screen.findByRole("heading", { name: "Iniciar sesión" })).toBeInTheDocument();
     expect(llamadas("POST", "/auth/logout")).toHaveLength(1);
+  });
+
+  it("el admin sale desde /admin: cierra la sesion y vuelve al login", async () => {
+    pagos({ "GET /auth/me": { status: 200, body: ADMIN }, "POST /auth/logout": { status: 204 } });
+    abrir("/admin");
+    await screen.findByRole("heading", { name: "Admin (herramienta de prueba)" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Salir" }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Iniciar sesión" })).toBeInTheDocument());
+    expect(llamadas("POST", "/auth/logout")).toHaveLength(1);
+    // Sin sesion, volver a /admin ya no deja entrar.
+    expect(screen.queryByRole("heading", { name: "Admin (herramienta de prueba)" })).not.toBeInTheDocument();
   });
 
   it("si Pagos no responde al salir, igual cierra la sesion en el front", async () => {

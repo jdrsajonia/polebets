@@ -1,10 +1,11 @@
 // Pantalla /carrera: la carrera en vivo. Sigue el mockup "Carrera en vivo":
 // cabecera, posiciones a la izquierda (HU-05) y el mercado en el centro
-// (HU-11 con el formulario de HU-06; el resultado es HU-08).
+// (HU-11 con el formulario de HU-06) con el resultado de la apuesta (HU-08).
 
 import { MOSTRAR_LATENCIA } from "../api/config";
 import { useWs } from "../api/WsContexto";
 import MercadoJugador from "../mercados/MercadoJugador";
+import PanelResultado from "../mercados/PanelResultado";
 import AvisoConexion from "../posiciones/AvisoConexion";
 import PanelPosiciones from "../posiciones/PanelPosiciones";
 import { usePosiciones } from "../posiciones/usePosiciones";
@@ -49,17 +50,11 @@ export default function Carrera() {
           <PanelPosiciones posiciones={posiciones} />
         </aside>
 
-        {/* Columna central: mercado activo (HU-11, con el formulario de HU-06) */}
+        {/* Columna central: mercado activo (HU-11, con el formulario de HU-06)
+            y el resultado de la apuesta (HU-08) */}
         <div className={estilos.centro}>
           <MercadoJugador />
-
-          {/* PENDIENTE HU-08: resultado de la apuesta al liquidar el mercado. */}
-          <section className="tarjeta">
-            <h2 className="titulo-seccion">Resultado de tu apuesta</h2>
-            <p className="texto-secundario" style={{ margin: 0 }}>
-              Pendiente: HU-08. Aquí se verá si acertaste y los puntos obtenidos cuando se liquide el mercado.
-            </p>
-          </section>
+          <PanelResultado />
         </div>
       </div>
     </>
