@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WsProvider } from "../api/WsContexto";
 import { ClienteWs, type SocketLike } from "../api/ws";
 import App from "../App";
-import { AuthProvider, USUARIOS_SIMULADOS, type Usuario } from "./AuthContext";
+import { AuthProvider, type Usuario } from "./AuthContext";
+import { USUARIOS_SIMULADOS } from "./usuariosPrueba";
 import { destinoTrasLogin } from "./destino";
 
 const JUGADOR: Usuario = { id: "11111111-1111-4111-8111-111111111111", nombre: "Ana Pérez", email: "ana@arqui.local", rol: "player" };

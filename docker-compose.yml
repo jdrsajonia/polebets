@@ -102,7 +102,6 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       PAGOS_BASE_URL: http://pagos:8000
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
-      PAGOS_MOCK: ${PAGOS_MOCK:-false}   # true = débito HU-06 simulado; HU-07 no se ejecuta
       BETTING_WINDOW_SECONDS: ${BETTING_WINDOW_SECONDS}
       OBSERVATION_WINDOW_SECONDS: ${OBSERVATION_WINDOW_SECONDS}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
@@ -129,11 +128,10 @@ services:
   front:
     build:
       context: ./services/front
-      args:
-        # URLs que el bundle del front usa en el navegador del usuario.
-        VITE_PAGOS_URL: http://localhost:${PAGOS_PORT}
-        VITE_MOTOR_URL: http://localhost:${MOTOR_PORT}
-        VITE_MOTOR_WS_URL: ws://localhost:${MOTOR_PORT}
+      # Sin build args VITE_*: el front usa rutas relativas (/api/pagos,
+      # /api/motor) y Nginx hace de proxy a los contenedores (ver nginx.conf).
+      # Asi el MISMO bundle sirve en localhost, en la LAN y en la nube sin
+      # recompilar: el navegador siempre habla con el mismo origen del front.
     container_name: arqui_front
     restart: unless-stopped
     depends_on:

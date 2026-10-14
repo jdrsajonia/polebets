@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WsProvider } from "./api/WsContexto";
 import { ClienteWs, type SocketLike } from "./api/ws";
 import App from "./App";
-import { AuthProvider, USUARIOS_SIMULADOS, type Usuario } from "./auth/AuthContext";
+import { AuthProvider, type Usuario } from "./auth/AuthContext";
+import { USUARIOS_SIMULADOS } from "./auth/usuariosPrueba";
 
 // Socket que nunca abre: aqui no interesa el WebSocket.
 const socketMudo = (): SocketLike => ({ onopen: null, onmessage: null, onclose: null, onerror: null, close() {} });
