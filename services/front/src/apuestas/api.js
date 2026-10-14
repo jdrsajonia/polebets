@@ -1,7 +1,11 @@
 // Logica de HU-06 en el front, sin React para poder probarla sola.
 // El front nunca toca el saldo: solo le pide al motor que registre la apuesta.
-
-export const MOTOR_URL = import.meta.env?.VITE_MOTOR_URL ?? "http://localhost:8080";
+//
+// Las peticiones van por ruta relativa (/api/motor, de src/api/config.ts): el
+// navegador habla con el mismo origen desde el que se sirvio el front y Nginx
+// hace de proxy al motor (ver services/front/nginx.conf). Asi funciona igual en
+// localhost, en la LAN y en la nube sin recompilar.
+import { MOTOR_URL } from "../api/config";
 
 // Regla provisional del prototipo: acertar suma 10 + (monto x 0,5) puntos.
 // Esta en una sola funcion porque el grupo aun no cierra como funcionan los

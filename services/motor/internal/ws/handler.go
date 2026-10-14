@@ -3,9 +3,27 @@ package ws
 import (
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/gorilla/websocket"
 )
+
+// mismoOrigen es true si el header Origin apunta al mismo host:puerto por el
+// que llego la peticion (r.Host). Detras del proxy del front (Nginx reenvia
+// Origin y Host sin tocarlos) el WebSocket es same-origin, asi que se acepta
+// sin tener que listar cada IP o dominio en ALLOWED_ORIGINS. Para accesos
+// directos al motor desde otro origen sigue mandando la allowlist.
+func mismoOrigen(r *http.Request) bool {
+	origen := r.Header.Get("Origin")
+	if origen == "" {
+		return false
+	}
+	u, err := url.Parse(origen)
+	if err != nil {
+		return false
+	}
+	return u.Host == r.Host
+}
 
 // Identificador obtiene el user_id de quien abre la conexion. La
 // implementacion real valida el JWT de la cookie de sesion (RNF-06); si
@@ -30,7 +48,7 @@ func Handler(hub *Hub, id Identificador, origenPermitido func(origen string) boo
 	revisarOrigen := func(r *http.Request) bool {
 		// Clientes que no son navegador (pruebas, wscat) no envian Origin.
 		origen := r.Header.Get("Origin")
-		return origen == "" || origenPermitido(origen)
+		return origen == "" || mismoOrigen(r) || origenPermitido(origen)
 	}
 	upgrader := websocket.Upgrader{CheckOrigin: revisarOrigen}
 
