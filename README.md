@@ -147,7 +147,7 @@ La respuesta de la reproducción incluye `offset_segundos` (dónde empezó).
 Para repetir exactamente la misma prueba, agrega `"offset_segundos": 1800`
 al cuerpo del paso 3.
 
-Requiere `PAGOS_MOCK=false`, `INTERNAL_API_TOKEN` idéntico en ambos servicios
+Requiere `INTERNAL_API_TOKEN` idéntico en ambos servicios
 y apuestas debitadas en Pagos. Si cambias `db/mongo/init`, recrea el volumen
 de MongoDB (`docker compose down -v`). La regla completa, el contrato con
 Pagos, las decisiones y los límites están en

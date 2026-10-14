@@ -362,3 +362,54 @@ func TestPuntosPotenciales(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// --- Doble de prueba de Pagos ---
+
+// PagosMock simula a Pagos en las pruebas: cada usuario empieza con
+// SaldoInicial tokens, el saldo nunca baja de 0 y repetir una clave de
+// idempotencia no debita dos veces.
+type PagosMock struct {
+	SaldoInicial int64
+
+	mu      sync.Mutex
+	saldos  map[string]int64
+	hechas  map[string]bool
+	Debitos []Debito // historial que revisan las pruebas
+}
+
+func NuevoPagosMock(saldoInicial int64) *PagosMock {
+	return &PagosMock{
+		SaldoInicial: saldoInicial,
+		saldos:       map[string]int64{},
+		hechas:       map[string]bool{},
+	}
+}
+
+func (m *PagosMock) Debitar(_ context.Context, d Debito) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.hechas[d.IdempotencyKey] {
+		return nil
+	}
+	saldo, existe := m.saldos[d.UserID]
+	if !existe {
+		saldo = m.SaldoInicial
+	}
+	if saldo < d.Amount {
+		return ErrSaldoInsuficiente
+	}
+	m.saldos[d.UserID] = saldo - d.Amount
+	m.hechas[d.IdempotencyKey] = true
+	m.Debitos = append(m.Debitos, d)
+	return nil
+}
+
+func (m *PagosMock) Saldo(userID string) int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.saldos[userID]; ok {
+		return s
+	}
+	return m.SaldoInicial
+}

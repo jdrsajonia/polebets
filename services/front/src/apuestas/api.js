@@ -68,26 +68,3 @@ export async function apostar({ mercadoId, opcion, monto, clave, fetchFn = fetch
   }
   return { ok: false, status: resp.status, mensaje: cuerpo.error ?? "No se pudo registrar la apuesta" };
 }
-
-// Motor de mentira para ver la pantalla sin backend ni sesion. Imita las
-// respuestas reales (201, 422 "Saldo insuficiente", 409 "Mercado cerrado").
-export function crearMotorSimulado({ saldoInicial = 1000, ahora = () => Date.now() } = {}) {
-  let saldo = saldoInicial;
-  return {
-    saldo: () => saldo,
-    async fetchFn(_url, init) {
-      await new Promise((r) => setTimeout(r, 500));
-      const { market_id, option, amount } = JSON.parse(init.body);
-      const responder = (status, cuerpo) => ({ ok: status < 300, status, json: async () => cuerpo });
-      if (amount > saldo) return responder(422, { error: "Saldo insuficiente" });
-      saldo -= amount;
-      return responder(201, {
-        bet_id: crypto.randomUUID(),
-        market_id,
-        option,
-        amount,
-        potential_points: puntosPotenciales(amount),
-      });
-    },
-  };
-}

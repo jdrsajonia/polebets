@@ -98,9 +98,7 @@ jobs:
       - run: pytest -v
 
   # ---------------------------------------------------------------------------
-  # Front (React/Vite): instala, corre tests si existen y compila.
-  # Nota: el script "test" (vitest) aun no esta en package.json; mientras no
-  # exista, el paso de tests se salta sin romper el CI.
+  # Front (React/Vite): instala, corre tests y compila.
   # ---------------------------------------------------------------------------
   front:
     needs: cambios
@@ -117,11 +115,5 @@ jobs:
           cache: npm
           cache-dependency-path: services/front/package-lock.json
       - run: npm install
-      - name: Tests (si hay script "test")
-        run: |
-          if npm run | grep -q '^  test'; then
-            npm test
-          else
-            echo "No hay script 'test' en package.json; se omite (falta configurar vitest)."
-          fi
+      - run: npm test
       - run: npm run build

@@ -65,8 +65,6 @@ Dentro del handler, `sesion, _ := auth.SesionDe(r.Context())` entrega `sesion.Us
 | `OBSERVATION_WINDOW_SECONDS` | no (60) | `60` |
 
 Si falta una obligatoria, el motor no arranca y el log dice cuál falta.
-`PAGOS_MOCK=true` desactiva HU-07: una apuesta simulada no tiene registro
-financiero en PostgreSQL y no puede liquidarse en el ledger.
 
 ## Liquidación HU-07
 
@@ -190,7 +188,7 @@ Ciclo, siempre con el reloj del servidor:
 
 1. Al abrirlo se guardan `abre_en`, `cierra_en = abre_en + BETTING_WINDOW_SECONDS` y `observa_hasta = cierra_en + OBSERVATION_WINDOW_SECONDS`, y se difunde `mercado_abierto`.
 2. En `cierra_en` pasa a `cerrado` y se difunde `mercado_cerrado`. HU-06 además compara `cierra_en` con su propio reloj, así que una apuesta que llega tarde se rechaza aunque el temporizador se atrase.
-3. Desde `observa_hasta`, el worker de HU-07 (`liquidacion.Worker`, registrado en `main.go`) liquida el mercado. No usa el gancho `Servicio.Liquidador`: consulta cada 2 s los mercados ya `cerrado` con observación terminada, toma un lease en MongoDB para que dos workers no liquiden el mismo mercado y reintenta si Pagos o MongoDB fallan. Es idempotente, así que tras un reinicio retoma los mercados cerrados sin liquidar. Si `PAGOS_MOCK=true` el worker no arranca y el mercado solo queda en `cerrado`.
+3. Desde `observa_hasta`, el worker de HU-07 (`liquidacion.Worker`, registrado en `main.go`) liquida el mercado. No usa el gancho `Servicio.Liquidador`: consulta cada 2 s los mercados ya `cerrado` con observación terminada, toma un lease en MongoDB para que dos workers no liquiden el mismo mercado y reintenta si Pagos o MongoDB fallan. Es idempotente, así que tras un reinicio retoma los mercados cerrados sin liquidar.
 
 Solo puede haber un mercado abierto a la vez: lo impide el servicio y, además, un índice único parcial (`uq_un_mercado_abierto`) que el motor crea al arrancar. Si el motor se reinicia, retoma los mercados pendientes: cierra los que vencieron mientras estaba apagado y reprograma los demás.
 
