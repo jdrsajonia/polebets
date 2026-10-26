@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     # ---- Economia del token (RF-03) ----
     cop_per_token: float = 1000.0
 
+    # ---- Eventos multijugador (HU2-06), valores tentativos ----
+    # El Motor puede mandar otros al crear el evento; si no, se usan estos.
+    event_entry_fee: int = 100  # PoleCoins; minimo 100
+    event_initial_chips: int = 1000  # fichas de juego por inscrito (no son PoleCoins)
+    event_commission_pct: int = 10  # comision de la casa sobre el botin
+    event_min_wager_pct: int = 50  # % de fichas que hay que apostar para cobrar
+    event_min_players: int = 4  # con menos, se devuelve la inscripcion
+
     # ---- Admin inicial (RF-13 / HU-12) ----
     admin_email: str
     admin_password: str
