@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"github.com/arquisoft/orquestador/internal/httpx"
+	"github.com/arquisoft/orquestador/internal/interno"
 )
 
 // Error es un error de la API publica: codigo HTTP, codigo estable y mensaje.
@@ -56,12 +57,23 @@ type Cuerpo struct {
 	Codigo string `json:"codigo"`
 }
 
-// Responder escribe err con el formato comun. Si err no es un Error de la
-// tabla (un fallo no previsto), responde 500 error_interno y deja el detalle
-// solo en el log: al jugador nunca le llega un mensaje interno.
+// Responder escribe err con el formato comun:
+//
+//   - un Error de la tabla (aunque venga envuelto) sale con su estado y codigo;
+//   - interno.ErrNoDisponible (un servicio no respondio tras los reintentos)
+//     sale como 503 servicio_no_disponible;
+//   - cualquier otro error sale como 500 error_interno.
+//
+// En los dos ultimos casos el detalle queda solo en el log: al jugador nunca
+// le llega un mensaje interno.
 func Responder(w http.ResponseWriter, err error) {
 	var e Error
-	if !errors.As(err, &e) {
+	switch {
+	case errors.As(err, &e):
+	case errors.Is(err, interno.ErrNoDisponible):
+		log.Printf("servicio no disponible: %v", err)
+		e = ServicioNoDisponible
+	default:
 		log.Printf("error inesperado: %v", err)
 		e = Interno
 	}

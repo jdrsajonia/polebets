@@ -20,6 +20,7 @@ import (
 
 	"github.com/arquisoft/orquestador/internal/config"
 	"github.com/arquisoft/orquestador/internal/health"
+	"github.com/arquisoft/orquestador/internal/traza"
 )
 
 func main() {
@@ -36,7 +37,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
-		Handler:           mux,
+		Handler:           traza.Middleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

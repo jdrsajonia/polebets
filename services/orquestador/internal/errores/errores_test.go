@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/arquisoft/orquestador/internal/interno"
 )
 
 // TestTablaDelContrato fija los pares (estado, codigo) de la seccion 2 del
@@ -78,6 +80,14 @@ func TestResponderErrorEnvuelto(t *testing.T) {
 	}
 	estado, c := responder(t, err)
 	if estado != http.StatusConflict || c.Codigo != "mercado_cerrado" {
+		t.Errorf("respuesta = %d %+v", estado, c)
+	}
+}
+
+func TestResponderServicioNoDisponibleEs503(t *testing.T) {
+	err := fmt.Errorf("%w: POST /internal/wallets tras 3 intento(s): respondio 503", interno.ErrNoDisponible)
+	estado, c := responder(t, err)
+	if estado != http.StatusServiceUnavailable || c.Codigo != "servicio_no_disponible" || c.Error != ServicioNoDisponible.Mensaje {
 		t.Errorf("respuesta = %d %+v", estado, c)
 	}
 }
