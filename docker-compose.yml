@@ -151,6 +151,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+      start_interval: 2s
     networks:
       - borde
       - interna
@@ -183,7 +184,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 20s
+      start_interval: 2s
     networks:
       - borde
       - interna
@@ -216,6 +218,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+      start_interval: 2s
     networks:
       - interna
 
@@ -238,7 +241,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s
+      start_period: 20s
+      start_interval: 2s
     networks:
       - interna
       - datos_usuarios
@@ -268,7 +272,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 40s
+      start_period: 20s
+      start_interval: 2s
     networks:
       - interna
       - datos_pagos
@@ -327,6 +332,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
+      start_interval: 2s
     networks:
       - interna
       - datos_mongo
@@ -354,6 +360,7 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+      start_interval: 2s
     networks:
       - interna
       - datos_mongo
