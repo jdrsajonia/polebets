@@ -68,16 +68,9 @@ func main() {
 	ws.Register(mux, hub, autenticador, origenes.Permite)
 	pagos := registrarApuestas(mux, db, cfg, autenticador)  // HU-06
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
-	if pagosLiquidacion, ok := pagos.(liquidacion.Pagos); ok {
-		worker := liquidacion.NuevoWorker(
-			liquidacion.NuevoMongoStore(db.DB),
-			pagosLiquidacion,
-			hub,
-		)
-		go worker.Run(ctx)
-	} else {
-		log.Println("HU-07 desactivada: PAGOS_MOCK no puede liquidar apuestas reales")
-	}
+	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
+	worker := liquidacion.NuevoWorker(liquidacion.NuevoMongoStore(db.DB), pagos, hub)
+	go worker.Run(ctx)
 
 	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
@@ -144,17 +137,10 @@ func registrarMercados(ctx context.Context, mux *http.ServeMux, db *mongodb.Cone
 	)
 }
 
-// registrarApuestas arma HU-06 (POST /apuestas, solo jugadores). Con
-// PAGOS_MOCK=true usa un Pagos simulado (1000 tokens por usuario); en modo
-// real comparte el cliente REST con el worker de liquidación HU-07.
-func registrarApuestas(mux *http.ServeMux, db *mongodb.Conexion, cfg config.Config, a *auth.Autenticador) apuestas.Pagos {
-	var pagos apuestas.Pagos
-	if os.Getenv("PAGOS_MOCK") == "true" {
-		log.Println("ATENCION: PAGOS_MOCK=true, los debitos son simulados")
-		pagos = apuestas.NuevoPagosMock(1000)
-	} else {
-		pagos = apuestas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)
-	}
+// registrarApuestas arma HU-06 (POST /apuestas, solo jugadores). Devuelve el
+// cliente REST de Pagos para que el worker de liquidación (HU-07) lo reuse.
+func registrarApuestas(mux *http.ServeMux, db *mongodb.Conexion, cfg config.Config, a *auth.Autenticador) *apuestas.PagosHTTP {
+	pagos := apuestas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)
 	svc := apuestas.NuevoServicio(
 		apuestas.NuevosMercadosMongo(db.DB),
 		pagos,

@@ -66,7 +66,7 @@ docker run --rm -it --network host -u $(id -u):$(id -g) -e HOME=/tmp \
 | `npm run dev:mock` | Igual, pero el motor es el mock |
 | `npm run mock` | Levanta el mock del motor en el puerto 8090 |
 | `npm run jwt` | Firma un JWT de desarrollo |
-| `npm test` | Vitest (`*.test.ts(x)`) y la prueba de HU-06 con `node --test` |
+| `npm test` | Vitest (`*.test.ts(x)`), incluye la prueba de HU-06 |
 | `npm run build` | Revisa los tipos y compila a `dist/` |
 
 ## Cómo se conecta con los backends
@@ -95,7 +95,6 @@ Opcionales. Copia `.env.example` a `.env` dentro de `services/front/` para cambi
 | `VITE_MOTOR_URL` | `/api/motor` (proxy) | URL REST del motor |
 | `VITE_MOTOR_WS_URL` | mismo origen | URL WebSocket del motor, sin `/ws` |
 | `VITE_SHOW_LATENCY` | `false` | `true` muestra la latencia en `/carrera` |
-| `VITE_ROL_SIMULADO` | sin definir (login real) | Solo desarrollo sin Pagos: `player` o `admin` arrancan con un usuario de mentira |
 
 Solo para el servidor de desarrollo: `PROXY_MOTOR` y `PROXY_PAGOS` cambian a dónde reenvía el proxy.
 
@@ -121,7 +120,7 @@ Para probar a mano hace falta un usuario en la BD. Mientras no existan el regist
 docker compose exec pagos python -m app.cli crear-usuario --email ana@arqui.local --nombre "Ana Pérez" --password clave123
 ```
 
-**Desarrollo sin Pagos** (`npm run dev:mock`): define `VITE_ROL_SIMULADO=player` (o `admin`) en `services/front/.env` y la app arranca con un usuario de mentira sin llamar a `/auth/me`. Ese usuario no tiene cookie, así que el motor real rechaza su WebSocket; para probar contra el motor real, firma un token:
+**Desarrollo con el motor simulado** (`npm run dev:mock`): el proxy de Vite apunta al mock de `scripts/mock-ws.mjs` en vez del motor de Go, así se desarrolla la carrera en vivo sin levantar el motor. El login sigue siendo real contra Pagos. El motor simulado no valida la sesión, pero el motor real sí rechaza un WebSocket sin cookie; para probar contra el motor real, firma un token:
 
 ```bash
 npm run jwt                    # jugador, 120 minutos

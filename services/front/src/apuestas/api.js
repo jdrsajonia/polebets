@@ -1,7 +1,11 @@
 // Logica de HU-06 en el front, sin React para poder probarla sola.
 // El front nunca toca el saldo: solo le pide al motor que registre la apuesta.
-
-export const MOTOR_URL = import.meta.env?.VITE_MOTOR_URL ?? "http://localhost:8080";
+//
+// Las peticiones van por ruta relativa (/api/motor, de src/api/config.ts): el
+// navegador habla con el mismo origen desde el que se sirvio el front y Nginx
+// hace de proxy al motor (ver services/front/nginx.conf). Asi funciona igual en
+// localhost, en la LAN y en la nube sin recompilar.
+import { MOTOR_URL } from "../api/config";
 
 // Regla provisional del prototipo: acertar suma 10 + (monto x 0,5) puntos.
 // Esta en una sola funcion porque el grupo aun no cierra como funcionan los
@@ -67,27 +71,4 @@ export async function apostar({ mercadoId, opcion, monto, clave, fetchFn = fetch
     return { ok: false, status: 401, mensaje: "Tu sesion vencio. Inicia sesion de nuevo." };
   }
   return { ok: false, status: resp.status, mensaje: cuerpo.error ?? "No se pudo registrar la apuesta" };
-}
-
-// Motor de mentira para ver la pantalla sin backend ni sesion. Imita las
-// respuestas reales (201, 422 "Saldo insuficiente", 409 "Mercado cerrado").
-export function crearMotorSimulado({ saldoInicial = 1000, ahora = () => Date.now() } = {}) {
-  let saldo = saldoInicial;
-  return {
-    saldo: () => saldo,
-    async fetchFn(_url, init) {
-      await new Promise((r) => setTimeout(r, 500));
-      const { market_id, option, amount } = JSON.parse(init.body);
-      const responder = (status, cuerpo) => ({ ok: status < 300, status, json: async () => cuerpo });
-      if (amount > saldo) return responder(422, { error: "Saldo insuficiente" });
-      saldo -= amount;
-      return responder(201, {
-        bet_id: crypto.randomUUID(),
-        market_id,
-        option,
-        amount,
-        potential_points: puntosPotenciales(amount),
-      });
-    },
-  };
 }

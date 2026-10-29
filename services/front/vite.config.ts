@@ -36,8 +36,8 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    // Vitest corre solo las pruebas en TypeScript. La prueba de HU-06
-    // (src/apuestas/api.test.js) usa node:test y se corre con `node --test`.
+    // Vitest corre todas las pruebas del front, incluida la de HU-06
+    // (src/apuestas/api.test.ts).
     test: {
       environment: "jsdom",
       globals: true,

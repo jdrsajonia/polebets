@@ -10,12 +10,7 @@
 //   4. Si cualquier peticion responde 401 (token vencido), http.ts avisa y la
 //      sesion se limpia sola; RutaProtegida lleva entonces a /login.
 //
-// El resto de la app solo usa useAuth(): no sabe si el login es propio, OAuth
-// o simulado.
-//
-// Modo simulado (solo desarrollo, sin Pagos): con VITE_ROL_SIMULADO=player o
-// admin la app arranca con un usuario de mentira y no llama a /auth/me. Sirve
-// para `npm run dev:mock`. Por defecto el modo es el real.
+// El resto de la app solo usa useAuth(): no sabe si el login es propio u OAuth.
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { configurarHttp } from "../api/http";
@@ -41,18 +36,6 @@ export interface ValorAuth {
   descartarAviso: () => void;
 }
 
-// Usuarios de mentira, uno por rol. Los usan las pruebas y el modo simulado.
-export const USUARIOS_SIMULADOS: Record<Rol, Usuario> = {
-  player: { id: "00000000-0000-4000-8000-000000000001", nombre: "Jugador Demo", email: "jugador@demo.local", rol: "player" },
-  admin: { id: "00000000-0000-4000-8000-000000000002", nombre: "Admin Demo", email: "admin@demo.local", rol: "admin" },
-};
-
-// Usuario simulado segun VITE_ROL_SIMULADO, o undefined si se usa el login real.
-function usuarioSimulado(): Usuario | undefined {
-  const rol = import.meta.env.VITE_ROL_SIMULADO;
-  return rol === "player" || rol === "admin" ? USUARIOS_SIMULADOS[rol] : undefined;
-}
-
 const AuthContexto = createContext<ValorAuth | null>(null);
 
 interface Props {
@@ -63,10 +46,9 @@ interface Props {
 }
 
 export function AuthProvider({ children, usuarioInicial }: Props) {
-  // Si la sesion viene dada (prueba o modo simulado) no hay nada que cargar.
-  const [sesionFija] = useState<Usuario | null | undefined>(() =>
-    usuarioInicial !== undefined ? usuarioInicial : usuarioSimulado(),
-  );
+  // Si la sesion viene dada (en pruebas) no hay nada que cargar. En
+  // produccion usuarioInicial es undefined y se consulta /auth/me.
+  const [sesionFija] = useState<Usuario | null | undefined>(() => usuarioInicial);
   const [usuario, setUsuario] = useState<Usuario | null>(sesionFija ?? null);
   const [cargando, setCargando] = useState(sesionFija === undefined);
   const [avisoAcceso, setAvisoAcceso] = useState<string | null>(null);
