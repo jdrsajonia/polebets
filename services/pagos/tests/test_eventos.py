@@ -1,19 +1,13 @@
-"""Pruebas de HU2-06: eventos multijugador e inscripciones."""
+"""Pruebas de HU2-06 (parte Pagos): eventos e inscripcion al torneo."""
 import threading
 import uuid
 
 import pytest
 from sqlalchemy import delete, select, update
 
+from app.core.config import settings
 from app.db import SessionLocal
-from app.models import (
-    LEDGER_EVENT_ENTRY,
-    LEDGER_EVENT_REFUND,
-    Event,
-    EventRegistration,
-    LedgerEntry,
-    User,
-)
+from app.models import LEDGER_BUY_IN, LEDGER_REFUND, Event, EventEntry, LedgerEntry, User
 from app.services.eventos import InscripcionCerrada, clave_inscripcion, inscribir
 from tests.conftest import requires_db
 
@@ -29,7 +23,7 @@ def eventos():
     with SessionLocal() as db:
         for eid in creados:
             db.execute(delete(LedgerEntry).where(LedgerEntry.event_id == eid))
-            db.execute(delete(EventRegistration).where(EventRegistration.event_id == eid))
+            db.execute(delete(EventEntry).where(EventEntry.event_id == eid))
             db.execute(delete(Event).where(Event.id == eid))
         db.commit()
 
@@ -37,8 +31,7 @@ def eventos():
 def _crear(client, eventos, **extra):
     eid = f"evt-{uuid.uuid4().hex[:12]}"
     eventos.append(eid)
-    cuerpo = {"event_id": eid, "name": "GP de prueba", "race_ref": "9161", **extra}
-    r = client.post("/internal/events", json=cuerpo, headers=H)
+    r = client.post("/internal/events", json={"event_id": eid, "race_key": "2024_monza", **extra}, headers=H)
     assert r.status_code == 201, r.text
     return eid
 
@@ -64,52 +57,56 @@ def _inscribir(client, eid, uid, clave=None):
     )
 
 
+def _largar(client, eid):
+    return client.post(f"/internal/events/{eid}/start", headers=H)
+
+
 # ---------------------------------------------------------------------------
 # Crear evento
 # ---------------------------------------------------------------------------
 @requires_db
-def test_crear_evento_usa_valores_por_defecto_y_es_idempotente(client, eventos):
+def test_crear_evento_usa_la_configuracion_y_es_idempotente(client, eventos):
     eid = _crear(client, eventos)
-    r = client.get(f"/internal/events/{eid}", headers=H)
-    e = r.json()
-    assert (e["status"], e["entry_fee"], e["initial_chips"], e["commission_pct"], e["min_wager_pct"], e["min_players"], e["pot"]) == (
-        "registration", 100, 1000, 10, 50, 4, 0
+    e = client.get(f"/internal/events/{eid}", headers=H).json()
+    assert (e["status"], e["tournament_status"], e["buy_in"], e["initial_chips"], e["commission_pct"], e["pot"]) == (
+        "programado", "abierto", 100, 1000, 10, 0
     )
-    repetido = client.post("/internal/events", json={"event_id": eid, "name": "GP de prueba", "race_ref": "9161"}, headers=H)
+    repetido = client.post("/internal/events", json={"event_id": eid, "race_key": "2024_monza"}, headers=H)
     assert repetido.status_code == 200
-    distinto = client.post("/internal/events", json={"event_id": eid, "name": "Otro", "race_ref": "9161"}, headers=H)
+    distinto = client.post("/internal/events", json={"event_id": eid, "race_key": "2024_spa"}, headers=H)
     assert distinto.status_code == 409
 
 
 @requires_db
 def test_rutas_internas_exigen_token_de_servicio(client):
-    assert client.post("/internal/events", json={"event_id": "x", "name": "x", "race_ref": "x"}).status_code == 401
+    assert client.post("/internal/events", json={"event_id": "x", "race_key": "x"}).status_code == 401
     assert client.get("/internal/events/x").status_code == 401
 
 
 @requires_db
-def test_la_inscripcion_minima_es_100(client):
-    r = client.post("/internal/events", json={"event_id": "evt-barato", "name": "x", "race_ref": "1", "entry_fee": 50}, headers=H)
-    assert r.status_code == 422
+def test_el_buy_in_debe_ser_positivo_pero_no_tiene_minimo_fijo(client, eventos):
+    assert client.post("/internal/events", json={"event_id": "evt-gratis", "race_key": "1", "buy_in": 0}, headers=H).status_code == 422
+    eid = _crear(client, eventos, buy_in=50)
+    assert client.get(f"/internal/events/{eid}", headers=H).json()["buy_in"] == 50
 
 
 # ---------------------------------------------------------------------------
 # Inscribirse
 # ---------------------------------------------------------------------------
 @requires_db
-def test_inscribirse_cobra_suma_al_botin_y_registra_en_el_ledger(client, eventos, make_user):
+def test_inscribirse_cobra_suma_al_botin_y_registra_buy_in(client, eventos, make_user):
     eid = _crear(client, eventos)
     uid = _jugador(make_user, saldo=500)
 
     r = _inscribir(client, eid, uid)
 
     assert r.status_code == 201, r.text
-    assert (r.json()["saldo"], r.json()["pot"], r.json()["initial_chips"]) == (400, 100, 1000)
+    assert (r.json()["saldo"], r.json()["pot"], r.json()["initial_chips"], r.json()["refunded"]) == (400, 100, 1000, False)
     with SessionLocal() as db:
         mov = db.scalar(select(LedgerEntry).where(LedgerEntry.idempotency_key == clave_inscripcion(eid, uid)))
-        assert (mov.type, mov.tokens_delta, mov.event_id) == (LEDGER_EVENT_ENTRY, -100, eid)
+        assert (mov.type, mov.tokens_delta, mov.event_id) == (LEDGER_BUY_IN, -100, eid)
     consulta = client.get(f"/internal/events/{eid}/registrations/{uid}", headers=H)
-    assert consulta.status_code == 200 and consulta.json()["status"] == "active"
+    assert consulta.status_code == 200 and consulta.json()["tournament_status"] == "abierto"
 
 
 @requires_db
@@ -149,14 +146,13 @@ def test_inscripciones_simultaneas_del_mismo_jugador_cobran_una_vez(client, even
 def test_errores_de_inscripcion(client, eventos, make_user):
     eid = _crear(client, eventos)
     pobre = _jugador(make_user, saldo=99)
-    admin = make_user(role="admin").id
 
     assert _inscribir(client, eid, pobre).status_code == 422
     assert _saldo(pobre) == 99
-    assert _inscribir(client, eid, admin).status_code == 403
     assert _inscribir(client, eid, pobre, clave="otra-clave").status_code == 400
     assert _inscribir(client, "evt-no-existe", pobre).status_code == 404
-    assert _inscribir(client, eid, uuid.uuid4()).status_code == 404
+    # Sin billetera (usuario desconocido para Pagos): no hay saldo -> 422. El rol lo valida el Orquestador.
+    assert _inscribir(client, eid, uuid.uuid4()).status_code == 422
     assert client.get(f"/internal/events/{eid}/registrations/{pobre}", headers=H).status_code == 404
 
 
@@ -164,60 +160,62 @@ def test_errores_de_inscripcion(client, eventos, make_user):
 # Largada
 # ---------------------------------------------------------------------------
 @requires_db
-def test_con_menos_de_4_inscritos_se_devuelve_todo_y_queda_individual(client, eventos, make_user):
+def test_con_menos_de_4_inscritos_se_cancela_el_torneo_y_se_devuelve_todo(client, eventos, make_user):
     eid = _crear(client, eventos)
     jugadores = [_jugador(make_user, saldo=300) for _ in range(3)]
     for uid in jugadores:
         assert _inscribir(client, eid, uid).status_code == 201
 
-    r = client.post(f"/internal/events/{eid}/start", headers=H)
+    r = _largar(client, eid).json()
 
-    assert r.status_code == 200
-    assert (r.json()["status"], r.json()["pot"], r.json()["players"], r.json()["refunded"]) == ("individual_only", 0, [], 3)
+    assert (r["status"], r["tournament_status"], r["pot"], r["players"], r["refunded"]) == ("en_curso", "cancelado", 0, [], 3)
     assert [_saldo(u) for u in jugadores] == [300, 300, 300]
     with SessionLocal() as db:
-        devoluciones = db.scalars(select(LedgerEntry).where(LedgerEntry.event_id == eid, LedgerEntry.type == LEDGER_EVENT_REFUND)).all()
+        devoluciones = db.scalars(select(LedgerEntry).where(LedgerEntry.event_id == eid, LedgerEntry.type == LEDGER_REFUND)).all()
         assert len(devoluciones) == 3 and all(d.tokens_delta == 100 for d in devoluciones)
+    # Las inscripciones quedan como historial y se marcan como devueltas.
+    assert client.get(f"/internal/events/{eid}", headers=H).json()["registered"] == 3
+    assert client.get(f"/internal/events/{eid}/registrations/{jugadores[0]}", headers=H).json()["refunded"] is True
 
     # Repetir la largada no devuelve otra vez.
-    otra = client.post(f"/internal/events/{eid}/start", headers=H)
-    assert otra.json()["nueva"] is False
+    otra = _largar(client, eid).json()
+    assert (otra["nueva"], otra["refunded"]) == (False, 3)
     assert [_saldo(u) for u in jugadores] == [300, 300, 300]
 
 
 @requires_db
-def test_con_4_inscritos_hay_multijugador_y_se_cierran_las_inscripciones(client, eventos, make_user):
+def test_con_4_inscritos_el_torneo_queda_activo_y_se_cierran_las_inscripciones(client, eventos, make_user):
     eid = _crear(client, eventos)
     jugadores = [_jugador(make_user, saldo=300) for _ in range(4)]
     for uid in jugadores:
         _inscribir(client, eid, uid)
 
-    r = client.post(f"/internal/events/{eid}/start", headers=H)
+    r = _largar(client, eid).json()
 
-    assert (r.json()["status"], r.json()["pot"], r.json()["initial_chips"]) == ("multiplayer", 400, 1000)
-    assert sorted(r.json()["players"]) == sorted(str(u) for u in jugadores)
+    assert (r["status"], r["tournament_status"], r["pot"], r["initial_chips"]) == ("en_curso", "activo", 400, 1000)
+    assert sorted(r["players"]) == sorted(str(u) for u in jugadores)
     tarde = _jugador(make_user, saldo=300)
     assert _inscribir(client, eid, tarde).status_code == 409
     assert _saldo(tarde) == 300
 
 
 @requires_db
-def test_la_largada_y_una_inscripcion_no_se_cruzan(client, eventos, make_user):
+def test_la_largada_y_una_inscripcion_no_se_cruzan(client, eventos, make_user, monkeypatch):
     """Con el evento bloqueado, o la inscripcion entra antes y cuenta, o llega tarde y se rechaza."""
-    eid = _crear(client, eventos, min_players=2)
+    monkeypatch.setattr(settings, "event_min_players", 2)
+    eid = _crear(client, eventos)
     uid = _jugador(make_user, saldo=300)
     estado = {}
 
     def largar():
-        estado["largada"] = client.post(f"/internal/events/{eid}/start", headers=H).json()
+        estado["largada"] = _largar(client, eid).json()
 
     def inscribirse():
         with SessionLocal() as db:
             try:
                 inscribir(db, eid, uid)
-                estado["inscrito"] = True
             except InscripcionCerrada:
-                estado["inscrito"] = False
+                pass
 
     hilos = [threading.Thread(target=largar), threading.Thread(target=inscribirse)]
     for h in hilos:
@@ -225,6 +223,6 @@ def test_la_largada_y_una_inscripcion_no_se_cruzan(client, eventos, make_user):
     for h in hilos:
         h.join()
 
-    # Con un solo inscrito y minimo 2, si entro se le devolvio; si no entro, nunca se cobro.
+    # Un solo jugador con minimo 2: si entro se le devolvio; si no entro, nunca se cobro.
     assert _saldo(uid) == 300
-    assert estado["largada"]["status"] == "individual_only"
+    assert estado["largada"]["tournament_status"] == "cancelado"

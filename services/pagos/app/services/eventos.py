@@ -1,21 +1,20 @@
-"""HU2-06: eventos multijugador e inscripciones.
+"""HU2-06 (parte Pagos): eventos e inscripcion al torneo multijugador.
 
-Reglas (decisiones del equipo para el prototipo 2):
-  - El Motor crea el evento cuando el admin arranca la simulacion.
-  - Inscribirse cuesta entry_fee PoleCoins (minimo 100). El pago va al botin.
+Reglas del prototipo 2:
+  - El evento se crea al arrancar la simulacion (HU2-07 decide quien lo llama).
+  - Inscribirse cuesta buy_in PoleCoins (100 por defecto). El pago va al botin.
   - Una sola inscripcion por jugador y evento; los reintentos no cobran doble.
-  - Solo se puede inscribir antes de la largada. La largada la marca el Motor
+  - Solo hay inscripciones antes de la largada. La largada la marca el Motor
     con el TIEMPO DE CARRERA, no con la hora real.
-  - Al largar, con menos de min_players inscritos se devuelven todas las
-    inscripciones (botin a 0) y el evento queda solo en modo individual.
-  - Las fichas (initial_chips) son de juego y las maneja el Motor en Redis.
+  - Al largar, con menos de EVENT_MIN_PLAYERS inscritos se devuelve la
+    inscripcion a todos y el torneo queda cancelado (la carrera sigue).
+  - El rol del usuario lo valida el Orquestador, no Pagos.
 
-Concurrencia: cada operacion bloquea la fila del evento (SELECT ... FOR
-UPDATE). Asi una inscripcion y la largada nunca se cruzan, y el botin se
-actualiza sin perder sumas.
+Concurrencia: inscribir y largar bloquean la fila del evento (SELECT ... FOR
+UPDATE); asi no se cruzan y el botin no pierde sumas.
 
-T2-03: el saldo se lee y escribe solo en _debitar_saldo y _acreditar_saldo.
-Cuando el saldo pase a la tabla wallets, solo cambian esas dos funciones.
+T2-03: el saldo solo se toca en _debitar_saldo y _acreditar_saldo. Cuando
+pase a la tabla wallets, solo cambian esas dos funciones.
 """
 import uuid
 from dataclasses import dataclass
@@ -25,18 +24,18 @@ from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models import (
-    EVENT_INDIVIDUAL_ONLY,
-    EVENT_MULTIPLAYER,
-    EVENT_REGISTRATION,
+    EVENT_EN_CURSO,
+    EVENT_PROGRAMADO,
+    LEDGER_BUY_IN,
     LEDGER_COMPLETED,
-    LEDGER_EVENT_ENTRY,
-    LEDGER_EVENT_REFUND,
-    REGISTRATION_ACTIVE,
-    REGISTRATION_REFUNDED,
-    ROLE_PLAYER,
+    LEDGER_REFUND,
+    TOURNAMENT_ABIERTO,
+    TOURNAMENT_ACTIVO,
+    TOURNAMENT_CANCELADO,
     Event,
-    EventRegistration,
+    EventEntry,
     LedgerEntry,
     User,
 )
@@ -54,16 +53,8 @@ class InscripcionCerrada(Exception):
     """La carrera ya largo: no se aceptan inscripciones."""
 
 
-class UsuarioNoExiste(Exception):
-    pass
-
-
 class SaldoInsuficiente(Exception):
-    pass
-
-
-class NoEsJugador(Exception):
-    pass
+    """No alcanza el saldo, o el usuario no tiene saldo registrado."""
 
 
 def clave_inscripcion(event_id: str, user_id: uuid.UUID) -> str:
@@ -78,7 +69,7 @@ def clave_devolucion(event_id: str, user_id: uuid.UUID) -> str:
 # Saldo (unico punto que cambia con T2-03)
 # ---------------------------------------------------------------------------
 def _debitar_saldo(db: Session, user_id: uuid.UUID, monto: int) -> int | None:
-    """Resta el monto si alcanza. Devuelve el saldo nuevo o None si no alcanza."""
+    """Resta el monto si alcanza. None si no alcanza o no hay saldo para ese usuario."""
     return db.execute(
         update(User)
         .where(User.id == user_id, User.balance >= monto)
@@ -93,19 +84,25 @@ def _acreditar_saldo(db: Session, user_id: uuid.UUID, monto: int) -> int:
     ).scalar_one()
 
 
+def _saldo(db: Session, user_id: uuid.UUID) -> int | None:
+    return db.scalar(select(User.balance).where(User.id == user_id))
+
+
+def _contar_inscritos(db: Session, event_id: str) -> int:
+    """Todas las filas del evento, tambien las de un torneo cancelado (historial)."""
+    return db.scalar(select(func.count()).select_from(EventEntry).where(EventEntry.event_id == event_id))
+
+
 # ---------------------------------------------------------------------------
-# Crear evento (lo llama el Motor al arrancar la simulacion)
+# Crear y consultar evento
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class DatosEvento:
     event_id: str
-    name: str
-    race_ref: str
-    entry_fee: int
+    race_key: str
+    buy_in: int
     initial_chips: int
     commission_pct: int
-    min_wager_pct: int
-    min_players: int
 
 
 @dataclass(frozen=True)
@@ -116,22 +113,11 @@ class ResultadoEvento:
 
 
 def _mismo_evento(e: Event, d: DatosEvento) -> bool:
-    return (
-        e.name == d.name
-        and e.race_ref == d.race_ref
-        and e.entry_fee == d.entry_fee
-        and e.initial_chips == d.initial_chips
-        and e.commission_pct == d.commission_pct
-        and e.min_wager_pct == d.min_wager_pct
-        and e.min_players == d.min_players
-    )
-
-
-def _contar_inscritos(db: Session, event_id: str) -> int:
-    return db.scalar(
-        select(func.count())
-        .select_from(EventRegistration)
-        .where(EventRegistration.event_id == event_id, EventRegistration.status == REGISTRATION_ACTIVE)
+    return (e.race_key, e.buy_in, e.initial_chips, e.commission_pct) == (
+        d.race_key,
+        d.buy_in,
+        d.initial_chips,
+        d.commission_pct,
     )
 
 
@@ -145,22 +131,19 @@ def crear_evento(db: Session, datos: DatosEvento) -> ResultadoEvento:
 
     evento = Event(
         id=datos.event_id,
-        name=datos.name,
-        race_ref=datos.race_ref,
-        status=EVENT_REGISTRATION,
-        entry_fee=datos.entry_fee,
+        race_key=datos.race_key,
+        status=EVENT_PROGRAMADO,
+        tournament_status=TOURNAMENT_ABIERTO,
+        buy_in=datos.buy_in,
         initial_chips=datos.initial_chips,
         commission_pct=datos.commission_pct,
-        min_wager_pct=datos.min_wager_pct,
-        min_players=datos.min_players,
         pot=0,
     )
     db.add(evento)
     try:
         db.commit()
     except IntegrityError:
-        # Dos creaciones simultaneas del mismo id: gana la primera.
-        db.rollback()
+        db.rollback()  # dos creaciones simultaneas del mismo id: gana la primera
         return crear_evento(db, datos)
     db.refresh(evento)
     return ResultadoEvento(evento, 0, nuevo=True)
@@ -178,14 +161,14 @@ def obtener_evento(db: Session, event_id: str) -> ResultadoEvento:
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ResultadoInscripcion:
-    inscripcion: EventRegistration
+    inscripcion: EventEntry
     evento: Event
-    saldo: int
+    saldo: int | None
     nueva: bool
 
 
-def _saldo(db: Session, user_id: uuid.UUID) -> int:
-    return db.scalar(select(User.balance).where(User.id == user_id))
+def _buscar_inscripcion(db: Session, event_id: str, user_id: uuid.UUID) -> EventEntry | None:
+    return db.get(EventEntry, (event_id, user_id))
 
 
 def inscribir(db: Session, event_id: str, user_id: uuid.UUID) -> ResultadoInscripcion:
@@ -195,43 +178,31 @@ def inscribir(db: Session, event_id: str, user_id: uuid.UUID) -> ResultadoInscri
         raise EventoNoExiste()
 
     # 2. Ya inscrito: se devuelve lo que habia (una por evento, sin cobrar doble).
-    previa = db.scalar(
-        select(EventRegistration).where(
-            EventRegistration.event_id == event_id, EventRegistration.user_id == user_id
-        )
-    )
+    previa = _buscar_inscripcion(db, event_id, user_id)
     if previa is not None:
         db.commit()  # suelta el bloqueo
         return ResultadoInscripcion(previa, evento, _saldo(db, user_id), nueva=False)
 
-    if evento.status != EVENT_REGISTRATION:
+    if evento.tournament_status != TOURNAMENT_ABIERTO:
         db.rollback()
         raise InscripcionCerrada()
 
-    usuario = db.get(User, user_id)
-    if usuario is None:
-        db.rollback()
-        raise UsuarioNoExiste()
-    if usuario.role != ROLE_PLAYER:
-        db.rollback()
-        raise NoEsJugador()
-
-    # 3. Cobrar, sumar al botin, registrar la inscripcion y el movimiento: todo
-    #    en una transaccion.
-    saldo = _debitar_saldo(db, user_id, evento.entry_fee)
+    # 3. Cobrar, sumar al botin, crear la inscripcion y el movimiento: todo en
+    #    una transaccion.
+    saldo = _debitar_saldo(db, user_id, evento.buy_in)
     if saldo is None:
         db.rollback()
         raise SaldoInsuficiente()
 
-    evento.pot += evento.entry_fee
-    inscripcion = EventRegistration(event_id=event_id, user_id=user_id, fee=evento.entry_fee, status=REGISTRATION_ACTIVE)
+    evento.pot += evento.buy_in
+    inscripcion = EventEntry(event_id=event_id, user_id=user_id)
     db.add(inscripcion)
     db.add(
         LedgerEntry(
             user_id=user_id,
             event_id=event_id,
-            type=LEDGER_EVENT_ENTRY,
-            tokens_delta=-evento.entry_fee,
+            type=LEDGER_BUY_IN,
+            tokens_delta=-evento.buy_in,
             status=LEDGER_COMPLETED,
             idempotency_key=clave_inscripcion(event_id, user_id),
         )
@@ -242,14 +213,11 @@ def inscribir(db: Session, event_id: str, user_id: uuid.UUID) -> ResultadoInscri
     return ResultadoInscripcion(inscripcion, evento, saldo, nueva=True)
 
 
-def obtener_inscripcion(db: Session, event_id: str, user_id: uuid.UUID) -> EventRegistration | None:
-    if db.get(Event, event_id) is None:
+def obtener_inscripcion(db: Session, event_id: str, user_id: uuid.UUID) -> tuple[Event, EventEntry | None]:
+    evento = db.get(Event, event_id)
+    if evento is None:
         raise EventoNoExiste()
-    return db.scalar(
-        select(EventRegistration).where(
-            EventRegistration.event_id == event_id, EventRegistration.user_id == user_id
-        )
-    )
+    return evento, _buscar_inscripcion(db, event_id, user_id)
 
 
 # ---------------------------------------------------------------------------
@@ -258,7 +226,7 @@ def obtener_inscripcion(db: Session, event_id: str, user_id: uuid.UUID) -> Event
 @dataclass(frozen=True)
 class ResultadoLargada:
     evento: Event
-    jugadores: list[uuid.UUID]  # inscritos activos: el Motor les crea las fichas
+    jugadores: list[uuid.UUID]  # inscritos del torneo activo: el Motor les crea las fichas
     devueltas: int
     nueva: bool
 
@@ -269,41 +237,45 @@ def iniciar_evento(db: Session, event_id: str) -> ResultadoLargada:
     if evento is None:
         raise EventoNoExiste()
 
-    inscripciones = list(
-        db.scalars(select(EventRegistration).where(EventRegistration.event_id == event_id).order_by(EventRegistration.created_at))
+    inscritos = list(
+        db.scalars(select(EventEntry).where(EventEntry.event_id == event_id).order_by(EventEntry.created_at))
     )
 
-    if evento.status != EVENT_REGISTRATION:
+    if evento.status != EVENT_PROGRAMADO:
         db.commit()
-        activos = [i.user_id for i in inscripciones if i.status == REGISTRATION_ACTIVE]
-        devueltas = sum(1 for i in inscripciones if i.status == REGISTRATION_REFUNDED)
-        return ResultadoLargada(evento, activos, devueltas, nueva=False)
+        activo = evento.tournament_status == TOURNAMENT_ACTIVO
+        cancelado = evento.tournament_status == TOURNAMENT_CANCELADO
+        return ResultadoLargada(
+            evento,
+            [i.user_id for i in inscritos] if activo else [],
+            len(inscritos) if cancelado else 0,
+            nueva=False,
+        )
 
-    activas = [i for i in inscripciones if i.status == REGISTRATION_ACTIVE]
-    evento.started_at = datetime.now(timezone.utc)
+    evento.status = EVENT_EN_CURSO
+    evento.starts_at = datetime.now(timezone.utc)
 
-    if len(activas) < evento.min_players:
-        # Pocos inscritos: no hay multijugador. Se devuelve todo.
-        for i in activas:
-            _acreditar_saldo(db, i.user_id, i.fee)
-            i.status = REGISTRATION_REFUNDED
+    if len(inscritos) < settings.event_min_players:
+        # Pocos inscritos: no hay torneo. Se devuelve todo; la carrera sigue.
+        for i in inscritos:
+            _acreditar_saldo(db, i.user_id, evento.buy_in)
             db.add(
                 LedgerEntry(
                     user_id=i.user_id,
                     event_id=event_id,
-                    type=LEDGER_EVENT_REFUND,
-                    tokens_delta=i.fee,
+                    type=LEDGER_REFUND,
+                    tokens_delta=evento.buy_in,
                     status=LEDGER_COMPLETED,
                     idempotency_key=clave_devolucion(event_id, i.user_id),
                 )
             )
         evento.pot = 0
-        evento.status = EVENT_INDIVIDUAL_ONLY
+        evento.tournament_status = TOURNAMENT_CANCELADO
         db.commit()
         db.refresh(evento)
-        return ResultadoLargada(evento, [], len(activas), nueva=True)
+        return ResultadoLargada(evento, [], len(inscritos), nueva=True)
 
-    evento.status = EVENT_MULTIPLAYER
+    evento.tournament_status = TOURNAMENT_ACTIVO
     db.commit()
     db.refresh(evento)
-    return ResultadoLargada(evento, [i.user_id for i in activas], 0, nueva=True)
+    return ResultadoLargada(evento, [i.user_id for i in inscritos], 0, nueva=True)

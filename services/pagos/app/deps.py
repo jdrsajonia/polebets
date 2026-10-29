@@ -15,10 +15,11 @@ Que usar:
 """
 from typing import Annotated
 
-from fastapi import Cookie, Depends, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.internal_auth import token_servicio_valido
 from app.core.security import InvalidTokenError, decode_access_token
 from app.db import get_db
 from app.models import ROLE_ADMIN, ROLE_PLAYER, User
@@ -66,3 +67,12 @@ def require_player(user: CurrentUser) -> User:
 
 
 PlayerUser = Annotated[User, Depends(require_player)]
+
+
+def verificar_servicio(token: str | None) -> None:
+    """Rutas internas (Motor, Orquestador): exige X-Internal-Service-Token valido."""
+    if not token_servicio_valido(token):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Servicio no autorizado")
+
+
+ServiceToken = Annotated[str | None, Header(alias="X-Internal-Service-Token")]

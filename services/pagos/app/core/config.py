@@ -45,8 +45,9 @@ class Settings(BaseSettings):
     cop_per_token: float = 1000.0
 
     # ---- Eventos multijugador (HU2-06), valores tentativos ----
-    # El Motor puede mandar otros al crear el evento; si no, se usan estos.
-    event_entry_fee: int = 100  # PoleCoins; minimo 100
+    # buy_in, fichas y comision se guardan en cada evento; los dos ultimos
+    # no estan en el modelo de datos y se leen siempre de aqui.
+    event_buy_in: int = 100  # PoleCoins (valor tentativo)
     event_initial_chips: int = 1000  # fichas de juego por inscrito (no son PoleCoins)
     event_commission_pct: int = 10  # comision de la casa sobre el botin
     event_min_wager_pct: int = 50  # % de fichas que hay que apostar para cobrar

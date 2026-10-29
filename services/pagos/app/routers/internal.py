@@ -4,8 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Response, status
 
-from app.core.internal_auth import token_servicio_valido
 from app.deps import DbSession
+from app.deps import verificar_servicio as _verificar_servicio
 from app.schemas.internal import (
     BetDebitIn,
     BetDebitOut,
@@ -26,9 +26,6 @@ from app.services.liquidacion import (
 router = APIRouter(prefix="/internal", tags=["internal"])
 
 
-def _verificar_servicio(token: str | None) -> None:
-    if not token_servicio_valido(token):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Servicio no autorizado")
 
 
 def _validar_clave(header: str | None, cuerpo: str, prefijo: str, bet_id: uuid.UUID) -> None:

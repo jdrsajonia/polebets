@@ -5,13 +5,13 @@ from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
     Numeric,
     String,
-    UniqueConstraint,
     Uuid,
     func,
 )
@@ -29,8 +29,8 @@ BET_LOST = "lost"
 LEDGER_PURCHASE = "purchase"
 LEDGER_BET_DEBIT = "bet_debit"
 LEDGER_BET_SETTLEMENT = "bet_settlement"
-LEDGER_EVENT_ENTRY = "event_entry"  # HU2-06: pago de la inscripcion al multijugador
-LEDGER_EVENT_REFUND = "event_refund"  # HU2-06: devolucion si hay menos del minimo de inscritos
+LEDGER_BUY_IN = "buy_in"  # HU2-06: pago de la inscripcion al torneo
+LEDGER_REFUND = "refund"  # HU2-06: devolucion si el torneo se cancela
 LEDGER_COMPLETED = "completed"
 
 
@@ -72,7 +72,7 @@ class LedgerEntry(Base):
     __table_args__ = (
         CheckConstraint(
             f"type IN ('{LEDGER_PURCHASE}', '{LEDGER_BET_DEBIT}', '{LEDGER_BET_SETTLEMENT}', "
-            f"'{LEDGER_EVENT_ENTRY}', '{LEDGER_EVENT_REFUND}')",
+            f"'{LEDGER_BUY_IN}', '{LEDGER_REFUND}')",
             name="ck_ledger_entries_type",
         ),
     )
@@ -90,72 +90,74 @@ class LedgerEntry(Base):
 
 
 # ---------------------------------------------------------------------------
-# HU2-06: eventos multijugador e inscripciones
+# HU2-06: eventos y torneo multijugador (nombres del modelo de datos del P2)
 #
-# Un evento es una carrera simulada. Lo crea el Motor cuando el admin arranca
-# la simulacion. Los jugadores pagan la inscripcion en PoleCoins (va al botin)
-# hasta la largada. Al largar, con menos de min_players inscritos se devuelven
-# las inscripciones y el evento queda solo en modo individual.
+# Un evento es una carrera simulada. Tiene dos estados:
+#   status            la CARRERA:  programado -> en_curso -> finalizado
+#   tournament_status el TORNEO:   abierto -> activo | cancelado -> repartido
+# Se separan porque la carrera sigue (y las estaticas se liquidan) aunque el
+# torneo se cancele por falta de inscritos.
 #
-# Las FICHAS del torneo (initial_chips por jugador) NO viven aqui: son fichas de
-# juego, no PoleCoins, y las maneja el Motor en Redis. Aqui solo se guarda
-# cuantas recibe cada inscrito para que todos usen el mismo valor.
+# Las FICHAS del torneo no viven aqui: las maneja el Motor en Redis. Las
+# columnas *_final, chips_wagered, prize y eligible las llena HU2-12 al
+# repartir el botin. min_players y min_wager_pct no son columnas: se leen de
+# la configuracion (EVENT_MIN_PLAYERS, EVENT_MIN_WAGER_PCT).
 #
-# T2-03: cuando Usuarios y Pagos se separen, user_id deja de ser llave foranea.
+# T2-03: users pasa a otra base, por eso event_entries.user_id no es llave
+# foranea.
 # ---------------------------------------------------------------------------
-EVENT_REGISTRATION = "registration"  # inscripciones abiertas (antes de la largada)
-EVENT_MULTIPLAYER = "multiplayer"  # largo con suficientes inscritos
-EVENT_INDIVIDUAL_ONLY = "individual_only"  # largo con pocos inscritos: se devolvio todo
-EVENT_FINISHED = "finished"  # botin repartido (HU2-12)
+EVENT_PROGRAMADO = "programado"
+EVENT_EN_CURSO = "en_curso"
+EVENT_FINALIZADO = "finalizado"
 
-REGISTRATION_ACTIVE = "active"
-REGISTRATION_REFUNDED = "refunded"
+TOURNAMENT_ABIERTO = "abierto"
+TOURNAMENT_ACTIVO = "activo"
+TOURNAMENT_CANCELADO = "cancelado"
+TOURNAMENT_REPARTIDO = "repartido"
 
 
 class Event(Base):
     __tablename__ = "events"
     __table_args__ = (
         CheckConstraint(
-            f"status IN ('{EVENT_REGISTRATION}', '{EVENT_MULTIPLAYER}', "
-            f"'{EVENT_INDIVIDUAL_ONLY}', '{EVENT_FINISHED}')",
+            f"status IN ('{EVENT_PROGRAMADO}', '{EVENT_EN_CURSO}', '{EVENT_FINALIZADO}')",
             name="ck_events_status",
         ),
-        CheckConstraint("entry_fee >= 100", name="ck_events_entry_fee_min"),
+        CheckConstraint(
+            f"tournament_status IN ('{TOURNAMENT_ABIERTO}', '{TOURNAMENT_ACTIVO}', "
+            f"'{TOURNAMENT_CANCELADO}', '{TOURNAMENT_REPARTIDO}')",
+            name="ck_events_tournament_status",
+        ),
+        CheckConstraint("buy_in > 0", name="ck_events_buy_in_positive"),
         CheckConstraint("initial_chips > 0", name="ck_events_initial_chips_positive"),
         CheckConstraint("commission_pct BETWEEN 0 AND 100", name="ck_events_commission_pct"),
-        CheckConstraint("min_wager_pct BETWEEN 0 AND 100", name="ck_events_min_wager_pct"),
-        CheckConstraint("min_players >= 2", name="ck_events_min_players"),
         CheckConstraint("pot >= 0", name="ck_events_pot_non_negative"),
     )
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)  # lo genera el Motor
-    name: Mapped[str] = mapped_column(String(150), nullable=False)
-    race_ref: Mapped[str] = mapped_column(String(64), nullable=False)  # carrera de OpenF1
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default=EVENT_REGISTRATION, server_default=EVENT_REGISTRATION)
-    entry_fee: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    race_key: Mapped[str] = mapped_column(String(64), nullable=False)  # carrera descargada (ej. 2024_monza)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default=EVENT_PROGRAMADO, server_default=EVENT_PROGRAMADO)
+    tournament_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=TOURNAMENT_ABIERTO, server_default=TOURNAMENT_ABIERTO
+    )
+    buy_in: Mapped[int] = mapped_column(BigInteger, nullable=False)
     initial_chips: Mapped[int] = mapped_column(Integer, nullable=False)
     commission_pct: Mapped[int] = mapped_column(Integer, nullable=False)
-    min_wager_pct: Mapped[int] = mapped_column(Integer, nullable=False)
-    min_players: Mapped[int] = mapped_column(Integer, nullable=False)
     pot: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    starts_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # largada
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class EventRegistration(Base):
-    __tablename__ = "event_registrations"
-    __table_args__ = (
-        UniqueConstraint("event_id", "user_id", name="uq_event_registrations_event_user"),
-        CheckConstraint("fee > 0", name="ck_event_registrations_fee_positive"),
-        CheckConstraint(
-            f"status IN ('{REGISTRATION_ACTIVE}', '{REGISTRATION_REFUNDED}')",
-            name="ck_event_registrations_status",
-        ),
-    )
+class EventEntry(Base):
+    __tablename__ = "event_entries"
 
-    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    event_id: Mapped[str] = mapped_column(ForeignKey("events.id"), nullable=False, index=True)
-    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
-    fee: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default=REGISTRATION_ACTIVE, server_default=REGISTRATION_ACTIVE)
+    event_id: Mapped[str] = mapped_column(ForeignKey("events.id"), primary_key=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)  # sin FK: users vive en otra base (P2)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    # Las llena HU2-12 al repartir el botin.
+    chips_final: Mapped[int | None] = mapped_column(BigInteger)
+    chips_wagered: Mapped[int | None] = mapped_column(BigInteger)
+    position_final: Mapped[int | None] = mapped_column(Integer)
+    prize: Mapped[int | None] = mapped_column(BigInteger)
+    eligible: Mapped[bool | None] = mapped_column(Boolean)
