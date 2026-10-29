@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Modelo de datos — Prototipo 2</title>
+<!--
+  Fuente de documentation/modelo-datos-p2.pdf. Regenerar (desde documentation/, con Chrome):
+    chrome --headless=new --no-pdf-header-footer --print-to-pdf=modelo-datos-p2.pdf fuentes/modelo-datos-p2.html
+  El diagrama sale de fuentes/modelo-datos-p2-diagrama.html (ver instrucciones allí).
+-->
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; font-size: 10.5pt; color: #1f2328; line-height: 1.45; }
+  h1 { font-size: 22pt; margin: 0; }
+  .sub { color: #555; font-size: 11pt; margin: 2px 0 14px; }
+  h2 { color: #0b5cad; font-size: 14pt; border-bottom: 2px solid #e3e8ef; padding-bottom: 3px; margin: 22px 0 8px; }
+  h3 { font-size: 11.5pt; margin: 14px 0 6px; }
+  .aviso { background: #eef3fa; border-left: 4px solid #0b5cad; padding: 8px 12px; margin: 10px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 6px 0 10px; font-size: 9.5pt; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: #f3f5f8; text-align: left; font-weight: 600; padding: 5px 7px; border-bottom: 1px solid #d5d9e0; }
+  td { padding: 5px 7px; border-bottom: 1px solid #e6e9ee; vertical-align: top; }
+  td:first-child { font-weight: 600; white-space: nowrap; }
+  td.t { font-family: Consolas, monospace; font-size: 8.5pt; color: #555; white-space: nowrap; }
+  td.pd { color: #a15c00; font-style: italic; white-space: nowrap; }
+  code { font-family: Consolas, monospace; font-size: 9pt; background: #f3f5f8; padding: 0 3px; border-radius: 3px; }
+  img { width: 100%; border: 1px solid #e6e9ee; }
+  ul { margin: 4px 0 8px; padding-left: 20px; }
+  li { margin: 2px 0; }
+  @page horizontal { size: A4 landscape; margin: 12mm; }
+  .horizontal { page: horizontal; }
+  .horizontal h2 { margin-top: 0; }
+</style>
+</head>
+<body>
+
+<h1>Modelo de datos — Prototipo 2</h1>
+<div class="sub">ArquiSoft · Prototipo 2 · PostgreSQL Usuarios, PostgreSQL Pagos, MongoDB y Redis</div>
+
+<div class="aviso">
+<b>Fuente:</b> pestaña «Vista C&amp;C prototipo 2» (sección Modelo de datos) del documento del equipo, con las reglas de
+«Requisitos prototipo 2» e «Historias prototipo 2». Reemplaza al modelo del prototipo 1
+(<code>modelo-datos-pagos-p1.pdf</code>). Los valores entre corchetes son tentativos.
+<b>Tipos:</b> las columnas que ya existían en el prototipo 1 conservan su tipo; los de las columnas nuevas los fijó T2-03
+siguiendo las mismas convenciones (ver la última sección).
+</div>
+
+<p>El prototipo 2 tiene 4 bases y cada una tiene un solo dueño (RNF-18): nadie escribe en la base de otro, y los datos
+ajenos se piden por contrato.</p>
+
+<table>
+<tr><th>Base</th><th>Escribe</th><th>Lee</th><th>Qué guarda</th></tr>
+<tr><td>PostgreSQL Usuarios</td><td>Usuarios</td><td>Usuarios</td><td>Tabla <code>users</code></td></tr>
+<tr><td>PostgreSQL Pagos</td><td>Pagos (API y consumidor del Broker)</td><td>Pagos</td><td><code>wallets</code>, <code>events</code>, <code>event_entries</code>, <code>markets</code>, <code>bets</code> y <code>ledger_entries</code>. El Motor guarda mercados y apuestas a través de Pagos, por REST</td></tr>
+<tr><td>MongoDB</td><td>Ingestor</td><td>Motor (sin permiso de escritura)</td><td>Carreras descargadas, simulaciones programadas y datos reproducidos</td></tr>
+<tr><td>Redis</td><td>Motor</td><td>Motor</td><td>Fichas y ranking del torneo en curso</td></tr>
+</table>
+
+<h3>Qué cambia respecto al prototipo 1</h3>
+<ul>
+  <li>La tabla <code>users</code> se parte: la cuenta va a PostgreSQL Usuarios y el saldo a <code>wallets</code> en Pagos. Pierde <code>balance</code> y <code>points</code>.</li>
+  <li>Como <code>user_id</code> apunta a otra base, en Pagos no es llave foránea, sino un uuid sin restricción.</li>
+  <li>Los mercados dejan MongoDB y pasan a la tabla <code>markets</code> de Pagos; <code>bets.market_id</code> pasa a ser llave foránea.</li>
+  <li>Tablas nuevas: <code>wallets</code>, <code>events</code>, <code>event_entries</code> y <code>markets</code>.</li>
+  <li><code>ledger_entries</code> pierde <code>points_delta</code>: las fichas no son tokens y no pasan por el ledger.</li>
+</ul>
+
+
+<h2>Por qué existe cada tabla</h2>
+<table>
+<tr><th>Tabla</th><th>Requisito que la exige</th></tr>
+<tr><td>users</td><td>RF-01 registro, RF-02 inicio de sesión, RF-21 acceso del administrador (rol admin), RNF-17 contraseñas con bcrypt o Argon2.</td></tr>
+<tr><td>wallets</td><td>RF-01: el registro crea la billetera con saldo 0. RF-05 y HU2-04: la compra se acredita en <code>wallets</code>, ya no en <code>users</code>.</td></tr>
+<tr><td>events</td><td>HU2-07: el Gestor crea el evento en Pagos al ver la simulación programada. RF-06 calendario, RF-07 inscripción, RF-08 torneo cancelado, RF-16 reparto.</td></tr>
+<tr><td>event_entries</td><td>RF-07: una sola inscripción por evento. RF-16: las fichas finales, el puesto y el premio quedan en <code>event_entries</code>.</td></tr>
+<tr><td>markets</td><td>RF-10 estáticas, RF-11 dinámicas, RF-13 cierre según el tiempo de carrera. RF-26: las consultas agrupan por tipo y plantilla, y todas las responde Pagos.</td></tr>
+<tr><td>bets</td><td>RF-12 y RNF-11: debitar y registrar la apuesta en una sola transacción; una sola apuesta por usuario y mercado. RNF-20: cada apuesta del torneo queda en <code>bets</code>.</td></tr>
+<tr><td>ledger_entries</td><td>RNF-20: cada movimiento de tokens queda en el ledger. RNF-12: clave de idempotencia única. RF-25: base del resumen financiero.</td></tr>
+</table>
+
+<section class="horizontal">
+<h2>Diagrama (bases relacionales)</h2>
+<img src="../modelo-datos-p2.png" alt="Diagrama del modelo de datos del prototipo 2">
+</section>
+
+<h2>PostgreSQL Usuarios</h2>
+<h3>users — la cuenta</h3>
+<p>Igual que en el prototipo 1, sin <code>balance</code> ni <code>points</code>.</p>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>id</td><td class="t">UUID · PK</td><td>Identifica al usuario. El Gateway lo pasa a los servicios en <code>X-User-Id</code> (RF-02) y es el <code>user_id</code> que guardan las tablas de Pagos.</td></tr>
+<tr><td>email</td><td class="t">VARCHAR(255) · UNIQUE</td><td>Un correo repetido se rechaza y no se crea nada (RF-01).</td></tr>
+<tr><td>name</td><td class="t">VARCHAR(100)</td><td>Nombre del usuario; parte del perfil de la página del usuario (RF-04).</td></tr>
+<tr><td>password_hash</td><td class="t">VARCHAR(255)</td><td>Hash con bcrypt o Argon2 (RNF-17).</td></tr>
+<tr><td>role</td><td class="t">VARCHAR(20) · CHECK</td><td><code>player</code> o <code>admin</code>. El registro crea rol jugador (RF-01); el Gateway lo pasa en <code>X-User-Rol</code> (RF-02); la CLI solo deja entrar con rol admin (RF-21).</td></tr>
+<tr><td>created_at</td><td class="t">TIMESTAMPTZ</td><td>Fecha de registro.</td></tr>
+</table>
+
+<h2>PostgreSQL Pagos</h2>
+
+<h3>wallets — el saldo en tokens</h3>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>user_id</td><td class="t">UUID · PK · sin FK</td><td>Una billetera por usuario.</td></tr>
+<tr><td>balance</td><td class="t">BIGINT · CHECK ≥ 0</td><td>Tokens disponibles. Recibe el saldo que estaba en <code>users.balance</code> (T2-03). El saldo nunca queda negativo (RNF-11).</td></tr>
+<tr><td>updated_at</td><td class="t">TIMESTAMPTZ</td><td>Último cambio del saldo.</td></tr>
+</table>
+
+<h3>events — cada carrera simulada y su torneo</h3>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>id</td><td class="t">UUID · PK</td><td>Identifica el evento.</td></tr>
+<tr><td>race_key</td><td class="t">VARCHAR(100)</td><td>Carrera de MongoDB que se simula.</td></tr>
+<tr><td>status</td><td class="t">VARCHAR(20) · CHECK</td><td>Estado de la carrera: <code>programado</code>, <code>en_curso</code> o <code>finalizado</code>. El calendario muestra los programados y en curso (RF-06).</td></tr>
+<tr><td>starts_at</td><td class="t">TIMESTAMPTZ</td><td>Hora de largada. En la largada se cierran las inscripciones y las estáticas (HU2-07); el calendario la muestra con cuenta regresiva (HU2-05).</td></tr>
+<tr><td>ended_at</td><td class="t">TIMESTAMPTZ · nulo</td><td>Fin de la carrera.</td></tr>
+<tr><td>buy_in</td><td class="t">BIGINT · CHECK &gt; 0</td><td>Costo de inscripción [100 tokens] (RF-07).</td></tr>
+<tr><td>initial_chips</td><td class="t">BIGINT · CHECK &gt; 0</td><td>Fichas de cada inscrito [1000] (RF-07). En Redis, las fichas actuales son fichas iniciales + suma del hash.</td></tr>
+<tr><td>commission_pct</td><td class="t">NUMERIC(5,2) · 0–100</td><td>Comisión de la casa sobre el botín [10 %], en por ciento (10 = 10 %).</td></tr>
+<tr><td>pot</td><td class="t">BIGINT · CHECK ≥ 0</td><td>Botín: las inscripciones van al botín; el calendario lo muestra (RF-06). Premios + comisión + residuo suman exactamente lo cobrado en inscripciones (RNF-11).</td></tr>
+<tr><td>tournament_status</td><td class="t">VARCHAR(20) · CHECK</td><td>Estado del torneo: <code>abierto</code>, <code>activo</code>, <code>cancelado</code> o <code>repartido</code>. Si en la largada hay menos de 4 inscritos, el torneo se cancela y solo queda el modo individual (RF-08).</td></tr>
+</table>
+
+<h3>event_entries — cada inscrito y cómo terminó</h3>
+<p>Durante el evento las fichas viven en Redis. Al cerrar el evento, las fichas finales, el puesto y el premio quedan aquí y Redis se limpia (RF-16).</p>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>event_id</td><td class="t">PK · FK → events</td><td>Evento al que se inscribió.</td></tr>
+<tr><td>user_id</td><td class="t">UUID · PK · sin FK</td><td>Quién se inscribió. La PK (event_id, user_id) deja una sola inscripción por evento (RF-07).</td></tr>
+<tr><td>chips_final</td><td class="t">BIGINT · nulo</td><td>Fichas con que terminó (RF-16).</td></tr>
+<tr><td>chips_wagered</td><td class="t">BIGINT · nulo</td><td>Fichas apostadas. Para entrar al reparto hay que apostar al menos el [50 %] de las fichas iniciales.</td></tr>
+<tr><td>position_final</td><td class="t">INTEGER · nulo</td><td>Puesto final (RF-16).</td></tr>
+<tr><td>prize</td><td class="t">BIGINT · nulo</td><td>Premio en tokens (RF-16).</td></tr>
+<tr><td>eligible</td><td class="t">BOOLEAN · nulo</td><td>Si alcanzó el mínimo apostado para entrar al reparto.</td></tr>
+</table>
+
+<h3>markets — los mercados de cada evento</h3>
+<p>Antes estaban en MongoDB. Ahora están en Pagos, porque todas las consultas del administrador las responde Pagos.</p>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>id</td><td class="t">UUID · PK</td><td>Identifica el mercado.</td></tr>
+<tr><td>event_id</td><td class="t">FK → events</td><td>Evento al que pertenece.</td></tr>
+<tr><td>kind</td><td class="t">VARCHAR(20) · CHECK</td><td><code>estatica</code> (catálogo fijo, RF-10) o <code>dinamica</code> (plantilla durante la carrera, RF-11).</td></tr>
+<tr><td>template</td><td class="t">VARCHAR(100)</td><td>Plantilla del mercado. RF-26 agrupa la rentabilidad, dentro de cada tipo, por plantilla.</td></tr>
+<tr><td>question</td><td class="t">VARCHAR(255)</td><td>Pregunta que ve el jugador. Ejemplo de RF-11: «¿Habrá cambio de líder en el próximo minuto?».</td></tr>
+<tr><td>options</td><td class="t">JSONB</td><td>Opciones, cada una con su multiplicador (RF-10, RF-11): lista de <code>{"opcion", "multiplicador"}</code>.</td></tr>
+<tr><td>opens_at</td><td class="t">TIMESTAMPTZ · nulo</td><td>Apertura del mercado.</td></tr>
+<tr><td>closes_at</td><td class="t">TIMESTAMPTZ · nulo</td><td>Cierre del mercado.</td></tr>
+<tr><td>race_close_s</td><td class="t">INTEGER · nulo</td><td>Segundo de carrera del cierre. Los mercados se cierran según el tiempo de carrera (RF-13, RNF-19).</td></tr>
+<tr><td>status</td><td class="t">VARCHAR(20) · CHECK</td><td><code>programado</code>, <code>abierto</code>, <code>cerrado</code> o <code>liquidado</code>. Pagos rechaza una apuesta si el mercado ya cerró (RNF-19).</td></tr>
+<tr><td>winning_option</td><td class="t">VARCHAR(100) · nulo</td><td>Opción ganadora.</td></tr>
+</table>
+
+<h3>bets — cada apuesta, individual o de torneo</h3>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>id</td><td class="t">UUID · PK</td><td>Sin cambios respecto al prototipo 1 (lo genera el Motor).</td></tr>
+<tr><td>user_id</td><td class="t">UUID · sin FK</td><td>Quién apostó. Deja de ser llave foránea.</td></tr>
+<tr><td>market_id</td><td class="t">FK → markets</td><td>En qué mercado. Pasa a ser llave foránea.</td></tr>
+<tr><td>event_id</td><td class="t">FK → events</td><td>Evento de la apuesta.</td></tr>
+<tr><td>mode</td><td class="t">VARCHAR(20) · CHECK</td><td><code>individual</code> o <code>torneo</code>. Las estáticas siempre son individuales; en las dinámicas el inscrito apuesta fichas y el no inscrito tokens (RF-09).</td></tr>
+<tr><td>option</td><td class="t">VARCHAR(100)</td><td>Opción elegida.</td></tr>
+<tr><td>amount</td><td class="t">BIGINT · CHECK &gt; 0</td><td>Tokens (individual) o fichas (torneo). Mayor que 0 (RF-12).</td></tr>
+<tr><td>multiplier</td><td class="t">NUMERIC(6,2) · CHECK &gt; 0</td><td>Multiplicador de la opción. Si acierta recibe monto × multiplicador (RF-14, RF-15). RF-26 muestra el promedio.</td></tr>
+<tr><td>lap</td><td class="t">INTEGER · nulo</td><td>Vuelta de carrera en que se hizo la apuesta (RF-27). Nulo si se apostó antes de la largada.</td></tr>
+<tr><td>status</td><td class="t">VARCHAR(20) · CHECK</td><td><code>pending</code>, <code>won</code> o <code>lost</code>.</td></tr>
+<tr><td>payout</td><td class="t">BIGINT · nulo</td><td>Lo que recibió: monto × multiplicador si acertó; nada si falló (RF-14, RF-15). Nulo mientras está pendiente. En tokens se trunca a entero.</td></tr>
+<tr><td>created_at</td><td class="t">TIMESTAMPTZ</td><td>Cuándo se hizo. RF-27 agrupa por franja horaria del día.</td></tr>
+</table>
+<p><b>Único (user_id, market_id):</b> una sola apuesta por usuario y mercado, aunque sea desde otro navegador (RF-12, HU2-09).</p>
+
+<h3>ledger_entries — todos los movimientos de tokens</h3>
+<table>
+<tr><th>Atributo</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>id</td><td class="t">BIGSERIAL · PK</td><td>Sin cambios respecto al prototipo 1.</td></tr>
+<tr><td>user_id</td><td class="t">UUID · sin FK</td><td>De quién es el movimiento.</td></tr>
+<tr><td>bet_id</td><td class="t">FK → bets · nulo</td><td>Apuesta que lo originó. Nulo en compras.</td></tr>
+<tr><td>event_id</td><td class="t">FK → events · nulo</td><td>Evento relacionado. Nulo si no aplica.</td></tr>
+<tr><td>type</td><td class="t">VARCHAR(20) · CHECK</td><td>Tipo de movimiento (tabla de abajo).</td></tr>
+<tr><td>tokens_delta</td><td class="t">BIGINT</td><td>Cambio en tokens.</td></tr>
+<tr><td>status</td><td class="t">VARCHAR(20)</td><td>Estado del movimiento. Siempre <code>completed</code>: solo se escribe dentro de transacciones exitosas.</td></tr>
+<tr><td>idempotency_key</td><td class="t">VARCHAR(255) · UNIQUE</td><td>Débitos, compras, inscripciones, liquidaciones y reparto llevan clave única (RNF-12).</td></tr>
+<tr><td>created_at</td><td class="t">TIMESTAMPTZ</td><td>Fecha del movimiento. RF-25 consulta por período.</td></tr>
+</table>
+
+<table>
+<tr><th>type</th><th>Cuándo</th><th>Requisito</th></tr>
+<tr><td>purchase</td><td>Compra simulada de tokens</td><td>RF-05</td></tr>
+<tr><td>debit</td><td>Apuesta individual: Pagos debita y registra la apuesta en una sola transacción</td><td>RF-12</td></tr>
+<tr><td>settle</td><td>Liquidación de una apuesta individual</td><td>RF-14</td></tr>
+<tr><td>buy_in</td><td>Inscripción al torneo</td><td>RF-07</td></tr>
+<tr><td>refund</td><td>Devolución de la inscripción cuando el torneo se cancela</td><td>RF-08</td></tr>
+<tr><td>prize</td><td>Premio del reparto del botín</td><td>RF-16</td></tr>
+</table>
+<p>Las apuestas de torneo no dejan fila en el ledger: se hacen con fichas, que no son tokens. Quedan registradas en <code>bets</code> (RNF-20).</p>
+
+<h2>MongoDB</h2>
+<p>Solo escribe el Ingestor; el Motor lee y no tiene permiso de escritura (RNF-18, HU2-14).</p>
+<table>
+<tr><th>Colección</th><th>Qué guarda</th></tr>
+<tr><td>carreras</td><td>Carreras descargadas de OpenF1: posiciones, coordenadas, vueltas, pits y control de carrera. Se descargan una sola vez por carrera (RF-23).</td></tr>
+<tr><td>simulaciones</td><td>Simulación programada o en curso: carrera, hora de largada, punto de inicio y latido. Solo hay una a la vez (RF-22).</td></tr>
+<tr><td>eventos_carrera</td><td>Cada dato reproducido, con su tiempo de carrera (RF-23).</td></tr>
+</table>
+
+<h2>Redis (solo durante el evento)</h2>
+<p>Solo escribe el Motor (RNF-18).</p>
+<table>
+<tr><th>Clave</th><th>Tipo</th><th>Qué guarda</th></tr>
+<tr><td>torneo:{evento}:{usuario}</td><td>Hash</td><td>Por cada apuesta, su efecto neto en fichas (bet_id → delta).</td></tr>
+<tr><td>torneo:{evento}:ranking</td><td>Sorted set</td><td>Fichas actuales de cada inscrito.</td></tr>
+</table>
+<p><b>Las fichas nunca se suman.</b> Al apostar se escribe delta = −monto; al liquidar se sobrescribe con lo ganado menos
+lo apostado. Luego se recalcula el total (fichas iniciales + suma del hash) y se escribe con ZADD. Repetir cualquiera de
+los dos pasos deja el mismo resultado. Al cerrar el evento, las fichas finales pasan a <code>event_entries</code> y las
+claves se borran.</p>
+
+<h2>Migración desde el prototipo 1 (T2-03)</h2>
+<ul>
+  <li><code>users</code>, sin <code>balance</code> ni <code>points</code>, queda en PostgreSQL Usuarios.</li>
+  <li>Cada saldo pasa a <code>wallets</code> sin perder ningún token.</li>
+  <li>Lo hace <code>scripts/migrar-p1.sh</code>, que compara usuarios y tokens a ambos lados y falla si no coinciden. El historial del prototipo 1 (<code>bets</code>, <code>ledger_entries</code>) no se migra: sus apuestas apuntan a mercados de MongoDB, que no existen como filas de <code>markets</code>.</li>
+  <li>La base de Pagos queda con <code>wallets</code>, <code>events</code>, <code>event_entries</code>, <code>markets</code>, <code>bets</code> (con único user_id + market_id) y <code>ledger_entries</code> sin <code>points_delta</code>.</li>
+</ul>
+
+<h2>Decisiones de T2-03</h2>
+<p>El documento del equipo no fija estos puntos. T2-03 los resolvió así:</p>
+<ul>
+  <li>Identificadores de <code>events</code> y <code>markets</code>: UUID, como <code>users</code> y <code>bets</code>. Fechas: TIMESTAMPTZ.</li>
+  <li>Tokens y fichas (<code>buy_in</code>, <code>pot</code>, <code>prize</code>, <code>payout</code>, <code>chips_*</code>, <code>initial_chips</code>): BIGINT. Los premios son tokens enteros y en el prototipo 1 nunca se usó float para dinero.</li>
+  <li><code>multiplier</code>: NUMERIC(6,2). <code>commission_pct</code>: NUMERIC(5,2), en por ciento.</li>
+  <li><code>markets.options</code>: JSONB, lista de <code>{"opcion", "multiplicador"}</code>.</li>
+  <li>Estados: VARCHAR con CHECK, como en el prototipo 1. <code>ledger_entries.status</code> sigue siendo <code>completed</code>.</li>
+  <li>El pago de una apuesta individual que acierta es monto × multiplicador truncado a tokens enteros.</li>
+  <li>Las columnas de resultado de <code>event_entries</code>, <code>ended_at</code>, <code>bets.lap</code> y <code>bets.payout</code> son nulas hasta que se conocen.</li>
+</ul>
+<h3>Sigue abierto</h3>
+<ul>
+  <li>Si <code>opens_at</code> y <code>closes_at</code> son hora real o tiempo de carrera, y cómo se relacionan con <code>race_close_s</code> (HU2-07, HU2-08).</li>
+  <li>RF-25 pide el equivalente en COP de lo comprado, pero no hay columna en COP: se calcularía con la tasa configurada.</li>
+  <li>Dónde queda la comisión y el residuo del reparto: no hay columna para ninguno de los dos. Se proponía que los puestos del podio sin jugadores elegibles vayan a la casa (pregunta abierta 4).</li>
+</ul>
+
+</body>
+</html>
