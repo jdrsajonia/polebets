@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Diagrama modelo de datos P2</title>
+<!--
+  Fuente del diagrama documentation/modelo-datos-p2.png.
+  Regenerar (desde la raíz del repo, con Chrome):
+    chrome --headless=new --hide-scrollbars --window-size=2980,1700 --virtual-time-budget=3000 \
+      --screenshot=documentation/modelo-datos-p2.png documentation/fuentes/modelo-datos-p2-diagrama.html
+-->
+<style>
+  :root { --azul: #0b5cad; --linea: #0b5cad; --gris: #6b7280; --borde: #d5d9e0; }
+  * { box-sizing: border-box; }
+  body { margin: 0; width: 2980px; height: 1700px; background: #fff; font-family: "Segoe UI", system-ui, sans-serif; color: #1f2328; position: relative; overflow: hidden; }
+  h1 { position: absolute; left: 60px; top: 40px; margin: 0; font-size: 46px; font-weight: 700; }
+  .sub { position: absolute; left: 62px; top: 108px; font-size: 26px; color: #555; }
+  .marco { position: absolute; border: 2px dashed #b8c2d0; border-radius: 18px; }
+  .marco .rot { position: absolute; left: 22px; top: 12px; font-size: 22px; font-weight: 600; color: #4b5563; }
+  .card { position: absolute; background: #fff; border: 2px solid var(--borde); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
+  .card .hd { background: var(--azul); color: #fff; font-size: 28px; font-weight: 700; height: 58px; line-height: 58px; padding: 0 26px; }
+  .row { height: 44px; display: flex; align-items: center; border-top: 1px solid #e6e9ee; padding: 0 20px 0 14px; }
+  .row:first-of-type { border-top: 0; }
+  .bd { width: 100px; flex: none; display: flex; gap: 6px; }
+  .b { font-size: 15px; font-weight: 700; padding: 3px 9px; border-radius: 6px; }
+  .pk { background: #fdf0c8; color: #8a5a00; }
+  .fk { background: #e3effc; color: #0b5cad; }
+  .uk { background: #ece6fb; color: #5b3fb0; }
+  .nm { font-size: 22px; flex: none; }
+  .ty { margin-left: auto; font-size: 18px; color: #555; text-align: right; white-space: nowrap; }
+  .nota { font-size: 16px; color: #555; padding: 0 20px; height: 40px; line-height: 40px; background: #f6f7f9; border-top: 1px solid #e6e9ee; }
+  svg { position: absolute; left: 0; top: 0; }
+  .lbl { font-size: 19px; fill: #444; }
+  .card-n { font-size: 24px; font-weight: 700; fill: var(--linea); }
+  .leyenda { position: absolute; left: 0; right: 0; top: 1630px; text-align: center; font-size: 22px; color: #444; }
+  .leyenda .b { font-size: 19px; margin: 0 6px 0 18px; }
+</style>
+</head>
+<body>
+<h1>Modelo de datos — Prototipo 2</h1>
+<div class="sub">ArquiSoft · Prototipo 2 · PostgreSQL Usuarios y PostgreSQL Pagos</div>
+<div id="lienzo"></div>
+<div class="leyenda">
+  <span class="b pk">PK</span>llave primaria
+  <span class="b fk">FK</span>llave foránea
+  <span class="b uk">UK</span>valor único
+  &nbsp;·&nbsp; línea punteada = relación opcional &nbsp;·&nbsp; «sin FK» = uuid de otra base, sin restricción
+</div>
+<script>
+const W = 600, HD = 58, RH = 44, NOTA = 40;
+const X0 = 60, C1 = 780, C2 = C1 + W + 170, C3 = C2 + W + 170;
+const YA = 250, YB = 890;
+
+// [nombre, badges, texto derecho]. Tipos: solo los que vienen del P1 o del documento del P2.
+const tablas = {
+  users: { x: X0, y: YA, filas: [
+    ["id", ["pk"], "uuid"], ["email", ["uk"], "varchar"], ["name", [], "varchar"],
+    ["password_hash", [], "varchar"], ["role", [], "player | admin"], ["created_at", [], "timestamptz"]] },
+  event_entries: { x: C1, y: YA, filas: [
+    ["event_id", ["pk", "fk"], "→ events"], ["user_id", ["pk"], "uuid (sin FK)"], ["chips_final", [], "bigint"],
+    ["chips_wagered", [], "bigint"], ["position_final", [], "integer"], ["prize", [], "bigint"], ["eligible", [], "boolean"]],
+    nota: "PK compuesta (event_id, user_id)" },
+  events: { x: C2, y: YA, filas: [
+    ["id", ["pk"], "uuid"], ["race_key", [], "varchar (carrera en MongoDB)"],
+    ["status", [], "programado|en_curso|finalizado"], ["starts_at", [], "timestamptz"], ["ended_at", [], "timestamptz"],
+    ["buy_in", [], "bigint > 0"], ["initial_chips", [], "bigint > 0"], ["commission_pct", [], "numeric(5,2)"], ["pot", [], "bigint ≥ 0"],
+    ["tournament_status", [], "abierto|activo|cancelado|repartido"]] },
+  markets: { x: C3, y: YA, filas: [
+    ["id", ["pk"], "uuid"], ["event_id", ["fk"], "→ events"], ["kind", [], "estatica | dinamica"],
+    ["template", [], "varchar"], ["question", [], "varchar"], ["options", [], "jsonb (opción + multiplicador)"],
+    ["opens_at", [], "timestamptz"], ["closes_at", [], "timestamptz"], ["race_close_s", [], "integer (segundo de carrera)"],
+    ["status", [], "programado|abierto|cerrado|liquidado"], ["winning_option", [], "varchar"]] },
+  wallets: { x: C1, y: YB, filas: [
+    ["user_id", ["pk"], "uuid (sin FK)"], ["balance", [], "bigint ≥ 0"], ["updated_at", [], "timestamptz"]] },
+  ledger_entries: { x: C2, y: YB, filas: [
+    ["id", ["pk"], "bigserial"], ["user_id", [], "uuid (sin FK)"], ["bet_id", ["fk"], "→ bets (nulo en compras)"],
+    ["event_id", ["fk"], "→ events (nulo si no aplica)"], ["type", [], "purchase|debit|settle|buy_in|refund|prize"],
+    ["tokens_delta", [], "bigint"], ["status", [], "varchar"], ["idempotency_key", ["uk"], "varchar"],
+    ["created_at", [], "timestamptz"]] },
+  bets: { x: C3, y: YB, filas: [
+    ["id", ["pk"], "uuid (motor)"], ["user_id", ["uk"], "uuid (sin FK)"], ["market_id", ["fk", "uk"], "→ markets"],
+    ["event_id", ["fk"], "→ events"], ["mode", [], "individual | torneo"], ["option", [], "varchar"],
+    ["amount", [], "bigint > 0 (tokens o fichas)"], ["multiplier", [], "numeric(6,2) > 0"], ["lap", [], "integer"],
+    ["status", [], "pending|won|lost"], ["payout", [], "bigint"], ["created_at", [], "timestamptz"]],
+    nota: "UK compuesta (user_id, market_id)" },
+};
+
+const lienzo = document.getElementById("lienzo");
+const geo = {};
+for (const [nombre, t] of Object.entries(tablas)) {
+  const h = HD + t.filas.length * RH + (t.nota ? NOTA : 0);
+  geo[nombre] = { x: t.x, y: t.y, w: W, h, fila: i => t.y + HD + i * RH + RH / 2 };
+  const c = document.createElement("div");
+  c.className = "card";
+  Object.assign(c.style, { left: t.x + "px", top: t.y + "px", width: W + "px", height: h + "px" });
+  c.innerHTML = `<div class="hd">${nombre}</div>` + t.filas.map(([n, bs, ty]) =>
+    `<div class="row"><div class="bd">${bs.map(b => `<span class="b ${b}">${b.toUpperCase()}</span>`).join("")}</div>` +
+    `<div class="nm">${n}</div><div class="ty">${ty}</div></div>`).join("") +
+    (t.nota ? `<div class="nota">${t.nota}</div>` : "");
+  lienzo.appendChild(c);
+}
+
+// Marcos de cada base
+function marco(x, y, w, h, rot) {
+  const m = document.createElement("div");
+  m.className = "marco";
+  Object.assign(m.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+  m.innerHTML = `<div class="rot">${rot}</div>`;
+  lienzo.prepend(m);
+}
+const fondoPagos = Math.max(...["wallets", "ledger_entries", "bets"].map(n => geo[n].y + geo[n].h)) + 40;
+marco(X0 - 30, YA - 60, W + 60, geo.users.h + 100, "PostgreSQL Usuarios");
+marco(C1 - 30, YA - 60, C3 + W + 30 - (C1 - 30), fondoPagos - (YA - 60), "PostgreSQL Pagos");
+
+// Relaciones
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.createElementNS(NS, "svg");
+svg.setAttribute("width", 2980); svg.setAttribute("height", 1700);
+document.body.appendChild(svg);
+function el(tag, attrs, texto) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (texto) e.textContent = texto;
+  svg.appendChild(e);
+  return e;
+}
+function linea(puntos, punteada, color) {
+  el("polyline", { points: puntos.map(p => p.join(",")).join(" "), fill: "none",
+    stroke: color || "var(--linea)", "stroke-width": 3, "stroke-dasharray": punteada ? "12 8" : "" });
+}
+function txt(x, y, t, clase, anchor) { el("text", { x, y, class: clase || "lbl", "text-anchor": anchor || "start" }, t); }
+
+const ev = geo.events, ee = geo.event_entries, mk = geo.markets, bt = geo.bets, lg = geo.ledger_entries;
+
+// events 1 — N event_entries
+let y = ev.fila(0);
+linea([[ev.x, y], [ee.x + W, y]]);
+txt(ev.x - 14, y - 12, "1", "card-n", "end"); txt(ee.x + W + 14, y - 12, "N", "card-n");
+txt((ev.x + ee.x + W) / 2, y + 30, "tiene inscritos", "lbl", "middle");
+
+// events 1 — N markets
+y = mk.fila(1);
+linea([[ev.x + W, y], [mk.x, y]]);
+txt(ev.x + W + 14, y - 12, "1", "card-n"); txt(mk.x - 14, y - 12, "N", "card-n", "end");
+txt((ev.x + W + mk.x) / 2, y + 30, "abre mercados", "lbl", "middle");
+
+// markets 1 — N bets
+let x = mk.x + W / 2;
+linea([[x, mk.y + mk.h], [x, bt.y]]);
+txt(x + 14, mk.y + mk.h + 30, "1", "card-n"); txt(x + 14, bt.y - 12, "N", "card-n");
+txt(x + 44, (mk.y + mk.h + bt.y) / 2 + 8, "recibe apuestas");
+
+// events 1 — N bets (por el corredor entre events y markets)
+const corredor = ev.x + W + 85, ySal = ev.y + ev.h - 60, yEnt = bt.fila(3);
+linea([[ev.x + W, ySal], [corredor, ySal], [corredor, yEnt], [bt.x, yEnt]]);
+txt(ev.x + W + 14, ySal - 12, "1", "card-n"); txt(bt.x - 14, yEnt - 12, "N", "card-n", "end");
+txt(corredor - 12, (ev.y + ev.h + lg.y) / 2 - 4, "apuestas", "lbl", "end");
+txt(corredor - 12, (ev.y + ev.h + lg.y) / 2 + 22, "del evento", "lbl", "end");
+
+// events 0..1 — N ledger_entries
+x = ev.x + W / 2;
+linea([[x, ev.y + ev.h], [x, lg.y]], true);
+txt(x + 14, ev.y + ev.h + 30, "0..1", "card-n"); txt(x + 14, lg.y - 12, "N", "card-n");
+txt(x - 20, (ev.y + ev.h + lg.y) / 2 + 8, "nulo si no aplica", "lbl", "end");
+
+// bets 0..1 — N ledger_entries (debajo de la entrada de events → bets)
+y = lg.fila(7);
+linea([[bt.x, y], [lg.x + W, y]], true);
+txt(bt.x - 14, y - 12, "0..1", "card-n", "end"); txt(lg.x + W + 14, y - 12, "N", "card-n");
+txt((bt.x + lg.x + W) / 2, y + 32, "origina", "lbl", "middle");
+txt((bt.x + lg.x + W) / 2, y + 56, "(nulo en compras)", "lbl", "middle");
+
+// users ⇢ Pagos: referencia por valor, sin llave foránea
+const us = geo.users;
+y = us.fila(0);
+linea([[us.x + W, y], [C1 - 30, y]], true, "#9aa3af");
+const notaY = us.y + us.h + 90;
+const n = ["En Pagos, user_id (wallets, event_entries,", "bets y ledger_entries) guarda este id", "sin llave foránea: users vive en otra base."];
+n.forEach((l, i) => txt(X0, notaY + i * 28, l));
+</script>
+</body>
+</html>
