@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arquisoft/motor/internal/apostar"
 	"github.com/arquisoft/motor/internal/apuestas"
 	"github.com/arquisoft/motor/internal/auth"
 	"github.com/arquisoft/motor/internal/config"
@@ -66,7 +67,9 @@ func main() {
 	mux := http.NewServeMux()
 	health.Register(mux, db)
 	ws.Register(mux, hub, autenticador, origenes.Permite)
-	pagos := registrarApuestas(mux, db, cfg, autenticador)  // HU-06
+	pagos := registrarApuestas(mux, db, cfg, autenticador) // HU-06 (P1; la reemplaza HU2-09)
+	// HU2-09: POST /internal/apuestas, la llama el Orquestador.
+	apostar.Register(mux, apostar.NuevoServicio(apostar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken), cfg.MaxApuestaIndividual), cfg.InternalAPIToken)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
 	worker := liquidacion.NuevoWorker(liquidacion.NuevoMongoStore(db.DB), pagos, hub)
