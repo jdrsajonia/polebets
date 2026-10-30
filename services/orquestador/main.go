@@ -6,6 +6,7 @@
 // documentation/orquestador-api.md.
 //
 //   - GET /health : healthcheck (sin sesion; no consulta a otros servicios)
+//   - POST /apuestas : apuesta individual o de torneo (HU2-09)
 package main
 
 import (
@@ -18,8 +19,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arquisoft/orquestador/internal/apuesta"
 	"github.com/arquisoft/orquestador/internal/config"
 	"github.com/arquisoft/orquestador/internal/health"
+	"github.com/arquisoft/orquestador/internal/interno"
 	"github.com/arquisoft/orquestador/internal/traza"
 )
 
@@ -32,8 +35,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	motor := interno.Nuevo(cfg.MotorBaseURL, cfg.InternalAPIToken)
+
 	mux := http.NewServeMux()
 	health.Register(mux)
+	apuesta.Register(mux, motor) // HU2-09: POST /apuestas
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
