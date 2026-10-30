@@ -1,14 +1,14 @@
-"""Logica de la billetera: compra de tokens simulada (HU-03, RF-03).
+"""Logica de la billetera: creacion (RF-01) y compra de tokens simulada (RF-05).
 
-Criterios que cubre:
+El saldo vive en wallets (T2-03), una fila por usuario. Criterios de la compra:
   - El pago se aprueba sin pasarela real y el monto en COP se convierte con
     la tasa fija COP_PER_TOKEN.
   - Montos <= 0 (o que no dan tokens enteros) se rechazan.
-  - Idempotencia (RNF-02): la misma Idempotency-Key acredita una sola vez,
+  - Idempotencia (RNF-12): la misma Idempotency-Key acredita una sola vez,
     aunque llegue dos veces a la vez.
-  - Transaccional (RNF-01): el movimiento del ledger y el saldo se guardan
+  - Transaccional (RNF-11): el movimiento del ledger y el saldo se guardan
     juntos o no se guarda nada.
-  - Ledger (RNF-10): cada compra queda con usuario, tipo, tokens, fecha y estado.
+  - Ledger (RNF-20): cada compra queda con usuario, tipo, tokens, fecha y estado.
 
 El saldo nunca se lee, se suma en Python y se escribe: se hace
 `balance = balance + x` en un solo UPDATE, asi dos compras simultaneas del
@@ -18,11 +18,12 @@ import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import LEDGER_COMPLETED, LEDGER_PURCHASE, LedgerEntry, User
+from app.models import LEDGER_COMPLETED, LEDGER_PURCHASE, LedgerEntry, Wallet
 
 # Tope por compra, para que nadie se acredite cantidades absurdas en la demo.
 MONTO_MAXIMO_COP = 10_000_000
@@ -34,6 +35,10 @@ class MontoInvalido(ValueError):
 
 class ClaveReutilizada(Exception):
     """La Idempotency-Key ya se uso para una compra distinta."""
+
+
+class BilleteraNoExiste(Exception):
+    """El usuario no tiene billetera (el registro la crea, RF-01)."""
 
 
 @dataclass
@@ -65,15 +70,30 @@ def tokens_por_monto(monto_cop: int) -> int:
 def clave_ledger(user_id: uuid.UUID, clave: str) -> str:
     """Clave que se guarda en ledger_entries.idempotency_key.
 
-    La columna es unica en toda la tabla y la comparten las compras y los
-    debitos del motor (HU-06). El prefijo evita que dos usuarios, o una compra
+    La columna es unica en toda la tabla y la comparten todos los movimientos
+    (compras, debitos, liquidaciones...). El prefijo evita que dos usuarios, o una compra
     y una apuesta, choquen por usar la misma clave.
     """
     return f"compra:{user_id}:{clave}"
 
 
-def saldo_de(db: Session, user_id: uuid.UUID) -> int:
-    return db.scalar(select(User.balance).where(User.id == user_id))
+def crear_billetera(db: Session, user_id: uuid.UUID) -> tuple[Wallet, bool]:
+    """Crea la billetera con saldo 0. Devuelve (billetera, nueva).
+
+    Idempotente: si ya existe no la toca, asi el Orquestador puede reintentar
+    el registro (HU2-01) sin riesgo. La llave primaria user_id decide, aunque
+    lleguen dos peticiones a la vez.
+    """
+    creada = db.execute(
+        insert(Wallet).values(user_id=user_id).on_conflict_do_nothing(index_elements=[Wallet.user_id]).returning(Wallet.user_id)
+    ).scalar_one_or_none()
+    db.commit()
+    return db.get(Wallet, user_id), creada is not None
+
+
+def saldo_de(db: Session, user_id: uuid.UUID) -> int | None:
+    """Saldo en tokens, o None si el usuario no tiene billetera."""
+    return db.scalar(select(Wallet.balance).where(Wallet.user_id == user_id))
 
 
 def _reenvio(db: Session, previo: LedgerEntry, user_id: uuid.UUID, tokens: int) -> ResultadoCompra:
@@ -116,8 +136,11 @@ def comprar_tokens(db: Session, user_id: uuid.UUID, monto_cop: int, clave: str) 
         return _reenvio(db, previo, user_id, tokens)
 
     saldo = db.execute(
-        update(User).where(User.id == user_id).values(balance=User.balance + tokens).returning(User.balance)
-    ).scalar_one()
+        update(Wallet).where(Wallet.user_id == user_id).values(balance=Wallet.balance + tokens).returning(Wallet.balance)
+    ).scalar_one_or_none()
+    if saldo is None:
+        db.rollback()
+        raise BilleteraNoExiste()
     db.commit()
     db.refresh(movimiento)  # trae created_at, que lo pone Postgres
     return ResultadoCompra(movimiento=movimiento, saldo=saldo, nueva=True)

@@ -1,6 +1,6 @@
 # HU2-06 — Inscripción al torneo (parte Pagos)
 
-Parte de **Pagos** lista y alineada con el modelo de datos del P2 y con `documentation/orquestador-api.md` (§3.5). Faltan la ruta del **Orquestador** (`POST /api/eventos/{id}/inscripcion`), las fichas en **Redis** y el **Front**.
+Parte de **Pagos** lista sobre las tablas de T2-03 (`events`, `event_entries`, `wallets`, `ledger_entries`) y alineada con `documentation/orquestador-api.md` (§3.5). Faltan la ruta del **Orquestador** (`POST /api/eventos/{id}/inscripcion`), las fichas en **Redis** y el **Front**.
 
 ## Reglas (prototipo 2)
 
@@ -32,7 +32,7 @@ Todas exigen `X-Internal-Service-Token`.
 
 | Método y ruta | Quién | Respuestas |
 | --- | --- | --- |
-| `POST /internal/events` `{event_id, race_key, buy_in?, initial_chips?, commission_pct?}` | Quien arranque la simulación (HU2-07, Tomás: puede usarla o reemplazarla) | 201 creado · 200 ya existía igual · 409 mismo id con otra configuración |
+| `POST /internal/events` `{event_id (uuid), race_key, starts_at, buy_in?, initial_chips?, commission_pct?}` | Quien arranque la simulación (HU2-07, Tomás: puede usarla o reemplazarla) | 201 creado · 200 ya existía igual · 409 mismo id con otra configuración |
 | `GET /internal/events/{id}` | Todos | 200 `{status, tournament_status, buy_in, pot, registered, starts_at, …}` · 404 |
 | `POST /internal/events/{id}/registrations` `{user_id}` + `Idempotency-Key: event-entry:{id}:{user_id}` | Orquestador | 201 inscrito `{buy_in, initial_chips, pot, saldo}` · 200 ya inscrito (no cobra) · 400 clave inválida · 404 evento · 409 inscripciones cerradas · 422 saldo insuficiente |
 | `GET /internal/events/{id}/registrations/{user_id}` | Orquestador | 200 `{tournament_status, refunded}` · 404 no inscrito |
@@ -40,15 +40,18 @@ Todas exigen `X-Internal-Service-Token`.
 
 ## Datos (PostgreSQL de Pagos)
 
-- `events`: id, race_key, status, tournament_status, buy_in, initial_chips, commission_pct, pot, created_at, starts_at, ended_at.
-- `event_entries`: **PK (event_id, user_id)**, created_at y, vacías hasta HU2-12: chips_final, chips_wagered, position_final, prize, eligible. `user_id` sin llave foránea (users vive en otra base en el P2).
-- `ledger_entries`: tipos nuevos `buy_in` y `refund`, y columna `event_id`.
+Las tablas las definió T2-03 (Juan Diego, `app/models.py`); esta HU solo las usa:
+
+- `events`: id (uuid), race_key, status, tournament_status, starts_at (largada programada), ended_at, buy_in, initial_chips, commission_pct, pot.
+- `event_entries`: **PK (event_id, user_id)**; chips_final, chips_wagered, position_final, prize y eligible quedan vacías hasta HU2-12.
+- `wallets`: el saldo de PoleCoins que se descuenta y se devuelve.
+- `ledger_entries`: movimientos `buy_in` y `refund`, con `event_id`.
 
 Concurrencia: inscribir y largar bloquean la fila del evento (`SELECT … FOR UPDATE`), así nunca se cruzan y el botín no pierde sumas.
 
 ## Notas para el equipo
 
-- **Juan Diego (T2-03):** el saldo solo se toca en `_debitar_saldo` y `_acreditar_saldo` (`app/services/eventos.py`); al pasar a `wallets` solo cambian esas dos funciones. `min_players` y `min_wager_pct` quedaron en configuración porque no están en el modelo; si se agregan al documento, se pasan a columnas de `events`.
+- **Juan Diego (T2-03):** uso tus tablas sin cambiarlas; el saldo sale de `wallets`. `min_players` y `min_wager_pct` quedaron en configuración porque no están en el modelo; si se agregan al documento, se pasan a columnas de `events`.
 - **Tomás (HU2-07):** `POST /internal/events` ya existe; úsala o reemplázala al crear el evento automáticamente.
 - **Guillermo (HU2-11/12):** las fichas viven en Redis; `players` de la largada dice a quién crearle `initial_chips`. Para el reparto: `events.pot`, `events.commission_pct`, `EVENT_MIN_WAGER_PCT` y las columnas de `event_entries`.
 - Cambian tablas y restricciones: hay que recrear la base con `docker compose down -v`.

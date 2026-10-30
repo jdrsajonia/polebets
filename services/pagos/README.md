@@ -1,127 +1,92 @@
-# Pagos y usuarios (FastAPI + PostgreSQL)
+# Pagos (FastAPI + PostgreSQL Pagos)
 
-Servicio dueño de PostgreSQL: usuarios, saldos en tokens, apuestas y ledger.
-Modelo de datos: `documentation/modelo-datos-pagos.pdf`.
+Servicio dueño de PostgreSQL Pagos: billeteras, eventos, inscripciones,
+mercados, apuestas y ledger. Desde el prototipo 2 no recibe tráfico del
+navegador: lo llaman el Orquestador y el Motor por las rutas `/internal/*`.
+Las cuentas, el login y el JWT viven en Usuarios.
+
+Modelo de datos: `documentation/modelo-datos-p2.pdf` (el del prototipo 1 queda
+en `documentation/modelo-datos-pagos-p1.pdf`).
 
 ## Estructura
 
 ```
 app/
-├── main.py          # crea la app: CORS, lifespan (espera BD + crea tablas), routers
-├── core/config.py   # variables de entorno (Settings)
-├── core/security.py # hash de contraseñas (bcrypt) y JWT de sesión
-├── core/session.py  # cómo se escribe y se borra la cookie de sesión
-├── db.py            # engine, SessionLocal, get_db, wait_for_db, init_db
-├── deps.py          # DbSession, CurrentUser, AdminUser para los routers
-├── models.py        # tablas users, bets, ledger_entries
-├── cli.py           # herramienta de desarrollo: crear usuarios de prueba
-├── schemas/         # modelos Pydantic de entrada/salida
-├── routers/         # endpoints REST (registrar cada router en routers/__init__.py)
-└── services/        # lógica de negocio (registro, compra, débito, liquidación)
-tests/               # pytest
+├── main.py               # crea la app: lifespan (espera BD + crea tablas), routers
+├── core/config.py        # variables de entorno (Settings)
+├── core/internal_auth.py # comparación del token de servicio
+├── db.py                 # engine, SessionLocal, get_db, wait_for_db, init_db
+├── deps.py               # DbSession, ServicioInterno
+├── models.py             # wallets, events, event_entries, markets, bets, ledger_entries
+├── schemas/              # modelos Pydantic de entrada/salida
+├── routers/              # endpoints REST (registrar cada router en routers/__init__.py)
+└── services/             # lógica de negocio (billetera, débito, liquidación)
+tests/                    # pytest
 ```
 
 ## Cómo agregar una HU
 
 1. Esquemas en `app/schemas/<tema>.py`.
 2. Lógica en `app/services/<tema>.py` (recibe la `Session`).
-3. Endpoints en `app/routers/<tema>.py` con `router = APIRouter(prefix="/<tema>", tags=["<tema>"])`.
+3. Endpoints en `app/routers/<tema>.py` con
+   `router = APIRouter(prefix="/internal/<tema>", dependencies=[ServicioInterno])`.
 4. Agregar el router a `ROUTERS` en `app/routers/__init__.py`.
 
-Para exigir sesión: `def endpoint(user: CurrentUser, db: DbSession)`.
-Solo jugador (comprar tokens, apostar): `def endpoint(user: PlayerUser)`. El admin recibe 403 (HU-12).
-Solo admin: `def endpoint(admin: AdminUser)`.
+Todas las rutas `/internal/*` exigen el header `X-Internal-Service-Token`,
+igual a `INTERNAL_API_TOKEN` (mínimo 32 caracteres; sin él el servicio no
+arranca). Sin token o con uno distinto: 401. El rol del jugador no se valida
+aquí: lo valida el Orquestador con `X-User-Rol`.
 
-## Sesión (HU-02)
-
-| Endpoint | Qué hace | Respuestas |
-| --- | --- | --- |
-| `POST /auth/login` | Body `{"email", "password"}`. Valida y pone la cookie `session` con el JWT | 200 `{id, nombre, email, rol}` · 401 «Correo o contraseña incorrectos» · 422 cuerpo incompleto |
-| `POST /auth/logout` | Borra la cookie. No exige sesión | 204 |
-| `GET /auth/me` | Usuario de la cookie (el front lo llama al cargar) | 200 `{id, nombre, email, rol}` · 401 sin sesión o vencida |
-
-- El JWT **solo** viaja en la cookie (`HttpOnly`, `SameSite=Lax`, `Max-Age` = vida del token). Nunca en el cuerpo.
-- El correo se compara sin mayúsculas ni espacios. **HU-01:** guardar el correo con `normalizar_email()` de `app/services/auth.py`.
-- El login está detrás de la interfaz `ProveedorIdentidad` (`app/services/auth.py`). Para migrar a OAuth se agrega otro proveedor y se cambia `get_proveedor_identidad()`; el JWT y el motor no cambian.
-- Probar a mano: http://localhost:8000/docs → `POST /auth/login` → `GET /auth/me`.
-
-### Usuarios de prueba (solo desarrollo)
-
-Mientras no existan el registro (HU-01) ni el admin automático (HU-12):
-
-```bash
-docker compose exec pagos python -m app.cli crear-usuario --email ana@arqui.local --nombre "Ana Pérez" --password clave123
-docker compose exec pagos python -m app.cli crear-usuario --email admin@arqui.local --nombre Admin --password admin1234 --admin
-```
-
-## Billetera (HU-03)
-
-Solo jugadores: el admin recibe 403 (HU-12); sin sesión, 401.
+## Billetera (T2-03)
 
 | Endpoint | Qué hace | Respuestas |
 | --- | --- | --- |
-| `GET /billetera` | Saldo del jugador y tasa de conversión | 200 `{saldo, cop_por_token}` |
-| `POST /billetera/compras` | Body `{"monto_cop"}` + header `Idempotency-Key`. Pago simulado (siempre aprobado), convierte con `COP_PER_TOKEN` y acredita | 201 `{compra_id, tokens_acreditados, saldo, creada_en}` · 200 reenvío de la misma clave (no acredita de nuevo) · 400 sin `Idempotency-Key` · 409 misma clave con otro monto · 422 monto ≤ 0, no múltiplo de la tasa o mayor a $10.000.000 |
+| `POST /internal/wallets` | Body `{"user_id"}` + `Idempotency-Key: wallet:{user_id}`. Crea la billetera con saldo 0 (registro, HU2-01) | 201 `{user_id, balance, cop_por_token}` · 200 ya existía (no la toca) · 400 clave distinta de `wallet:{user_id}` |
+| `GET /internal/wallets/{user_id}` | Saldo y tasa | 200 `{user_id, balance, cop_por_token}` · 404 sin billetera |
 
-- Ledger + saldo en una sola transacción (RNF-01). El saldo se suma con `balance = balance + x` en un solo `UPDATE`, así dos compras simultáneas no se pisan.
-- Idempotencia (RNF-02): la clave se guarda como `compra:<user_id>:<clave>` en `ledger_entries.idempotency_key` (única). Si llegan dos peticiones con la misma clave a la vez, la restricción única decide y la segunda responde como reenvío.
-- La lógica está en `app/services/billetera.py` para que el débito de apuestas (HU-06) reutilice el mismo patrón.
+- La llave primaria `wallets.user_id` hace la creación idempotente, aunque
+  lleguen dos peticiones a la vez (`INSERT … ON CONFLICT DO NOTHING`).
+- `user_id` no es llave foránea: `users` está en otra base.
+- La lógica de compra (`comprar_tokens` en `app/services/billetera.py`) ya
+  acredita en `wallets`; su endpoint `POST /internal/purchases` es HU2-04.
 
-> **Si `POST /billetera/compras` responde 500 con `column ledger_entries.bet_id does not exist`:** tu Postgres tiene tablas de una versión borrador del modelo (`create_all` no actualiza tablas existentes). Si `ledger_entries` y `bets` están vacías, bórralas y reinicia Pagos para que se creen bien:
-> ```
-> docker compose exec postgres psql -U arqui -d arqui_pagos -c "DROP TABLE ledger_entries, bets;"
-> docker compose restart pagos
-> ```
-> (`arqui` / `arqui_pagos` son `POSTGRES_USER` / `POSTGRES_DB` de tu `.env`.)
-
-## Operaciones internas de apuestas (HU-06/HU-07)
-
-Las rutas internas requieren `X-Internal-Service-Token`, comparado con
-`INTERNAL_API_TOKEN`, y `Idempotency-Key`. El token debe tener al menos 32
-caracteres aleatorios y configurarse de forma idéntica en Motor y Pagos; el
-servicio no arranca si falta o es demasiado corto.
+## Apuestas individuales (Motor → Pagos)
 
 | Endpoint | Entrada | Respuestas |
 | --- | --- | --- |
-| `POST /internal/debit` | `{bet_id, user_id, market_id, option, amount, idempotency_key}` | 201 apuesta nueva · 200 reenvío idéntico · 400 clave inválida · 401 token inválido · 404 usuario inexistente · 409 contenido distinto para el ID/clave · 422 saldo insuficiente o cuerpo inválido |
-| `POST /internal/settlements` | `{bet_id, result: "won"\|"lost", points, idempotency_key}` | 201 liquidación nueva · 200 reenvío idéntico · 400 clave inválida · 401 token inválido · 404 apuesta inexistente · 409 resultado/clave incompatible · 422 puntos inválidos |
+| `POST /internal/debit` | `{bet_id, user_id, market_id, option, amount, multiplier, lap, idempotency_key}` + `Idempotency-Key: bet-debit:{bet_id}` | 201 `{bet_id, event_id, status, saldo, nueva}` · 200 reenvío idéntico · 400 clave inválida · 404 billetera o mercado inexistente · 409 contenido distinto para el ID/clave, o ya apostó en ese mercado · 422 saldo insuficiente |
+| `POST /internal/settlements` | `{bet_id, result: "won"\|"lost", idempotency_key}` + `Idempotency-Key: bet-settlement:{bet_id}` | 201 `{bet_id, status, payout, saldo, nueva}` · 200 reenvío idéntico · 400 clave inválida · 404 apuesta inexistente · 409 ya liquidada con otro resultado · 422 apuesta de torneo |
 
-El débito crea la apuesta, reduce el saldo de tokens y registra
-`bet_debit` en una transacción PostgreSQL. La liquidación bloquea la apuesta,
-verifica la fórmula, cambia su estado, actualiza los puntos y registra
-`bet_settlement` (tokens delta cero) en una sola transacción. Una misma clave
-y contenido devuelven el movimiento existente; otro contenido se rechaza.
-MongoDB y PostgreSQL no comparten una transacción: Motor conserva un lease y
-reintenta con una clave estable si no puede persistir la respuesta local.
-
-El detalle del alcance, la resolución de datos y la discrepancia de transporte
-REST/WebSockets está en
-[`../../documentation/hu-07-liquidacion-apuestas.md`](../../documentation/hu-07-liquidacion-apuestas.md).
-
-## Contrato de sesión con el motor (Go)
-
-Debe coincidir con `services/motor/internal/auth/contrato.go`:
-
-| Qué | Valor |
-| --- | --- |
-| Algoritmo | HS256 con `JWT_SECRET` (compartido) |
-| Cookie | `session`, HttpOnly |
-| Claims | `sub` = UUID del usuario, `rol` = `player` \| `admin`, `exp` obligatorio |
-
-Emitir el token: `create_access_token(user.id, user.role)` en `app/core/security.py` (ya lo hace `/auth/login`).
+- El débito descuenta de `wallets`, crea la apuesta (`mode = individual`,
+  `event_id` del mercado) y escribe `debit` en el ledger en una transacción
+  (RNF-11). El `UPDATE` atómico `balance >= monto` impide que dos apuestas
+  simultáneas gasten el mismo saldo.
+- `market_id` es un `markets.id`: el mercado tiene que existir en Pagos.
+- Una sola apuesta por usuario y mercado: restricción única `(user_id, market_id)`.
+- La liquidación paga monto × multiplicador si acertó (incluye lo apostado,
+  RF-14), truncado a tokens enteros, y escribe `settle`. Si falló escribe
+  `settle` con 0 tokens: la clave única impide liquidar dos veces.
+- Las apuestas de torneo no pasan por aquí: se pagan en fichas (Redis).
 
 ## Correr
 
-Con todo el sistema: `docker compose up --build` desde la raíz → http://localhost:8000/docs
+Con todo el sistema: `docker compose up --build` desde la raíz. Pagos no
+publica puerto; se prueba desde otro contenedor de la red `interna` o con las
+pruebas.
 
-Pruebas (necesitan Python 3.12+ y el Postgres del compose):
+Pruebas (Python 3.12+). El PostgreSQL del compose no publica su puerto, así
+que se usa uno aparte:
 
 ```bash
-docker compose up -d postgres   # el puerto 5432 no está publicado por defecto, ver nota
+docker run -d --name pg-pruebas -e POSTGRES_USER=arqui -e POSTGRES_PASSWORD=arqui_pass \
+    -e POSTGRES_DB=pagos_db -p 55432:5432 postgres:17-alpine
 cd services/pagos
 pip install -r requirements-dev.txt
-pytest
+DATABASE_URL=postgresql+psycopg://arqui:arqui_pass@localhost:55432/pagos_db pytest
 ```
 
-Nota: el compose no publica el puerto 5432 de Postgres al host. Sin Postgres
-accesible, las pruebas que tocan la BD se saltan y solo corren las de seguridad.
+Sin PostgreSQL accesible, las pruebas que tocan la BD se saltan.
+
+> **`create_all` no modifica tablas existentes.** Si tu volumen tiene tablas de
+> una versión anterior del modelo, recréalo con `docker compose down -v`. Para
+> traer las cuentas y saldos del prototipo 1, ver `scripts/migrar-p1.sh`.

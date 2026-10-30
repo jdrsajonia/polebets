@@ -14,7 +14,7 @@
 #     gateway        STUB  (Nginx)        -> T2-01  Tomás
 #     front          REAL  (React+Nginx)  -> ya existía (P1); SSR es HU2-03 Misael
 #     orquestador    REAL  (Go)           -> T2-02  Daniel (PR en revisión)
-#     usuarios       STUB  (FastAPI)      -> HU2-01/02/03 Misael
+#     usuarios       STUB  (FastAPI)      -> tabla users lista (T2-03); rutas HU2-01/02/03 Misael
 #     pagos          REAL  (FastAPI)      -> ya existía; dueño de PG Pagos
 #     pagos-consumer REAL  (misma imagen de pagos, comando placeholder) -> HU2-18 consumidor AMQP
 #     motor          REAL  (Go)           -> ya existía; lee Mongo, escribe Redis
@@ -222,7 +222,8 @@ services:
     networks:
       - interna
 
-  # Usuarios — STUB (HU2-01/02/03, Misael). Dueño de PG Usuarios.
+  # Usuarios — STUB (HU2-01/02/03, Misael). Dueño de PG Usuarios; ya crea la
+  # tabla users al arrancar (T2-03).
   usuarios:
     build:
       context: ./services/usuarios
@@ -247,8 +248,8 @@ services:
       - interna
       - datos_usuarios
 
-  # Pagos — REAL. Dueño de PG Pagos. (Hoy apunta a postgres-pagos; la migración
-  # de tablas nuevas es T2-03, Juan Diego.)
+  # Pagos — REAL. Dueño de PG Pagos (tablas del P2, T2-03). Solo rutas
+  # /internal/*: lo llaman el Orquestador y el Motor, nunca el navegador.
   pagos:
     build:
       context: ./services/pagos
@@ -256,14 +257,8 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${PAGOS_DB_USER}:${PAGOS_DB_PASSWORD}@postgres-pagos:5432/${PAGOS_DB_NAME}
-      JWT_SECRET: ${JWT_SECRET}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
-      JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
       COP_PER_TOKEN: ${COP_PER_TOKEN}
-      ADMIN_EMAIL: ${ADMIN_EMAIL}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      ADMIN_NAME: ${ADMIN_NAME}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
     depends_on:
       postgres-pagos:
         condition: service_healthy

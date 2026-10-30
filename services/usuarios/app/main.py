@@ -1,10 +1,7 @@
-"""Usuarios — STUB base (T2-04).
+"""Usuarios — base del servicio (T2-04, T2-03).
 
-Esqueleto mínimo del servicio Usuarios (HU2-01/HU2-02, Misael). Solo responde
-/health para que el contenedor arranque y el resto del equipo pueda levantar
-todo el stack con `docker compose up` desde ya.
-
-Qué va aquí cuando se implemente el servicio real:
+Hoy trae la base de datos (tabla users en PostgreSQL Usuarios, T2-03) y
+/health. Las rutas son de HU2-01/HU2-02/HU2-03 (Misael):
   - Cuentas, contraseñas (bcrypt/Argon2), roles y emisión del JWT (HU2-02).
   - POST /auth/login, POST /auth/logout.
   - GET /internal/auth (subpetición auth_request del Gateway, T2-01).
@@ -12,11 +9,33 @@ Qué va aquí cuando se implemente el servicio real:
 
 Puerto interno: 8001 (ver documentation/orquestador-api.md, USUARIOS_BASE_URL).
 """
-from fastapi import FastAPI
+import logging
+from contextlib import asynccontextmanager
 
-app = FastAPI(title="Usuarios (stub)")
+from fastapi import FastAPI, Response, status
+
+from app.db import init_db, ping_db, wait_for_db
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger("usuarios")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Al arrancar: esperar a PostgreSQL y crear las tablas que falten.
+    wait_for_db()
+    init_db()
+    logger.info("Usuarios listo.")
+    yield
+
+
+app = FastAPI(title="Usuarios", lifespan=lifespan)
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    return {"estado": "ok", "servicio": "usuarios", "nota": "stub T2-04"}
+def health(response: Response) -> dict[str, str | bool]:
+    """200 si el servicio y PostgreSQL responden; 503 si la BD no responde."""
+    db_ok = ping_db()
+    if not db_ok:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return {"service": "usuarios", "status": "ok" if db_ok else "degraded", "postgres": db_ok}

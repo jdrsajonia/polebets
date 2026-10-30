@@ -1,4 +1,4 @@
-# Usuarios — STUB base (T2-04). Mismo patrón que services/pagos.
+# Usuarios (T2-04, T2-03). Mismo patrón que services/pagos.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

@@ -91,8 +91,8 @@ docker compose down -v       # además borra los volúmenes de datos (BD)
 | `gateway`         | **stub** (responde `/health`) | T2-01 · Tomás |
 | `front`           | real (del P1; SSR pendiente)  | HU2-03 · Misael |
 | `orquestador`     | real (base del servicio)      | T2-02 · Daniel |
-| `usuarios`        | **stub**                      | HU2-01/02/03 · Misael |
-| `pagos`           | real                          | HU2-04/07… · Juan Diego |
+| `usuarios`        | **stub** (tabla `users` lista, T2-03) | HU2-01/02/03 · Misael |
+| `pagos`           | real (tablas del P2, T2-03)   | HU2-04/07… · Juan Diego |
 | `pagos-consumer`  | **stub** (placeholder AMQP)   | HU2-18 · Iván |
 | `motor`           | real                          | HU2-08/09… · Daniel/Michael |
 | `ingestor`        | **stub**                      | HU2-16/19 · Iván |
@@ -133,8 +133,22 @@ Todo se configura en `.env` (copiado de `.env.example`). Variables clave:
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` | Credenciales del admin inicial            |
 | `BETTING_WINDOW_SECONDS` / `OBSERVATION_WINDOW_SECONDS` | Ciclo del mercado (RF-10/13, RNF-19) |
 
+## Datos del prototipo 1 (T2-03)
+
+Usuarios y Pagos crean sus tablas al arrancar, vacías. Para traer las cuentas y
+los saldos del P1, con el stack del P2 arriba:
+
+```bash
+scripts/migrar-p1.sh   # P1_DB_NAME=<POSTGRES_DB del .env del P1> si no era apuestas_db
+```
+
+Copia `users` (sin `balance` ni `points`) a PostgreSQL Usuarios y cada saldo a
+`wallets` en PostgreSQL Pagos, y falla si los totales no coinciden. El historial
+de apuestas del P1 no se migra. Detalle en el encabezado del script.
+
 ## Documentación
 
+- Modelo de datos del prototipo 2: [`documentation/modelo-datos-p2.pdf`](documentation/modelo-datos-p2.pdf)
 - Contrato del Orquestador: [`documentation/orquestador-api.md`](documentation/orquestador-api.md)
 - Historias, requisitos y vista C&C del prototipo 2: PDFs en la raíz del repo.
 - Cada servicio documenta su parte en `services/<nombre>/README.md`.

@@ -8,15 +8,17 @@ Solo para servicios (header X-Internal-Service-Token):
   POST /internal/events/{event_id}/start                Motor: largada; cierra inscripciones y devuelve si faltan jugadores
 
 El rol (player/admin) lo valida el Orquestador con X-User-Rol; Pagos no.
+El token de servicio lo exige la dependencia ServicioInterno del router.
 """
 import uuid
+from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Response, status
 
 from app.core.config import settings
-from app.deps import DbSession, ServiceToken, verificar_servicio
-from app.models import TOURNAMENT_CANCELADO, Event, EventEntry
+from app.deps import DbSession, ServicioInterno
+from app.models import TORNEO_CANCELADO, Event, EventEntry
 from app.schemas.eventos import (
     EventCreateIn,
     EventOut,
@@ -38,7 +40,7 @@ from app.services.eventos import (
     obtener_inscripcion,
 )
 
-router = APIRouter(prefix="/internal/events", tags=["eventos"])
+router = APIRouter(prefix="/internal/events", tags=["eventos"], dependencies=[ServicioInterno])
 
 NO_EXISTE = "El evento no existe"
 
@@ -51,10 +53,9 @@ def _evento_out(evento: Event, inscritos: int) -> EventOut:
         tournament_status=evento.tournament_status,
         buy_in=evento.buy_in,
         initial_chips=evento.initial_chips,
-        commission_pct=evento.commission_pct,
+        commission_pct=float(evento.commission_pct),
         pot=evento.pot,
         registered=inscritos,
-        created_at=evento.created_at,
         starts_at=evento.starts_at,
         ended_at=evento.ended_at,
     )
@@ -65,7 +66,7 @@ def _inscripcion_out(evento: Event, i: EventEntry, saldo: int | None = None, nue
         event_id=evento.id,
         user_id=i.user_id,
         tournament_status=evento.tournament_status,
-        refunded=evento.tournament_status == TOURNAMENT_CANCELADO,
+        refunded=evento.tournament_status == TORNEO_CANCELADO,
         buy_in=evento.buy_in,
         initial_chips=evento.initial_chips,
         pot=evento.pot,
@@ -80,17 +81,17 @@ def _inscripcion_out(evento: Event, i: EventEntry, saldo: int | None = None, nue
     status_code=status.HTTP_201_CREATED,
     responses={200: {"description": "El evento ya existía con la misma configuración"}, 409: {"description": "Id ya usado con otra configuración"}},
 )
-def crear(datos: EventCreateIn, db: DbSession, response: Response, service_token: ServiceToken = None) -> EventOut:
-    verificar_servicio(service_token)
+def crear(datos: EventCreateIn, db: DbSession, response: Response) -> EventOut:
     try:
         r = crear_evento(
             db,
             DatosEvento(
                 event_id=datos.event_id,
                 race_key=datos.race_key.strip(),
+                starts_at=datos.starts_at,
                 buy_in=datos.buy_in if datos.buy_in is not None else settings.event_buy_in,
                 initial_chips=datos.initial_chips if datos.initial_chips is not None else settings.event_initial_chips,
-                commission_pct=datos.commission_pct if datos.commission_pct is not None else settings.event_commission_pct,
+                commission_pct=datos.commission_pct if datos.commission_pct is not None else Decimal(settings.event_commission_pct),
             ),
         )
     except EventoConflicto:
@@ -101,8 +102,7 @@ def crear(datos: EventCreateIn, db: DbSession, response: Response, service_token
 
 
 @router.get("/{event_id}", response_model=EventOut, responses={404: {"description": NO_EXISTE}})
-def consultar(event_id: str, db: DbSession, service_token: ServiceToken = None) -> EventOut:
-    verificar_servicio(service_token)
+def consultar(event_id: uuid.UUID, db: DbSession) -> EventOut:
     try:
         r = obtener_evento(db, event_id)
     except EventoNoExiste:
@@ -123,14 +123,12 @@ def consultar(event_id: str, db: DbSession, service_token: ServiceToken = None) 
     },
 )
 def inscribirse(
-    event_id: str,
+    event_id: uuid.UUID,
     datos: RegistrationIn,
     db: DbSession,
     response: Response,
-    service_token: ServiceToken = None,
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> RegistrationOut:
-    verificar_servicio(service_token)
     if idempotency_key != clave_inscripcion(event_id, datos.user_id):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Idempotency-Key inválida")
     try:
@@ -151,8 +149,7 @@ def inscribirse(
     response_model=RegistrationOut,
     responses={404: {"description": "Evento inexistente o jugador no inscrito"}},
 )
-def consultar_inscripcion(event_id: str, user_id: uuid.UUID, db: DbSession, service_token: ServiceToken = None) -> RegistrationOut:
-    verificar_servicio(service_token)
+def consultar_inscripcion(event_id: uuid.UUID, user_id: uuid.UUID, db: DbSession) -> RegistrationOut:
     try:
         evento, i = obtener_inscripcion(db, event_id, user_id)
     except EventoNoExiste:
@@ -163,8 +160,7 @@ def consultar_inscripcion(event_id: str, user_id: uuid.UUID, db: DbSession, serv
 
 
 @router.post("/{event_id}/start", response_model=EventStartOut, responses={404: {"description": NO_EXISTE}})
-def largar(event_id: str, db: DbSession, service_token: ServiceToken = None) -> EventStartOut:
-    verificar_servicio(service_token)
+def largar(event_id: uuid.UUID, db: DbSession) -> EventStartOut:
     try:
         r = iniciar_evento(db, event_id)
     except EventoNoExiste:
