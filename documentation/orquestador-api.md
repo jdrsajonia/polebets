@@ -363,9 +363,9 @@ Rutas que el Orquestador necesita y que todavía no existen. Todas exigen `X-Int
 | Pagos | `POST /internal/wallets {user_id}` + `Idempotency-Key` → 201 · 200 ya existía | Registro | Juan Diego (T2-03) |
 | Pagos | `GET /internal/wallets/{user_id}` → `{balance, cop_por_token}` | SSR, billetera | Juan Diego (T2-03, HU2-04) |
 | Pagos | `POST /internal/purchases {user_id, monto_cop}` + `Idempotency-Key` | Compra | Juan Diego (HU2-04) |
-| Pagos | `GET /internal/users/{user_id}/event-entries` | Página SSR | Misael (HU2-03) con Juan Diego |
-| Pagos | `GET /internal/users/{user_id}/bets?status=pending` | Página SSR | Misael (HU2-03) con Juan Diego |
-| Pagos | `GET /internal/users/{user_id}/ledger?limit=10` | Página SSR | Misael (HU2-03) con Juan Diego |
+| Pagos | `GET /internal/users/{user_id}/event-entries` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
+| Pagos | `GET /internal/users/{user_id}/bets?status=pending` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
+| Pagos | `GET /internal/users/{user_id}/ledger?limit=10` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
 | Pagos | `GET /internal/events?status=programado,en_curso` | Calendario | Tomás (HU2-05) |
 | Pagos | `GET /internal/events/{id}/markets?kind=estatica` | Calendario | Tomás (HU2-05, HU2-07) |
 | Pagos | `POST /internal/events/{id}/registrations` y `GET …/registrations/{user_id}` | Inscripción, calendario | Michael (HU2-06, PR #21: existen; falta alinear nombres) |

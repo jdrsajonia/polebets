@@ -9,6 +9,7 @@
 //   - GET /billetera, POST /billetera/compras : compra de tokens (HU2-04)
 //   - POST /eventos/{evento_id}/inscripcion : inscripcion al torneo (HU2-06)
 //   - POST /registro : registro orquestado, sin sesion (HU2-01)
+//   - GET /pagina-usuario : datos de la pagina SSR del jugador (HU2-03)
 package main
 
 import (
@@ -26,6 +27,7 @@ import (
 	"github.com/arquisoft/orquestador/internal/health"
 	"github.com/arquisoft/orquestador/internal/inscripcion"
 	"github.com/arquisoft/orquestador/internal/interno"
+	"github.com/arquisoft/orquestador/internal/pagina"
 	"github.com/arquisoft/orquestador/internal/registro"
 	"github.com/arquisoft/orquestador/internal/traza"
 )
@@ -41,12 +43,14 @@ func main() {
 
 	pagos := interno.Nuevo(cfg.PagosBaseURL, cfg.InternalAPIToken)
 	usuarios := interno.Nuevo(cfg.UsuariosBaseURL, cfg.InternalAPIToken)
+	motor := interno.Nuevo(cfg.MotorBaseURL, cfg.InternalAPIToken)
 
 	mux := http.NewServeMux()
 	health.Register(mux)
-	billetera.Register(mux, pagos)          // HU2-04: GET /billetera, POST /billetera/compras
-	inscripcion.Register(mux, pagos)        // HU2-06: POST /eventos/{evento_id}/inscripcion
-	registro.Register(mux, pagos, usuarios) // HU2-01: POST /registro (publica)
+	billetera.Register(mux, pagos)                                                         // HU2-04: GET /billetera, POST /billetera/compras
+	inscripcion.Register(mux, pagos)                                                       // HU2-06: POST /eventos/{evento_id}/inscripcion
+	registro.Register(mux, pagos, usuarios)                                                // HU2-01: POST /registro (publica)
+	pagina.Register(mux, pagina.Servicios{Usuarios: usuarios, Pagos: pagos, Motor: motor}) // HU2-03: GET /pagina-usuario
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

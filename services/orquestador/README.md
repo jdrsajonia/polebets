@@ -13,6 +13,7 @@ internal/httpx    # EscribirJSON
 internal/health   # GET /health
 internal/billetera # GET /billetera, POST /billetera/compras (HU2-04)
 internal/registro  # POST /registro, público: billetera en Pagos y luego cuenta en Usuarios (HU2-01)
+internal/pagina    # GET /pagina-usuario: Usuarios + Pagos + Motor en paralelo para la página SSR (HU2-03)
 internal/errores  # formato {error, codigo} y la tabla de errores del contrato
 internal/sesion   # middleware: X-User-Id y X-User-Rol del Gateway → 401 / 403
 internal/traza    # X-Request-Id de cada petición
