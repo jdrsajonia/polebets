@@ -12,6 +12,8 @@ internal/config   # variables de entorno (las obligatorias no tienen valor por d
 internal/httpx    # EscribirJSON
 internal/health   # GET /health
 internal/billetera # GET /billetera, POST /billetera/compras (HU2-04)
+internal/registro  # POST /registro, público: billetera en Pagos y luego cuenta en Usuarios (HU2-01)
+internal/pagina    # GET /pagina-usuario: Usuarios + Pagos + Motor en paralelo para la página SSR (HU2-03)
 internal/errores  # formato {error, codigo} y la tabla de errores del contrato
 internal/sesion   # middleware: X-User-Id y X-User-Rol del Gateway → 401 / 403
 internal/traza    # X-Request-Id de cada petición
@@ -69,6 +71,15 @@ Sin Gateway, las rutas de jugador se prueban poniendo a mano los headers que él
 curl -i localhost:8081/eventos \
   -H "X-User-Id: 0b6c2f1e-8d4a-4c3b-9f2e-1a2b3c4d5e6f" \
   -H "X-User-Rol: player"
+```
+
+El registro es público (sin headers):
+
+```bash
+curl -i localhost:8081/registro -H "Content-Type: application/json" \
+  -d '{"nombre":"Ana","email":"ana@correo.co","contrasena":"clave-segura"}'
+# 201 {"usuario":{"id":"…","nombre":"Ana","email":"ana@correo.co","rol":"player"}}
+# 409 correo_registrado · 400 cuerpo_invalido · 503 servicio_no_disponible
 ```
 
 Sin esos headers la respuesta es `401 {"error":"No hay sesión","codigo":"sin_sesion"}`, y con `X-User-Rol: admin` es `403 solo_jugadores`. Las rutas de cada flujo (`/eventos`, `/apuestas`, …) se agregan una por una; mientras no exista una ruta, el servidor responde 404.

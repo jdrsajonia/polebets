@@ -1,10 +1,10 @@
 // Sesion del usuario para toda la app (HU-02).
 //
 // Como funciona:
-//   1. Al montar, se le pregunta a Pagos quien es el dueño de la cookie
+//   1. Al montar, se le pregunta a Usuarios (via el Gateway) quien es el dueño de la cookie
 //      (GET /auth/me). Mientras tanto `cargando` es true y RutaProtegida no
 //      decide nada, asi que recargar la pagina no saca al usuario.
-//   2. `iniciarSesion(email, password)` llama a POST /auth/login. Pagos deja
+//   2. `iniciarSesion(email, password)` llama a POST /api/auth/login. Usuarios deja
 //      la cookie HttpOnly con el JWT y devuelve el usuario.
 //   3. `cerrarSesion()` llama a POST /auth/logout y limpia el usuario.
 //   4. Si cualquier peticion responde 401 (token vencido), http.ts avisa y la
@@ -16,10 +16,10 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { configurarHttp } from "../api/http";
 import * as apiAuth from "./api";
 
-// Roles como los define el modelo de datos de Pagos y el contrato del JWT.
+// Roles como los define el modelo de datos de Usuarios y el contrato del JWT.
 export type Rol = "player" | "admin";
 
-// Respuesta de Pagos en /auth/login y /auth/me.
+// Respuesta de Usuarios en /auth/login y /auth/me.
 export interface Usuario {
   id: string; // UUID (claim "sub" del JWT)
   nombre: string;
@@ -31,7 +31,7 @@ export interface ValorAuth {
   usuario: Usuario | null;
   cargando: boolean; // true mientras se averigua si hay sesion
   iniciarSesion: (email: string, password: string) => Promise<Usuario>; // lanza ErrorHttp si falla
-  cerrarSesion: () => Promise<void>; // nunca falla: si Pagos no responde, igual limpia
+  cerrarSesion: () => Promise<void>; // nunca falla: si Usuarios no responde, igual limpia
   avisoAcceso: string | null; // mensaje de "acceso denegado" (403)
   descartarAviso: () => void;
 }
@@ -40,7 +40,7 @@ const AuthContexto = createContext<ValorAuth | null>(null);
 
 interface Props {
   children: ReactNode;
-  // Fija la sesion sin llamar a Pagos (pruebas). null = sin sesion.
+  // Fija la sesion sin llamar al servidor (pruebas). null = sin sesion.
   // undefined = averiguarla con GET /auth/me (comportamiento normal).
   usuarioInicial?: Usuario | null;
 }
@@ -53,7 +53,7 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
   const [cargando, setCargando] = useState(sesionFija === undefined);
   const [avisoAcceso, setAvisoAcceso] = useState<string | null>(null);
 
-  // Limpia la sesion solo en el front (no llama a Pagos). Es lo que se hace
+  // Limpia la sesion solo en el front (no llama al servidor). Es lo que se hace
   // ante un 401: el token ya no sirve, no hay nada que pedirle al servidor.
   const limpiarSesion = useCallback(() => setUsuario(null), []);
 
@@ -74,7 +74,7 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
       .then((actual) => setUsuario(actual))
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        // Pagos caido o sin red: se arranca sin sesion y el usuario vera el
+        // Usuarios caido o sin red: se arranca sin sesion y el usuario vera el
         // error real cuando intente iniciar sesion.
         setUsuario(null);
       })
@@ -92,7 +92,7 @@ export function AuthProvider({ children, usuarioInicial }: Props) {
     return nuevo;
   }, []);
 
-  // 3. Logout: se limpia el front aunque Pagos no responda; quedarse "medio
+  // 3. Logout: se limpia el front aunque Usuarios no responda; quedarse "medio
   // logueado" seria peor. La cookie vence sola de todas formas.
   const cerrarSesion = useCallback(async () => {
     try {
