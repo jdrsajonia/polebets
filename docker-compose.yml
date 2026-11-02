@@ -11,10 +11,10 @@
 # puertos, nombres y dependencias ya están decididos aquí).
 #
 #   Estado por servicio:
-#     gateway        STUB  (Nginx)        -> T2-01  Tomás
+#     gateway        REAL  (Nginx)        -> T2-01  Tomás (login/registro/auth_request activos; falta WS)
 #     front          REAL  (React+Nginx)  -> ya existía (P1); SSR es HU2-03 Misael
 #     orquestador    REAL  (Go)           -> T2-02  Daniel (PR en revisión)
-#     usuarios       STUB  (FastAPI)      -> tabla users lista (T2-03); rutas HU2-01/02/03 Misael
+#     usuarios       REAL  (FastAPI)      -> login, auth_request y cuentas (HU2-01/02, Misael)
 #     pagos          REAL  (FastAPI)      -> ya existía; dueño de PG Pagos
 #     pagos-consumer REAL  (misma imagen de pagos, comando placeholder) -> HU2-18 consumidor AMQP
 #     motor          REAL  (Go)           -> ya existía; lee Mongo, escribe Redis
@@ -222,8 +222,8 @@ services:
     networks:
       - interna
 
-  # Usuarios — STUB (HU2-01/02/03, Misael). Dueño de PG Usuarios; ya crea la
-  # tabla users al arrancar (T2-03).
+  # Usuarios — REAL (HU2-01/02, Misael). Dueño de PG Usuarios: cuentas, login,
+  # JWT en cookie y GET /internal/auth para el auth_request del Gateway.
   usuarios:
     build:
       context: ./services/usuarios
@@ -234,6 +234,10 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Administrador inicial (RF-21): Usuarios lo crea al arrancar si falta.
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_NAME: ${ADMIN_NAME}
     depends_on:
       postgres-usuarios:
         condition: service_healthy
