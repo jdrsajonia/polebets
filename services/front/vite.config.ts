@@ -7,7 +7,7 @@ const PAGOS_REAL = "http://localhost:8000";
 const MOTOR_REAL = "http://localhost:8080";
 const MOTOR_MOCK = "http://localhost:8090";
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, isSsrBuild }) => {
   // Con `npm run dev:mock` (modo "mock") el proxy del motor apunta al mock, asi
   // se desarrolla sin el motor de Go y sin tocar el codigo de la app. Las dos
   // variables permiten apuntar a otro lado si hace falta.
@@ -44,6 +44,17 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    // HU2-03: dos builds.
+    //   - Navegador (`vite build`): la SPA (index.html) y la entrada que hidrata
+    //     la pagina SSR (src/ssr/entry-cliente.tsx). El manifest le dice al
+    //     servidor Node que JS y CSS le tocan a esa pagina.
+    //   - Servidor (`vite build --ssr`): src/ssr/entry-servidor.tsx en dist-ssr/.
+    build: isSsrBuild
+      ? {}
+      : {
+          manifest: true,
+          rollupOptions: { input: { main: "index.html", pagina: "src/ssr/entry-cliente.tsx" } },
+        },
     // Vitest corre todas las pruebas del front, incluida la de HU-06
     // (src/apuestas/api.test.ts).
     test: {

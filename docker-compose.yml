@@ -12,7 +12,7 @@
 #
 #   Estado por servicio:
 #     gateway        REAL  (Nginx)        -> T2-01  Tomás (login/registro/auth_request activos; falta WS)
-#     front          REAL  (React+Nginx)  -> ya existía (P1); SSR es HU2-03 Misael
+#     front          REAL  (Node: SPA + SSR) -> HU2-03 Misael, puerto interno 3000
 #     orquestador    REAL  (Go)           -> T2-02  Daniel (PR en revisión)
 #     usuarios       REAL  (FastAPI)      -> login, auth_request y cuentas (HU2-01/02, Misael)
 #     pagos          REAL  (FastAPI)      -> ya existía; dueño de PG Pagos
@@ -156,12 +156,24 @@ services:
       - borde
       - interna
 
-  # Front (React + Vite servido por Nginx). SSR real llega con HU2-03 (Misael).
+  # Front (Node, HU2-03 Misael): sirve la SPA y renderiza /mi-pagina en el servidor (SSR).
   front:
     build:
       context: ./services/front
     container_name: arqui_front
     restart: unless-stopped
+    environment:
+      PORT: "3000"
+      # El servidor SSR pide los datos de /mi-pagina al Gateway reenviando la
+      # cookie del jugador (HU2-03); el Gateway la valida como cualquier /api/*.
+      GATEWAY_URL: http://gateway:80
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+      start_interval: 2s
     networks:
       - borde
       - interna
