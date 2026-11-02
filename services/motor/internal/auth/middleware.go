@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/arquisoft/motor/internal/httpx"
 )
@@ -56,12 +57,47 @@ func (a *Autenticador) ExigirRol(rol string, next http.Handler) http.Handler {
 	}))
 }
 
+// HeaderUsuarioGateway es el header que pone el API Gateway despues de
+// validar la sesion con auth_request contra Usuarios (T2-01, HU2-02).
+const HeaderUsuarioGateway = "X-User-Id"
+
 // Identificar cumple ws.Identificador: el WebSocket solo necesita saber a
 // que usuario pertenece la conexion para enviarle sus resultados (HU-08).
+//
+// Prototipo 2 (HU2-02): el WebSocket entra por el Gateway (/api/ws), que ya
+// valido la cookie y pone X-User-Id; el Gateway borra el que mande el cliente
+// y el Motor no esta publicado al host, asi que ese header es confiable. Si
+// no viene (pruebas locales sin Gateway), se valida el JWT de la cookie como
+// en el prototipo 1.
 func (a *Autenticador) Identificar(r *http.Request) (string, error) {
+	if id := strings.TrimSpace(r.Header.Get(HeaderUsuarioGateway)); id != "" {
+		if !esUUID(id) {
+			return "", ErrSinSesion
+		}
+		return strings.ToLower(id), nil
+	}
 	s, err := DesdeRequest(a.validador, r)
 	if err != nil {
 		return "", err
 	}
 	return s.UserID, nil
+}
+
+// esUUID acepta el formato 8-4-4-4-12 en hexadecimal.
+func esUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range s {
+		switch {
+		case i == 8 || i == 13 || i == 18 || i == 23:
+			if c != '-' {
+				return false
+			}
+		case (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'):
+		default:
+			return false
+		}
+	}
+	return true
 }
