@@ -30,6 +30,7 @@ import (
 	"github.com/arquisoft/motor/internal/httpx"
 	"github.com/arquisoft/motor/internal/ingest"
 	"github.com/arquisoft/motor/internal/liquidacion"
+	"github.com/arquisoft/motor/internal/liquidar"
 	"github.com/arquisoft/motor/internal/mercados"
 	"github.com/arquisoft/motor/internal/mongodb"
 	"github.com/arquisoft/motor/internal/posiciones"
@@ -88,6 +89,13 @@ func main() {
 		svcApostar.Fichas = fichasApuesta{almacen: t.almacen}
 	}
 	apostar.Register(mux, svcApostar, cfg.InternalAPIToken)
+	// HU2-10: liquida en tokens las apuestas individuales de los mercados del
+	// P2 (Pagos) que ya tienen opcion ganadora. Las de torneo son de HU2-11.
+	go liquidar.NuevoWorker(
+		liquidar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		avisoWS{hub: hub},
+		5*time.Second,
+	).Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
 	// HU2-11: si hay almacen de fichas, el worker tambien liquida las apuestas
@@ -219,6 +227,16 @@ func (a adaptadorTorneo) Liquidar(ctx context.Context, eventoID, apuestaID strin
 
 func (a adaptadorTorneo) Difundir(ctx context.Context, eventoID string) {
 	a.difusor.Difundir(ctx, eventoID)
+}
+
+// avisoWS adapta el Hub del WebSocket a liquidar.Avisador (HU2-10). El
+// paquete liquidar no importa ws para poder probarse sin dependencias.
+type avisoWS struct {
+	hub *ws.Hub
+}
+
+func (a avisoWS) EnviarA(userID, tipo string, payload any) error {
+	return a.hub.EnviarA(userID, ws.Mensaje{Type: tipo, Payload: payload})
 }
 
 // fichasApuesta cumple apostar.Fichas sobre el almacen de fichas (HU2-09 con
