@@ -40,6 +40,7 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: process.env.PROXY_GATEWAY ?? "http://localhost:80",
           changeOrigin: true,
+          ws: true,
         },
       },
     },
