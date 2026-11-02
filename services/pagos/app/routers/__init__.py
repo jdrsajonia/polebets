@@ -4,7 +4,7 @@ Para agregar una HU nueva:
   1. Crear app/routers/<tema>.py con `router = APIRouter(prefix="/internal/<tema>", dependencies=[ServicioInterno])`.
   2. Registrarlo en la lista ROUTERS de abajo.
 """
-from app.routers import eventos, health, internal, purchases, reparto, wallets
+from app.routers import actividad, eventos, health, internal, purchases, reparto, wallets
 
 ROUTERS = [
     health.router,
@@ -13,4 +13,5 @@ ROUTERS = [
     internal.router,  # débito y liquidación de apuestas individuales desde Motor
     eventos.router,  # HU2-06: eventos e inscripción al torneo
     reparto.router,  # HU2-12: cierre del evento y reparto del botín
+    actividad.router,  # HU2-03: actividad del jugador para la página SSR
 ]
