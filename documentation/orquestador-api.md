@@ -107,7 +107,7 @@ No abre sesión: después del registro el front hace login (Gateway → Usuarios
 | --- | --- | --- | --- |
 | 0 | — | — | El Orquestador genera el `user_id` (uuid v4) |
 | 1 | Pagos | `POST /internal/wallets {user_id}` · `Idempotency-Key: wallet:{user_id}` | 201 creada o 200 ya existía; saldo 0 |
-| 2 | Usuarios | `POST /internal/users {id, nombre, email, contrasena}` | 201 con el usuario (rol `player`); 409 si el correo existe |
+| 2 | Usuarios | `POST /internal/users {id, nombre, email, contrasena}` · `Idempotency-Key: user:{user_id}` | 201 con el usuario (rol `player`); 200 si el `id` ya existía con el mismo correo; 409 si el correo existe; 422 datos inválidos (→ `cuerpo_invalido`) |
 
 **Decisión: la billetera va primero.** Así nunca queda una cuenta sin billetera (RF-01): la cuenta solo existe si la billetera ya existe.
 
@@ -335,6 +335,7 @@ Variables de entorno. Todas son obligatorias y sin valor por defecto (el servici
 | Flujo | Clave hacia el destino |
 | --- | --- |
 | Registro (billetera) | `wallet:{user_id}` |
+| Registro (cuenta) | `user:{user_id}` (Usuarios la acepta opcional; el id ya hace idempotente la creación) |
 | Compra | `purchase:{user_id}:{clave del front}` |
 | Inscripción | `event-entry:{evento_id}:{user_id}` (la que ya valida el PR #21) |
 | Apuesta | la clave del front, tal cual; el Motor la combina con el `user_id` |
@@ -356,15 +357,15 @@ Rutas que el Orquestador necesita y que todavía no existen. Todas exigen `X-Int
 
 | Servicio | Ruta | Para | Por acordar con |
 | --- | --- | --- | --- |
-| Usuarios | `POST /internal/users {id, nombre, email, contrasena}` → 201 · 200 si el `id` ya existe con el mismo correo · 409 correo repetido | Registro | Misael (HU2-01) |
-| Usuarios | Usuarios acepta el `id` que manda el Orquestador | Registro | Misael (HU2-01) |
-| Usuarios | `GET /internal/users/{id}` → `{id, nombre, email, rol}` | Página SSR | Misael (HU2-03) |
+| Usuarios | `POST /internal/users {id, nombre, email, contrasena}` → 201 · 200 si el `id` ya existe con el mismo correo · 409 correo repetido | Registro | Misael (HU2-01) — **hecha** |
+| Usuarios | Usuarios acepta el `id` que manda el Orquestador | Registro | Misael (HU2-01) — **hecha** |
+| Usuarios | `GET /internal/users/{id}` → `{id, nombre, email, rol}` | Página SSR | Misael (HU2-03) — **hecha** |
 | Pagos | `POST /internal/wallets {user_id}` + `Idempotency-Key` → 201 · 200 ya existía | Registro | Juan Diego (T2-03) |
 | Pagos | `GET /internal/wallets/{user_id}` → `{balance, cop_por_token}` | SSR, billetera | Juan Diego (T2-03, HU2-04) |
 | Pagos | `POST /internal/purchases {user_id, monto_cop}` + `Idempotency-Key` | Compra | Juan Diego (HU2-04) |
-| Pagos | `GET /internal/users/{user_id}/event-entries` | Página SSR | Misael (HU2-03) con Juan Diego |
-| Pagos | `GET /internal/users/{user_id}/bets?status=pending` | Página SSR | Misael (HU2-03) con Juan Diego |
-| Pagos | `GET /internal/users/{user_id}/ledger?limit=10` | Página SSR | Misael (HU2-03) con Juan Diego |
+| Pagos | `GET /internal/users/{user_id}/event-entries` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
+| Pagos | `GET /internal/users/{user_id}/bets?status=pending` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
+| Pagos | `GET /internal/users/{user_id}/ledger?limit=10` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
 | Pagos | `GET /internal/events?status=programado,en_curso` | Calendario | Tomás (HU2-05) |
 | Pagos | `GET /internal/events/{id}/markets?kind=estatica` | Calendario | Tomás (HU2-05, HU2-07) |
 | Pagos | `POST /internal/events/{id}/registrations` y `GET …/registrations/{user_id}` | Inscripción, calendario | Michael (HU2-06, PR #21: existen; falta alinear nombres) |

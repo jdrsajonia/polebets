@@ -195,6 +195,41 @@ docker run --rm -it --name polebet-mock --network container:polebet-front \
 
 Abre http://localhost:5173. Para ver la reconexión, detén la terminal 2 con Ctrl+C y vuelve a correr su comando. Al terminar, detén primero el mock y luego el front.
 
+## Página del usuario con SSR (HU2-03)
+
+`/mi-pagina` no la pinta React en el navegador: la arma el **servidor Node**
+del Front (`server/servidor.mjs`), que es lo que corre en el contenedor
+`front` (puerto interno 3000, vista de despliegue).
+
+1. El navegador pide `GET /mi-pagina` (navegación completa: el enlace «Mi
+   página» del header es un `<a>`, no un `NavLink`).
+2. El servidor Node pide `GET {GATEWAY_URL}/api/pagina-usuario` reenviando la
+   cookie del jugador. El Gateway la valida con `auth_request` y el
+   Orquestador junta Usuarios, Pagos y Motor en una sola respuesta.
+3. `src/ssr/entry-servidor.tsx` renderiza `PaginaUsuario` con
+   `renderToString` y mete las mismas props en `window.__PAGINA__`.
+   «Ver código fuente» ya muestra perfil, saldo, eventos, apuestas activas y
+   las últimas 10 transacciones.
+4. En el navegador, `src/ssr/entry-cliente.tsx` hace `hydrateRoot`: conecta
+   los botones (Salir, Actualizar) al HTML que ya llegó, sin volver a pedir datos.
+
+Sin sesión, `/mi-pagina` redirige a `/login`. Si Pagos no responde, la página
+sale con el perfil y un aviso en cada sección que faltó. Las fechas usan zona
+`America/Bogota` y locale `es-CO` fijos para que el HTML del servidor y el del
+navegador coincidan (si no, React avisa que la hidratación no coincide).
+
+`npm run build` hace dos builds: el del navegador (`dist/`, con la SPA y la
+entrada de hidratación, más `dist/.vite/manifest.json`) y el del servidor
+(`dist-ssr/`). Para probarlo sin Docker, con el resto del sistema arriba:
+
+```bash
+npm run build
+GATEWAY_URL=http://localhost PORT=3000 npm start
+```
+
+El resto de rutas las sirve el mismo servidor desde `dist/`, con caída a
+`index.html` para React Router.
+
 ## Estilo
 
 Los colores, fuentes y medidas salen de los mockups del equipo y están en `estilos/tokens.css`. Usa esas variables (`var(--accent)`, `var(--surface)`...) y las clases de `estilos/base.css` en vez de valores sueltos. Para estilos propios de un componente, usa un CSS Module (`MiComponente.module.css`). Los botones y enlaces táctiles miden al menos 44 px de alto (`var(--tap)`).
