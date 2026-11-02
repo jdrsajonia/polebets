@@ -9,13 +9,19 @@
 //   - Modo individual (estaticas siempre; dinamicas si el jugador no tiene
 //     fichas): tope de MaxIndividual tokens; Pagos debita y registra la
 //     apuesta en una sola transaccion (POST /internal/debit).
-//   - Modo torneo (dinamicas de un inscrito con torneo activo): fichas en
-//     Redis. PENDIENTE: se activa cuando exista el almacen de fichas
-//     (HU2-11); mientras Fichas sea nil todas las apuestas son individuales.
+//   - Modo torneo (dinamicas de un inscrito con torneo activo): descuenta
+//     fichas en Redis con el almacen de HU2-11 (fichas.ReservarApuesta). Sin
+//     tope de tokens: el limite son las fichas. Si Fichas es nil (Motor sin
+//     Redis) todas las apuestas son individuales.
 //
-// Una apuesta por mercado (bets.uq_bets_user_market). El id de la apuesta se
-// deriva de (usuario, Idempotency-Key): un reintento con la misma clave da la
-// misma apuesta y no debita dos veces.
+// Una apuesta por mercado. Individual: el id se deriva de (usuario,
+// Idempotency-Key) y Pagos lo hace cumplir (bets.uq_bets_user_market).
+// Torneo: el id se deriva de (usuario, mercado), asi que cualquier reintento
+// cae en la misma reserva y no descuenta dos veces.
+//
+// PENDIENTE (HU2-10 con HU2-11): la liquidacion de las apuestas de torneo. El
+// worker de liquidacion todavia lee los mercados del P1 (Mongo); los del P2
+// estan en Pagos (markets).
 //
 // Este paquete reemplaza la ruta del P1 (POST /apuestas con JWT, paquete
 // apuestas). Ese paquete sigue vivo porque lo usa la liquidacion del P1.
@@ -42,7 +48,10 @@ var (
 	ErrYaApostaste       = errors.New("ya hay una apuesta en ese mercado")
 	ErrClaveReutilizada  = errors.New("clave reutilizada con otro contenido")
 	ErrSaldoInsuficiente = errors.New("saldo insuficiente")
-	ErrPagosNoDisponible = errors.New("pagos no esta disponible")
+	// ErrFichasInsuficientes: modo torneo y el jugador no tiene fichas
+	// suficientes (quien llega a 0 no puede apostar).
+	ErrFichasInsuficientes = errors.New("fichas insuficientes")
+	ErrPagosNoDisponible   = errors.New("pagos no esta disponible")
 )
 
 // Valores de markets.status y markets.kind (modelo de datos del P2).
@@ -115,10 +124,31 @@ type Pagos interface {
 	Debitar(ctx context.Context, d Debito) (ResultadoDebito, error)
 }
 
-// Fichas decide si una apuesta va en modo torneo (HU2-11). nil = no hay
-// torneos activos todavia: todo es individual.
+// EstadoFichas es el saldo de un jugador en el torneo de un evento.
+type EstadoFichas struct {
+	Fichas   int64 // fichas que le quedan
+	Apostado int64 // total apostado en el torneo
+}
+
+// ReservaFichas es una apuesta de torneo (se descuenta de las fichas).
+type ReservaFichas struct {
+	ApuestaID     string
+	UserID        string
+	Opcion        string
+	Monto         int64
+	Multiplicador float64
+}
+
+// Fichas es lo que este flujo necesita del almacen del torneo (HU2-11). El
+// adaptador real vive en main.go. nil = Motor sin Redis: todo es individual.
 type Fichas interface {
-	TieneFichas(ctx context.Context, eventoID, userID string) (bool, error)
+	// Jugador devuelve el estado del usuario si esta inscrito en el torneo
+	// activo del evento; ok=false si no hay torneo o no esta inscrito.
+	Jugador(ctx context.Context, eventoID, userID string) (EstadoFichas, bool, error)
+	// Reservar descuenta las fichas. Es idempotente por ApuestaID. Errores:
+	// ErrFichasInsuficientes, ErrYaApostaste (misma apuesta con otro
+	// contenido) o cualquier otro (servicio no disponible).
+	Reservar(ctx context.Context, eventoID string, r ReservaFichas) (EstadoFichas, error)
 }
 
 // Servicio reune la logica de HU2-09.
@@ -167,13 +197,12 @@ func (s *Servicio) Apostar(ctx context.Context, p Peticion, clave string) (Apues
 		return Apuesta{}, fmt.Errorf("multiplicador invalido en el mercado %s: %w", m.ID, err)
 	}
 
-	modo, err := s.modo(ctx, m, p.UserID)
+	estado, torneo, err := s.modo(ctx, m, p.UserID)
 	if err != nil {
 		return Apuesta{}, err
 	}
-	if modo == ModoTorneo {
-		// No se llega aqui mientras Fichas sea nil (ver comentario del paquete).
-		return Apuesta{}, errors.New("modo torneo aun no implementado (HU2-11)")
+	if torneo {
+		return s.apostarTorneo(ctx, p, m, multiplicador, centesimas, estado)
 	}
 
 	if p.Monto > s.MaxIndividual {
@@ -206,20 +235,41 @@ func (s *Servicio) Apostar(ctx context.Context, p Peticion, clave string) (Apues
 	}, nil
 }
 
-// modo: las estaticas siempre son individuales; las dinamicas son torneo si
-// el jugador tiene fichas del evento (inscrito con torneo activo).
-func (s *Servicio) modo(ctx context.Context, m Mercado, userID string) (string, error) {
-	if m.Tipo == TipoEstatica || s.Fichas == nil {
-		return ModoIndividual, nil
-	}
-	tiene, err := s.Fichas.TieneFichas(ctx, m.EventoID, userID)
+// apostarTorneo descuenta fichas del torneo del evento del mercado.
+func (s *Servicio) apostarTorneo(ctx context.Context, p Peticion, m Mercado, multiplicador json.Number, centesimas int64, antes EstadoFichas) (Apuesta, error) {
+	apuestaID := idDeterminista(p.UserID, "torneo|"+m.ID)
+	despues, err := s.Fichas.Reservar(ctx, m.EventoID, ReservaFichas{
+		ApuestaID:     apuestaID,
+		UserID:        p.UserID,
+		Opcion:        p.Opcion,
+		Monto:         p.Monto,
+		Multiplicador: float64(centesimas) / 100,
+	})
 	if err != nil {
-		return "", err
+		return Apuesta{}, err
 	}
-	if tiene {
-		return ModoTorneo, nil
+	fichas := despues.Fichas
+	return Apuesta{
+		ApuestaID:     apuestaID,
+		MercadoID:     m.ID,
+		Opcion:        p.Opcion,
+		Monto:         p.Monto,
+		Modo:          ModoTorneo,
+		Multiplicador: multiplicador,
+		PagoSiAcierta: p.Monto * centesimas / 100,
+		Fichas:        &fichas,
+		// Si lo apostado no subio, la reserva ya existia (reintento).
+		Nueva: despues.Apostado > antes.Apostado,
+	}, nil
+}
+
+// modo: las estaticas siempre son individuales; las dinamicas son torneo si
+// el jugador esta inscrito en el torneo activo del evento del mercado.
+func (s *Servicio) modo(ctx context.Context, m Mercado, userID string) (EstadoFichas, bool, error) {
+	if m.Tipo == TipoEstatica || s.Fichas == nil || m.EventoID == "" {
+		return EstadoFichas{}, false, nil
 	}
-	return ModoIndividual, nil
+	return s.Fichas.Jugador(ctx, m.EventoID, userID)
 }
 
 func buscarOpcion(opciones []Opcion, nombre string) (json.Number, bool) {

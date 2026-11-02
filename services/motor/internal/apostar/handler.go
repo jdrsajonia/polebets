@@ -68,6 +68,8 @@ func traducir(err error) (int, string, string) {
 		return http.StatusUnprocessableEntity, "opcion_invalida", "La opción no pertenece al mercado"
 	case errors.Is(err, ErrSaldoInsuficiente):
 		return http.StatusUnprocessableEntity, "saldo_insuficiente", "Saldo insuficiente"
+	case errors.Is(err, ErrFichasInsuficientes):
+		return http.StatusUnprocessableEntity, "fichas_insuficientes", "No tienes fichas suficientes en el torneo"
 	case errors.Is(err, ErrPagosNoDisponible):
 		log.Printf("HU2-09: %v", err)
 		return http.StatusServiceUnavailable, "servicio_no_disponible", "El servicio no está disponible, intenta de nuevo"

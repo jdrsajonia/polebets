@@ -195,20 +195,146 @@ func TestSinTokenOSinClaveNoLlegaAPagos(t *testing.T) {
 func TestDinamicaSinFichasEsIndividualYConFichasEsTorneo(t *testing.T) {
 	svc := &Servicio{MaxIndividual: 500}
 	m := Mercado{Tipo: "dinamica", EventoID: evento}
-	if modo, _ := svc.modo(t.Context(), m, jugador); modo != ModoIndividual {
-		t.Errorf("sin almacen de fichas = %s", modo)
+	if _, torneo, _ := svc.modo(t.Context(), m, jugador); torneo {
+		t.Error("sin almacen de fichas debia ser individual")
 	}
-	svc.Fichas = fichasFalsas(true)
-	if modo, _ := svc.modo(t.Context(), m, jugador); modo != ModoTorneo {
-		t.Errorf("inscrito con fichas = %s", modo)
+	svc.Fichas = nuevasFichas(jugador, 1000)
+	if _, torneo, _ := svc.modo(t.Context(), m, jugador); !torneo {
+		t.Error("inscrito en el torneo debia ser torneo")
 	}
-	if modo, _ := svc.modo(t.Context(), Mercado{Tipo: TipoEstatica}, jugador); modo != ModoIndividual {
-		t.Errorf("estatica = %s", modo)
+	if _, torneo, _ := svc.modo(t.Context(), m, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"); torneo {
+		t.Error("no inscrito debia ser individual")
+	}
+	if _, torneo, _ := svc.modo(t.Context(), Mercado{Tipo: TipoEstatica, EventoID: evento}, jugador); torneo {
+		t.Error("estatica debia ser individual aunque este inscrito")
 	}
 }
 
-type fichasFalsas bool
+// apostarTorneo arma el servicio con Pagos falso (mercado dinamico) y fichas.
+func apostarTorneo(t *testing.T, f *pagosFalso, fx *fichasFalsas, cuerpo, clave string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	srv := f.servidor(t)
+	svc := NuevoServicio(NuevoPagosHTTP(srv.URL, token), 500)
+	svc.Fichas = fx
+	mux := http.NewServeMux()
+	Register(mux, svc, token)
+	req := httptest.NewRequest(http.MethodPost, "/internal/apuestas", bytes.NewBufferString(cuerpo))
+	req.Header.Set("X-Internal-Service-Token", token)
+	req.Header.Set("Idempotency-Key", clave)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	return rec, out
+}
 
-func (f fichasFalsas) TieneFichas(_ context.Context, _, _ string) (bool, error) {
-	return bool(f), nil
+func TestApuestaTorneoDescuentaFichasYNoTocaPagos(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas(jugador, 1000)
+
+	// 800 > tope individual (500): en torneo se permite, el limite son las fichas.
+	rec, out := apostarTorneo(t, f, fx, cuerpo(800, "VER"), "clave-t")
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("estado = %d, %s", rec.Code, rec.Body)
+	}
+	if out["modo"] != "torneo" || out["fichas"] != 200.0 || out["saldo"] != nil || out["pago_si_acierta"] != 2000.0 || out["nueva"] != true {
+		t.Errorf("respuesta = %v", out)
+	}
+	if f.debitos != 0 {
+		t.Errorf("en torneo no debe debitar tokens; debitos = %d", f.debitos)
+	}
+	r := fx.reservas[out["apuesta_id"].(string)]
+	if r.UserID != jugador || r.Monto != 800 || r.Opcion != "VER" || r.Multiplicador != 2.5 || fx.evento != evento {
+		t.Errorf("reserva = %+v (evento %s)", r, fx.evento)
+	}
+}
+
+func TestApuestaTorneoReintentoNoDescuentaDosVeces(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas(jugador, 1000)
+
+	_, a := apostarTorneo(t, f, fx, cuerpo(300, "VER"), "clave-1")
+	// Otra clave, mismo mercado y mismo contenido: es la misma apuesta.
+	rec, b := apostarTorneo(t, f, fx, cuerpo(300, "VER"), "clave-2")
+
+	if rec.Code != http.StatusOK || b["nueva"] != false || b["apuesta_id"] != a["apuesta_id"] || b["fichas"] != 700.0 {
+		t.Errorf("reintento = %d %v", rec.Code, b)
+	}
+	// Mismo mercado con otro contenido: una apuesta por mercado.
+	if rec, out := apostarTorneo(t, f, fx, cuerpo(100, "NOR"), "clave-3"); rec.Code != http.StatusConflict || out["codigo"] != "ya_apostaste" {
+		t.Errorf("segunda apuesta = %d %v", rec.Code, out)
+	}
+}
+
+func TestApuestaTorneoSinFichasSuficientes(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas(jugador, 100)
+
+	rec, out := apostarTorneo(t, f, fx, cuerpo(101, "VER"), "k")
+
+	if rec.Code != http.StatusUnprocessableEntity || out["codigo"] != "fichas_insuficientes" {
+		t.Errorf("estado = %d %v", rec.Code, out)
+	}
+	if len(fx.reservas) != 0 || f.debitos != 0 {
+		t.Errorf("no debia reservar ni debitar")
+	}
+}
+
+func TestDinamicaDeNoInscritoVaPorPagos(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee", 1000)
+
+	rec, out := apostarTorneo(t, f, fx, cuerpo(200, "VER"), "k")
+
+	if rec.Code != http.StatusCreated || out["modo"] != "individual" || f.debitos != 1 {
+		t.Errorf("estado = %d %v debitos %d", rec.Code, out, f.debitos)
+	}
+}
+
+// fichasFalsas imita el almacen de HU2-11: un solo evento, saldo = inicial -
+// apostado, reservas idempotentes por id.
+type fichasFalsas struct {
+	inscrito string
+	inicial  int64
+	evento   string
+	reservas map[string]ReservaFichas
+}
+
+func nuevasFichas(inscrito string, inicial int64) *fichasFalsas {
+	return &fichasFalsas{inscrito: inscrito, inicial: inicial, reservas: map[string]ReservaFichas{}}
+}
+
+func (f *fichasFalsas) estado() EstadoFichas {
+	var apostado int64
+	for _, r := range f.reservas {
+		apostado += r.Monto
+	}
+	return EstadoFichas{Fichas: f.inicial - apostado, Apostado: apostado}
+}
+
+func (f *fichasFalsas) Jugador(_ context.Context, eventoID, userID string) (EstadoFichas, bool, error) {
+	if eventoID != evento || userID != f.inscrito {
+		return EstadoFichas{}, false, nil
+	}
+	return f.estado(), true, nil
+}
+
+func (f *fichasFalsas) Reservar(_ context.Context, eventoID string, r ReservaFichas) (EstadoFichas, error) {
+	f.evento = eventoID
+	if previa, ok := f.reservas[r.ApuestaID]; ok {
+		if previa.Monto != r.Monto || previa.Opcion != r.Opcion {
+			return EstadoFichas{}, ErrYaApostaste
+		}
+		return f.estado(), nil
+	}
+	if r.Monto > f.estado().Fichas {
+		return EstadoFichas{}, ErrFichasInsuficientes
+	}
+	f.reservas[r.ApuestaID] = r
+	return f.estado(), nil
 }
