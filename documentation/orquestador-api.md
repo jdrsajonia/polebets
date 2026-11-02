@@ -357,22 +357,9 @@ Rutas que el Orquestador necesita y que todavía no existen. Todas exigen `X-Int
 
 | Servicio | Ruta | Para | Por acordar con |
 | --- | --- | --- | --- |
-| Usuarios | `POST /internal/users {id, nombre, email, contrasena}` → 201 · 200 si el `id` ya existe con el mismo correo · 409 correo repetido | Registro | Misael (HU2-01) — **hecha** |
-| Usuarios | Usuarios acepta el `id` que manda el Orquestador | Registro | Misael (HU2-01) — **hecha** |
-| Usuarios | `GET /internal/users/{id}` → `{id, nombre, email, rol}` | Página SSR | Misael (HU2-03) — **hecha** |
-| Pagos | `POST /internal/wallets {user_id}` + `Idempotency-Key` → 201 · 200 ya existía | Registro | Juan Diego (T2-03) |
-| Pagos | `GET /internal/wallets/{user_id}` → `{balance, cop_por_token}` | SSR, billetera | Juan Diego (T2-03, HU2-04) |
-| Pagos | `POST /internal/purchases {user_id, monto_cop}` + `Idempotency-Key` | Compra | Juan Diego (HU2-04) |
-| Pagos | `GET /internal/users/{user_id}/event-entries` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
-| Pagos | `GET /internal/users/{user_id}/bets?status=pending` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
-| Pagos | `GET /internal/users/{user_id}/ledger?limit=10` | Página SSR | Misael (HU2-03) con Juan Diego — **hecha** |
 | Pagos | `GET /internal/events?status=programado,en_curso` | Calendario | Tomás (HU2-05) |
 | Pagos | `GET /internal/events/{id}/markets?kind=estatica` | Calendario | Tomás (HU2-05, HU2-07) |
-| Pagos | `POST /internal/events/{id}/registrations` y `GET …/registrations/{user_id}` | Inscripción, calendario | Michael (HU2-06, PR #21: existen; falta alinear nombres) |
-| Motor | `POST /internal/apuestas {user_id, mercado_id, opcion, monto}` + `Idempotency-Key`; reemplaza `POST /apuestas` con JWT | Apuesta | Michael (HU2-09) |
 | Motor | `GET /internal/torneos/{evento_id}/jugadores/{user_id}` → `{fichas, puesto, fichas_apostadas}` | Página SSR | Guillermo (HU2-11) |
-
-> **Nota sobre el PR #21:** este contrato usa los nombres del documento del P2. El PR #21 usa `event_registrations` (doc: `event_entries`), los estados `registration` / `multiplayer` / `individual_only` / `finished` (doc: `status` programado \| en_curso \| finalizado y `tournament_status` abierto \| activo \| cancelado \| repartido), los tipos de ledger `event_entry` / `event_refund` (doc: `buy_in` / `refund`), `race_ref` (doc: `race_key`) y un 403 por rol en Pagos (el rol se valida en el Orquestador). Las rutas `/internal/events/{id}/registrations` se mantienen.
 
 ## 6. Preguntas abiertas
 
