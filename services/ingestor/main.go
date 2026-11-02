@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"go.mongodb.org/mongo-driver/mongo"
@@ -42,7 +44,13 @@ func main() {
 		if len(os.Args) < 3 {
 			log.Fatal("Falta el ID de la sesión (session_key): ingestor descargar <session_key>")
 		}
-		DescargarCarreraCompleta(db, os.Args[2])
+		// Ctrl+C (o docker stop) cancela la descarga y se limpia lo escrito.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := DescargarCarrera(ctx, db, nuevoClienteOpenF1(cfg), os.Args[2]); err != nil {
+			stop()
+			log.Fatalf("❌ La descarga falló: %v", err)
+		}
 	case "servicio":
 		IniciarServicio(cfg)
 	default:
