@@ -1,0 +1,210 @@
+/* Pagina del usuario (HU2-03). Clases globales con prefijo pu- (no CSS
+   Modules): asi el HTML del servidor y el del navegador usan los mismos
+   nombres sin depender de como cada build los genere. Solo usa los tokens de
+   estilos/tokens.css, como el resto del front. */
+
+.pu-header {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 16px var(--page-pad);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.pu-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 800;
+  font-size: 24px;
+  text-decoration: none;
+}
+
+.pu-logo-barra {
+  width: 8px;
+  height: 22px;
+  background: var(--accent);
+  transform: skewX(-12deg);
+}
+
+.pu-logo-acento {
+  color: var(--accent-text);
+}
+
+.pu-nav {
+  display: flex;
+  gap: 8px;
+  flex: 1;
+}
+
+.pu-enlace {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 12px;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-decoration: none;
+  text-transform: uppercase;
+}
+
+.pu-enlace-actual {
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.pu-salir,
+.pu-actualizar {
+  background: none;
+  border: 0;
+  color: var(--accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.pu-salir {
+  min-height: var(--tap);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0 16px;
+  color: var(--text);
+}
+
+.pu-actualizar {
+  padding: 0;
+  text-decoration: underline;
+}
+
+.pu-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 32px var(--page-pad);
+}
+
+.pu-titulo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.pu-avisos {
+  margin: 0;
+  padding: 12px 16px 12px 32px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius);
+  background: var(--accent-surface);
+}
+
+.pu-rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--gap);
+}
+
+.pu-nombre {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+}
+
+.pu .tarjeta p {
+  margin: 0 0 4px;
+}
+
+.pu-saldo {
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 44px;
+  line-height: 1.1;
+}
+
+.pu-saldo span {
+  color: var(--text-muted);
+  font-size: 22px;
+}
+
+.pu-enlace-seccion {
+  display: inline-block;
+  margin-top: 8px;
+}
+
+.pu-vacio {
+  color: var(--text-muted);
+}
+
+.pu-tabla-contenedor {
+  overflow-x: auto;
+}
+
+.pu-tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.pu-tabla th,
+.pu-tabla td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--row-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.pu-tabla th {
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.pu-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pu-tabla th.pu-num,
+.pu-tabla td.pu-num {
+  text-align: right;
+}
+
+.pu-lista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pu-lista li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--row-border);
+}
+
+.pu-mas {
+  color: var(--ok);
+}
+
+.pu-menos {
+  color: var(--accent-text);
+}
+
+@media (max-width: 640px) {
+  .pu-header,
+  .pu-main {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}

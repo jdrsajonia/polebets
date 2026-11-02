@@ -12,12 +12,16 @@ interface Enlace {
   a: string;
   texto: string;
   roles: Rol[]; // roles que ven el enlace
+  // true = la pagina la arma el servidor (SSR, HU2-03): se abre con
+  // navegacion completa para que la pida al servidor Node, no a React Router.
+  servidor?: boolean;
 }
 
 // Enlaces del menu. Cada HU que agregue una pantalla la registra aqui.
 const ENLACES: Enlace[] = [
   { a: "/carrera", texto: "En vivo", roles: ["player"] },
   { a: "/billetera", texto: "Billetera", roles: ["player"] },
+  { a: "/mi-pagina", texto: "Mi página", roles: ["player"], servidor: true },
   { a: "/admin", texto: "Admin", roles: ["admin"] },
 ];
 
@@ -58,15 +62,21 @@ export default function Layout() {
           {/* Navegacion principal, segun el rol */}
           {enlaces.length > 0 && (
             <nav className={estilos.nav} aria-label="Principal">
-              {enlaces.map((e) => (
-                <NavLink
-                  key={e.a}
-                  to={e.a}
-                  className={({ isActive }) => (isActive ? `${estilos.enlace} ${estilos.enlaceActivo}` : estilos.enlace)}
-                >
-                  {e.texto}
-                </NavLink>
-              ))}
+              {enlaces.map((e) =>
+                e.servidor ? (
+                  <a key={e.a} href={e.a} className={estilos.enlace}>
+                    {e.texto}
+                  </a>
+                ) : (
+                  <NavLink
+                    key={e.a}
+                    to={e.a}
+                    className={({ isActive }) => (isActive ? `${estilos.enlace} ${estilos.enlaceActivo}` : estilos.enlace)}
+                  >
+                    {e.texto}
+                  </NavLink>
+                ),
+              )}
             </nav>
           )}
         </div>

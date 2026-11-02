@@ -19,9 +19,10 @@ export const API_URL = "/api";
 export const MOSTRAR_LATENCIA: boolean = env.VITE_SHOW_LATENCY === "true";
 
 // Devuelve la URL completa del WebSocket del motor. Sin variable de entorno
-// arma una del mismo origen (ws://host/api/motor/ws) para que pase por el proxy.
+// arma una del mismo origen (ws://host/api/ws): el API Gateway valida la
+// sesion con auth_request y la manda al Difusor del Motor (T2-01, HU2-02).
 export function urlWsMotor(): string {
   if (env.VITE_MOTOR_WS_URL) return `${env.VITE_MOTOR_WS_URL}/ws`;
   const protocolo = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocolo}//${window.location.host}${MOTOR_URL}/ws`;
+  return `${protocolo}//${window.location.host}${API_URL}/ws`;
 }

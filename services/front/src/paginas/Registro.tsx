@@ -1,11 +1,11 @@
 // Pantalla /registro (HU-01): crear una cuenta de jugador.
 //
 // Criterios de aceptacion que cubre:
-//   - Datos validos: Pagos crea el jugador (rol "player", saldo 0) y se inicia
+//   - Datos validos: el Orquestador crea la billetera en Pagos (saldo 0) y la cuenta en Usuarios (rol "player") y se inicia
 //     sesion de una vez con el mismo correo y contraseña, para no obligar a
 //     escribirlos otra vez en /login. Se entra a /carrera.
-//   - Correo ya registrado: se muestra el mensaje de Pagos (409).
-//   - Datos invalidos: se avisa por campo antes de llamar a Pagos, con las
+//   - Correo ya registrado: se muestra el mensaje del Orquestador (409).
+//   - Datos invalidos: se avisa por campo antes de llamar al registro, con las
 //     mismas reglas del backend (nombre 1-100, correo valido, contraseña 8-128).
 //   - Si ya hay sesion, /registro no tiene sentido y se va al inicio.
 //
@@ -19,12 +19,12 @@ import { registrar } from "../auth/api";
 import { destinoTrasLogin } from "../auth/destino";
 import estilos from "./Login.module.css";
 
-// Mismos limites que RegisterRequest en Pagos (app/schemas/auth.py).
+// Mismos limites que CrearUsuarioIn en Usuarios (app/schemas/usuarios.py).
 export const MAX_NOMBRE = 100;
 export const MIN_PASSWORD = 8;
 export const MAX_PASSWORD = 128;
 
-// Validacion basica de forma; la definitiva la hace Pagos (EmailStr).
+// Validacion basica de forma; la definitiva la hace Usuarios (EmailStr).
 const PATRON_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface ErroresCampos {
@@ -94,7 +94,7 @@ export default function Registro() {
       return;
     }
 
-    // 2. Entrar con la cuenta recien creada (Pagos deja la cookie).
+    // 2. Entrar con la cuenta recien creada (Usuarios deja la cookie).
     try {
       const nuevo = await iniciarSesion(correo, password);
       navegar(destinoTrasLogin(nuevo.rol), { replace: true });

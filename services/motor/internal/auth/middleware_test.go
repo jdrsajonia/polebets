@@ -105,6 +105,33 @@ func TestIdentificar(t *testing.T) {
 	}
 }
 
+func TestIdentificarConHeaderDelGateway(t *testing.T) {
+	a := NuevoAutenticador(validador(t))
+	const id = "0B6C2F1E-8D4A-4C3B-9F2E-1A2B3C4D5E6F"
+
+	// Con X-User-Id del Gateway no hace falta la cookie.
+	r := peticion(t, "")
+	r.Header.Set(HeaderUsuarioGateway, id)
+	if got, err := a.Identificar(r); err != nil || got != "0b6c2f1e-8d4a-4c3b-9f2e-1a2b3c4d5e6f" {
+		t.Errorf("Identificar = %q, %v", got, err)
+	}
+
+	// El header manda sobre la cookie: es lo que valido el Gateway.
+	r = peticion(t, RolJugador)
+	r.Header.Set(HeaderUsuarioGateway, id)
+	if got, _ := a.Identificar(r); got == userPrueba {
+		t.Errorf("debio usar X-User-Id y uso la cookie")
+	}
+
+	for _, malo := range []string{"no-es-uuid", "0b6c2f1e8d4a4c3b9f2e1a2b3c4d5e6f", id + "x", "0b6c2f1e-8d4a-4c3b-9f2e-1a2b3c4d5e6g"} {
+		r = peticion(t, RolJugador)
+		r.Header.Set(HeaderUsuarioGateway, malo)
+		if _, err := a.Identificar(r); !errors.Is(err, ErrSinSesion) {
+			t.Errorf("X-User-Id %q: error = %v, se esperaba ErrSinSesion", malo, err)
+		}
+	}
+}
+
 func TestSesionDeSinMiddleware(t *testing.T) {
 	if _, ok := SesionDe(httptest.NewRequest(http.MethodGet, "/", nil).Context()); ok {
 		t.Error("sin middleware no deberia haber sesion")

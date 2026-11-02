@@ -1,7 +1,7 @@
 // Pantalla /login (HU-02): formulario de correo y contraseña.
 //
 // Criterios de aceptacion que cubre:
-//   - Credenciales correctas: Pagos pone la cookie con el JWT y se entra a la
+//   - Credenciales correctas: Usuarios pone la cookie con el JWT y se entra a la
 //     app (el jugador a /carrera, el admin a /admin).
 //   - Credenciales incorrectas: «Correo o contraseña incorrectos», sin decir
 //     cual de los dos fallo.
@@ -14,7 +14,7 @@ import { useAuth } from "../auth/AuthContext";
 import { destinoTrasLogin } from "../auth/destino";
 import estilos from "./Login.module.css";
 
-// Errores de validacion por campo, antes de llamar a Pagos.
+// Errores de validacion por campo, antes de llamar al servidor.
 interface ErroresCampos {
   email?: string;
   password?: string;

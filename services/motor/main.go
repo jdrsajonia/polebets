@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arquisoft/motor/internal/apostar"
 	"github.com/arquisoft/motor/internal/apuestas"
 	"github.com/arquisoft/motor/internal/auth"
 	"github.com/arquisoft/motor/internal/config"
@@ -27,6 +29,7 @@ import (
 	"github.com/arquisoft/motor/internal/health"
 	"github.com/arquisoft/motor/internal/httpx"
 	"github.com/arquisoft/motor/internal/liquidacion"
+	"github.com/arquisoft/motor/internal/liquidar"
 	"github.com/arquisoft/motor/internal/mercados"
 	"github.com/arquisoft/motor/internal/mongodb"
 	"github.com/arquisoft/motor/internal/posiciones"
@@ -77,7 +80,21 @@ func main() {
 	mux := http.NewServeMux()
 	health.Register(mux, db)
 	ws.Register(mux, hub, autenticador, origenes.Permite)
-	pagos := registrarApuestas(mux, db, cfg, autenticador)  // HU-06
+	pagos := registrarApuestas(mux, db, cfg, autenticador) // HU-06 (P1; la reemplaza HU2-09)
+	// HU2-09: POST /internal/apuestas, la llama el Orquestador. Con Redis, las
+	// dinamicas de un inscrito van en fichas del torneo (almacen de HU2-11).
+	svcApostar := apostar.NuevoServicio(apostar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken), cfg.MaxApuestaIndividual)
+	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
+		svcApostar.Fichas = fichasApuesta{almacen: t.almacen}
+	}
+	apostar.Register(mux, svcApostar, cfg.InternalAPIToken)
+	// HU2-10: liquida en tokens las apuestas individuales de los mercados del
+	// P2 (Pagos) que ya tienen opcion ganadora. Las de torneo son de HU2-11.
+	go liquidar.NuevoWorker(
+		liquidar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		avisoWS{hub: hub},
+		5*time.Second,
+	).Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
 	// HU2-11: si hay almacen de fichas, el worker tambien liquida las apuestas
@@ -208,6 +225,60 @@ func (a adaptadorTorneo) Liquidar(ctx context.Context, eventoID, apuestaID strin
 
 func (a adaptadorTorneo) Difundir(ctx context.Context, eventoID string) {
 	a.difusor.Difundir(ctx, eventoID)
+}
+
+// avisoWS adapta el Hub del WebSocket a liquidar.Avisador (HU2-10). El
+// paquete liquidar no importa ws para poder probarse sin dependencias.
+type avisoWS struct {
+	hub *ws.Hub
+}
+
+func (a avisoWS) EnviarA(userID, tipo string, payload any) error {
+	return a.hub.EnviarA(userID, ws.Mensaje{Type: tipo, Payload: payload})
+}
+
+// fichasApuesta cumple apostar.Fichas sobre el almacen de fichas (HU2-09 con
+// HU2-11). Vive en main por la misma razon que adaptadorTorneo.
+type fichasApuesta struct {
+	almacen *fichas.Almacen
+}
+
+// Jugador busca al usuario entre los inscritos del torneo. Usa Estados y no
+// EstadoDe porque EstadoDe recalcula y agregaria al ranking a quien no esta
+// inscrito.
+func (f fichasApuesta) Jugador(ctx context.Context, eventoID, userID string) (apostar.EstadoFichas, bool, error) {
+	estados, err := f.almacen.Estados(ctx, eventoID)
+	if err != nil {
+		return apostar.EstadoFichas{}, false, fmt.Errorf("%w: fichas: %v", apostar.ErrPagosNoDisponible, err)
+	}
+	for _, e := range estados {
+		if e.UsuarioID == userID {
+			return apostar.EstadoFichas{Fichas: e.Fichas, Apostado: e.Apostado}, true, nil
+		}
+	}
+	return apostar.EstadoFichas{}, false, nil
+}
+
+func (f fichasApuesta) Reservar(ctx context.Context, eventoID string, r apostar.ReservaFichas) (apostar.EstadoFichas, error) {
+	e, err := f.almacen.ReservarApuesta(ctx, eventoID, fichas.Reserva{
+		ApuestaID: r.ApuestaID,
+		UsuarioID: r.UserID,
+		Monto:     r.Monto,
+		Opcion:    r.Opcion,
+		Multiplic: r.Multiplicador,
+	})
+	switch {
+	case err == nil:
+		return apostar.EstadoFichas{Fichas: e.Fichas, Apostado: e.Apostado}, nil
+	case errors.Is(err, fichas.ErrFichasInsuficientes):
+		return apostar.EstadoFichas{}, apostar.ErrFichasInsuficientes
+	case errors.Is(err, fichas.ErrReservaIncompatible):
+		return apostar.EstadoFichas{}, apostar.ErrYaApostaste
+	case errors.Is(err, fichas.ErrPeticionInvalida):
+		return apostar.EstadoFichas{}, apostar.ErrPeticionInvalida
+	default: // torneo no activo (se cerro entre la consulta y la reserva) o Redis caido
+		return apostar.EstadoFichas{}, fmt.Errorf("%w: fichas: %v", apostar.ErrPagosNoDisponible, err)
+	}
 }
 
 // registrarApuestas arma HU-06 (POST /apuestas, solo jugadores). Devuelve el
