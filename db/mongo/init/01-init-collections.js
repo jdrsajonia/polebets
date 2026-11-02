@@ -7,9 +7,11 @@
 // porque está montado en /docker-entrypoint-initdb.d
 // ============================================================
 
-db = db.getSiblingDB('apuestas_db');
+// Misma base que MONGO_DB del .env (el compose la pasa como MONGO_INITDB_DATABASE).
+const nombreDB = process.env.MONGO_INITDB_DATABASE || 'apuestas_db';
+db = db.getSiblingDB(nombreDB);
 
-print('⏳ Inicializando base de datos: apuestas_db');
+print('⏳ Inicializando base de datos: ' + nombreDB);
 
 // ============================================================
 // 1. COLECCIÓN: carreras
@@ -68,15 +70,20 @@ db.createCollection('eventos_carrera', {
       properties: {
         carrera_id: { bsonType: 'string' },
         timestamp: { bsonType: 'date' },
-        t_carrera_ms: { bsonType: 'long' }, // En la raíz, como pide Daniel
+        // Milisegundos desde la largada (negativo antes). En la raíz para indexarlo.
+        t_carrera_ms: { bsonType: 'long' },
         tipo: {
           enum: ['posicion', 'intervalo', 'vuelta', 'pit', 'stint', 'control', 'clima', 'ubicacion'],
           description: '8 tipos permitidos'
         },
         datos: { bsonType: 'object' },
         leido_en: { bsonType: 'date' },
+        // Hora real en que la reproducción emitió el dato (lo lee el Motor).
         emitido_en: { bsonType: 'date' },
-        simulacion_id: { bsonType: 'string' }
+        simulacion_id: { bsonType: 'string' },
+        // Descarga que escribió el dato: al volver a descargar se reemplaza
+        // la carga anterior solo cuando la nueva terminó bien.
+        carga_id: { bsonType: 'string' }
       }
     }
   }
@@ -85,6 +92,7 @@ db.createCollection('eventos_carrera', {
 db.eventos_carrera.createIndex({ carrera_id: 1, t_carrera_ms: 1 });
 db.eventos_carrera.createIndex({ carrera_id: 1, tipo: 1, timestamp: 1 });
 db.eventos_carrera.createIndex({ carrera_id: 1, tipo: 1, emitido_en: 1 });
+db.eventos_carrera.createIndex({ carga_id: 1 });
 
 print('✅ Colección "eventos_carrera" creada con índices');
 
@@ -110,6 +118,7 @@ db.createCollection('simulaciones', {
         vuelta_actual: { bsonType: 'int' },
         total_vueltas: { bsonType: 'int' },
         latido_en: { bsonType: 'date' },
+        motivo_fallo: { bsonType: 'string' },
         creada_en: { bsonType: 'date' }
       }
     }
@@ -236,6 +245,6 @@ print('  4. mercados             (mercados del admin)');
 print('  5. apuestas_contexto    (contexto de apuestas del motor)');
 print('  6. reproducciones       (latido de la reproducción, HU-07)');
 print('');
-print('Índices creados: 12');
+print('Índices creados: 13');
 print('Validaciones: 6 (una por colección)');
 print('========================================');
