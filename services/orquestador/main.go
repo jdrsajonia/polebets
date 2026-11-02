@@ -10,6 +10,7 @@
 //   - POST /eventos/{evento_id}/inscripcion : inscripcion al torneo (HU2-06)
 //   - POST /registro : registro orquestado, sin sesion (HU2-01)
 //   - GET /pagina-usuario : datos de la pagina SSR del jugador (HU2-03)
+//   - POST /apuestas : apuesta individual o de torneo (HU2-09)
 package main
 
 import (
@@ -22,6 +23,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/arquisoft/orquestador/internal/apuesta"
 	"github.com/arquisoft/orquestador/internal/billetera"
 	"github.com/arquisoft/orquestador/internal/config"
 	"github.com/arquisoft/orquestador/internal/health"
@@ -51,6 +53,7 @@ func main() {
 	inscripcion.Register(mux, pagos)                                                       // HU2-06: POST /eventos/{evento_id}/inscripcion
 	registro.Register(mux, pagos, usuarios)                                                // HU2-01: POST /registro (publica)
 	pagina.Register(mux, pagina.Servicios{Usuarios: usuarios, Pagos: pagos, Motor: motor}) // HU2-03: GET /pagina-usuario
+	apuesta.Register(mux, motor)                                                           // HU2-09: POST /apuestas
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

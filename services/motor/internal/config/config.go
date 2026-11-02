@@ -25,6 +25,9 @@ type Config struct {
 	// motor con cookies (CORS) y abrir el WebSocket.
 	OrigenesPermitidos []string
 
+	// HU2-09: tope por apuesta individual en tokens (MAX_APUESTA_INDIVIDUAL).
+	MaxApuestaIndividual int64
+
 	// Ciclo del mercado (RF-07, RF-09, RNF-05).
 	VentanaApuestas    time.Duration
 	VentanaObservacion time.Duration
@@ -98,6 +101,12 @@ func desde(getenv func(string) string) (Config, error) {
 	}
 	if cfg.MinApostadoPct, err = porcentaje(getenv, "EVENT_MIN_WAGER_PCT", 50); err != nil {
 		return Config{}, err
+	}
+
+	// HU2-09: tope de una apuesta individual (tokens).
+	tope := opcional(getenv, "MAX_APUESTA_INDIVIDUAL", "500")
+	if cfg.MaxApuestaIndividual, err = strconv.ParseInt(tope, 10, 64); err != nil || cfg.MaxApuestaIndividual <= 0 {
+		return Config{}, fmt.Errorf("MAX_APUESTA_INDIVIDUAL debe ser un entero positivo: %q", tope)
 	}
 	return cfg, nil
 }
