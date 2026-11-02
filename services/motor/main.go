@@ -26,7 +26,6 @@ import (
 	"github.com/arquisoft/motor/internal/fichas"
 	"github.com/arquisoft/motor/internal/health"
 	"github.com/arquisoft/motor/internal/httpx"
-	"github.com/arquisoft/motor/internal/ingest"
 	"github.com/arquisoft/motor/internal/liquidacion"
 	"github.com/arquisoft/motor/internal/mercados"
 	"github.com/arquisoft/motor/internal/mongodb"
@@ -92,8 +91,7 @@ func main() {
 	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
 	tablero := posiciones.NuevoTablero()
-	ingest.Register(mux, db, autenticador, posiciones.NuevoDifusor(tablero, hub)) // HU-04
-	posiciones.Register(mux, tablero, autenticador.ExigirSesion)                  // HU-05
+	posiciones.Register(mux, tablero, autenticador.ExigirSesion) // HU-05
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

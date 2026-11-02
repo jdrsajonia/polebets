@@ -82,7 +82,7 @@ db.createCollection('eventos_carrera', {
           description: 'Momento del evento en la carrera'
         },
         tipo: {
-          enum: ['posicion', 'vuelta', 'bandera', 'clima', 'sector', 'pit_stop'],
+          enum: ['posicion', 'vuelta', 'bandera', 'clima', 'sector', 'pit_stop', 'ubicacion', 'intervalo'],
           description: 'Categoría del evento'
         },
         datos: {

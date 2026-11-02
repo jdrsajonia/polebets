@@ -23,4 +23,4 @@ COPY --from=build /ingestor /app/ingestor
 USER app
 
 EXPOSE 8002
-ENTRYPOINT ["/app/ingestor"]
+ENTRYPOINT ["/app/ingestor", "servicio"]
