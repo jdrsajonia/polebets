@@ -34,6 +34,13 @@ export default defineConfig(({ mode }) => {
           ws: true,
           rewrite: (ruta) => ruta.replace(/^\/api\/motor/, ""),
         },
+        // Prototipo 2: el resto de /api (sesion en Usuarios, registro y flujos
+        // del Orquestador) entra por el API Gateway levantado con Docker
+        // (puerto 80). Va de ultimo para no tapar /api/pagos ni /api/motor.
+        "/api": {
+          target: process.env.PROXY_GATEWAY ?? "http://localhost:80",
+          changeOrigin: true,
+        },
       },
     },
     // Vitest corre todas las pruebas del front, incluida la de HU-06

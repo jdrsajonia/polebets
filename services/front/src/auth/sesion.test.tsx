@@ -1,4 +1,4 @@
-// Pruebas de HU-02: sesion real contra Pagos (con fetch simulado).
+// Pruebas de HU2-02: sesion real contra Usuarios, via el Gateway (con fetch simulado).
 //
 // Cada `it` corresponde a un criterio de aceptacion de la historia.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -15,7 +15,7 @@ const JUGADOR: Usuario = { id: "11111111-1111-4111-8111-111111111111", nombre: "
 const ADMIN: Usuario = { ...USUARIOS_SIMULADOS.admin };
 
 // ---------------------------------------------------------------------------
-// Pagos simulado: responde segun "METODO /ruta". Lo que no esta definido
+// Gateway simulado (Usuarios): responde segun "METODO /ruta". Lo que no esta definido
 // responde 404 (p. ej. las posiciones que pide /carrera al montar).
 // ---------------------------------------------------------------------------
 type Respuesta = { status: number; body?: unknown } | Error;
@@ -29,7 +29,7 @@ function pagos(definidas: Record<string, Respuesta>) {
 beforeEach(() => {
   rutas = {};
   fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
-    const ruta = url.replace(/^\/api\/pagos/, "");
+    const ruta = url.replace(/^\/api/, "");
     const r = rutas[`${init?.method ?? "GET"} ${ruta}`] ?? { status: 404, body: {} };
     if (r instanceof Error) throw r;
     return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body ?? null };
@@ -42,7 +42,7 @@ afterEach(() => vi.unstubAllGlobals());
 const socketMudo = (): SocketLike => ({ onopen: null, onmessage: null, onclose: null, onerror: null, close() {} });
 
 // Monta la app como en produccion: SIN usuarioInicial, asi AuthProvider
-// pregunta a Pagos por la sesion (GET /auth/me).
+// pregunta a Usuarios por la sesion (GET /api/auth/me).
 function abrir(ruta: string, state?: unknown) {
   render(
     <MemoryRouter initialEntries={[{ pathname: ruta, state }]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
@@ -64,7 +64,7 @@ async function llenarYEnviar(email: string, password: string) {
 }
 
 function llamadas(metodo: string, ruta: string) {
-  return fetchMock.mock.calls.filter(([url, init]) => url === `/api/pagos${ruta}` && (init?.method ?? "GET") === metodo);
+  return fetchMock.mock.calls.filter(([url, init]) => url === `/api${ruta}` && (init?.method ?? "GET") === metodo);
 }
 
 describe("HU-02 · iniciar sesion", () => {
@@ -92,7 +92,7 @@ describe("HU-02 · iniciar sesion", () => {
     expect(screen.getByRole("heading", { name: "Iniciar sesión" })).toBeInTheDocument();
   });
 
-  it("valida los campos vacios sin llamar a Pagos", async () => {
+  it("valida los campos vacios sin llamar al servidor", async () => {
     pagos({ "GET /auth/me": { status: 401 } });
     abrir("/login");
     await screen.findByLabelText("Correo");
@@ -104,7 +104,7 @@ describe("HU-02 · iniciar sesion", () => {
     expect(llamadas("POST", "/auth/login")).toHaveLength(0);
   });
 
-  it("si Pagos no responde, explica que no hay conexion", async () => {
+  it("si Usuarios no responde, explica que no hay conexion", async () => {
     pagos({ "GET /auth/me": { status: 401 }, "POST /auth/login": new TypeError("Failed to fetch") });
     abrir("/login");
 
@@ -173,7 +173,7 @@ describe("HU-02 · cerrar sesion", () => {
     expect(screen.queryByRole("heading", { name: "Admin (herramienta de prueba)" })).not.toBeInTheDocument();
   });
 
-  it("si Pagos no responde al salir, igual cierra la sesion en el front", async () => {
+  it("si Usuarios no responde al salir, igual cierra la sesion en el front", async () => {
     pagos({ "GET /auth/me": { status: 200, body: JUGADOR }, "POST /auth/logout": new TypeError("Failed to fetch") });
     abrir("/billetera");
     await screen.findByRole("heading", { name: "Billetera" });
