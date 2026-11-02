@@ -11,14 +11,13 @@ import (
 	"time"
 
 	"github.com/arquisoft/motor/internal/auth"
-	"github.com/arquisoft/motor/internal/ingest"
 	"github.com/arquisoft/motor/internal/ws"
 )
 
 var instante = time.Date(2026, 10, 12, 15, 0, 0, 0, time.UTC)
 
-func pilotosPrueba() []ingest.PilotoCarrera {
-	return []ingest.PilotoCarrera{
+func pilotosPrueba() []PilotoCarrera {
+	return []PilotoCarrera{
 		{Numero: 1, Codigo: "VER", Nombre: "Max VERSTAPPEN", Equipo: "Red Bull Racing", Color: "3671C6"},
 		{Numero: 4, Codigo: "NOR", Nombre: "Lando NORRIS", Equipo: "McLaren", Color: "FF8000"},
 		{Numero: 16, Codigo: "LEC", Nombre: "Charles LECLERC", Equipo: "Ferrari", Color: ""},
@@ -103,7 +102,7 @@ func TestIniciarReemplazaLaCarreraAnterior(t *testing.T) {
 	tab.Iniciar("2024_monza", pilotosPrueba(), posiciones)
 	posiciones[99] = 4 // el tablero copio el mapa: esto no lo afecta
 
-	foto := tab.Iniciar("2024_spa", []ingest.PilotoCarrera{{Numero: 44, Codigo: "HAM"}}, map[int]int{44: 1})
+	foto := tab.Iniciar("2024_spa", []PilotoCarrera{{Numero: 44, Codigo: "HAM"}}, map[int]int{44: 1})
 	if foto.CarreraID != "2024_spa" || !igual(numeros(foto), []int{44}) {
 		t.Fatalf("la carrera nueva no reemplazo a la anterior: %+v", foto)
 	}
