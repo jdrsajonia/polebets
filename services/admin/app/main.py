@@ -1,92 +1,175 @@
 """
-Admin — Servicio real para HU2-18, HU2-19 y HU2-23.
-Implementa la comunicación con RabbitMQ para consultas y simulaciones.
+Admin — HU2-18 (Broker), HU2-19 (iniciar simulación) y HU2-23 (filtros).
+
+Atiende a la CLI por REST y habla con Pagos y el Ingestor solo por el Broker
+(RabbitMQ), en petición-respuesta: cada petición declara una cola temporal
+exclusiva, la pasa en `reply_to` y espera la respuesta con su `correlation_id`
+hasta [10 s] (RF-30). Así dos consultas a la vez nunca se cruzan.
+
+Colas (contrato «Colas y mensajes del Broker»):
+  - admin.consultas     → Pagos   {"tipo": "rentabilidad", "filtros": {...}}
+  - ingestor.commands   → Ingestor {"action": "start_simulation", "race_id", "minutos_anticipacion"}
+  - ingestor.consultas  → Ingestor {"action": "list_races"}
 """
-import os
-import uuid
 import json
-import pika
+import logging
+import os
 import time
+import uuid
+from datetime import datetime
+from typing import Any, Literal, Optional
+
+import pika
+from pika.exceptions import AMQPError
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, Literal
+from pydantic import BaseModel, ConfigDict, Field
+
+log = logging.getLogger("admin")
+
+COLA_CONSULTAS_PAGOS = "admin.consultas"
+COLA_ORDENES_INGESTOR = "ingestor.commands"
+COLA_CONSULTAS_INGESTOR = "ingestor.consultas"
+TIMEOUT_S = 10.0
+
+
+def _url_broker() -> str:
+    # Obligatoria, sin valor por defecto: si falta, Admin no arranca.
+    url = os.environ.get("RABBITMQ_URL", "").strip()
+    if not url:
+        raise RuntimeError("falta RABBITMQ_URL para Admin")
+    return url
+
+
+RABBITMQ_URL = _url_broker()
 
 app = FastAPI(title="Admin API")
 
-# Configuración de RabbitMQ
-RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@rabbitmq:5672/")
 
-def get_rabbitmq_connection():
-    """Crea una conexión a RabbitMQ."""
-    params = pika.URLParameters(RABBITMQ_URL)
-    return pika.BlockingConnection(params)
-
-# --- Modelos de Petición ---
+# --- Modelos de petición ---
 class SimulacionRequest(BaseModel):
-    race_id: str
+    model_config = ConfigDict(extra="forbid")
+
+    race_id: str = Field(min_length=1)
     minutos_anticipacion: int = Field(10, ge=1, le=120)
 
-# HU2-23: Modelo de filtros para las consultas (mapeados al contrato de Pagos)
+
 class FiltrosConsulta(BaseModel):
-    evento_id: Optional[str] = None
-    fecha_inicio: Optional[str] = None
-    fecha_fin: Optional[str] = None
+    """HU2-23 (RF-29). Todos opcionales; se traducen al contrato de Pagos."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    evento_id: Optional[uuid.UUID] = None
+    fecha_inicio: Optional[datetime] = None
+    fecha_fin: Optional[datetime] = None
     tipo_apuesta: Optional[Literal["estatica", "dinamica"]] = None
+    plantilla: Optional[str] = Field(None, max_length=100)
+    top_n: Optional[int] = Field(None, ge=1, le=100)
+    # Aún no existe en Pagos (pregunta abierta del doc): se acepta para no
+    # romper la CLI, pero no se manda y se informa como no aplicado.
     modo: Optional[Literal["torneo", "individual"]] = None
 
+
 class ConsultaRequest(BaseModel):
-    query: str
-    params: FiltrosConsulta = FiltrosConsulta()
+    model_config = ConfigDict(extra="forbid")
+
+    query: Literal["rentabilidad"] = "rentabilidad"
+    params: FiltrosConsulta = Field(default_factory=FiltrosConsulta)
+
+
+# Filtros de Admin → nombre en el contrato de Pagos (app/schemas/consultas.py).
+_MAPA_FILTROS = {
+    "evento_id": "event_id",
+    "fecha_inicio": "desde",
+    "fecha_fin": "hasta",
+    "tipo_apuesta": "kind",
+    "plantilla": "template",
+    "top_n": "top_n",
+}
+
+
+def filtros_para_pagos(f: FiltrosConsulta) -> dict[str, Any]:
+    datos = f.model_dump(mode="json", exclude_none=True)
+    return {_MAPA_FILTROS[k]: v for k, v in datos.items() if k in _MAPA_FILTROS}
+
+
+# --- Petición-respuesta por el Broker ---
+class SinRespuesta(Exception):
+    """No llegó respuesta antes del timeout."""
+
+
+def rpc_call(cola: str, mensaje: dict, timeout: float = TIMEOUT_S) -> dict:
+    """Publica `mensaje` en `cola` y espera la respuesta en una cola temporal."""
+    conexion = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
+    try:
+        canal = conexion.channel()
+        canal.queue_declare(queue=cola, durable=True)
+        # Cola propia de esta petición: la borra el Broker al cerrar la conexión.
+        reply_to = canal.queue_declare(queue="", exclusive=True, auto_delete=True).method.queue
+        correlation_id = str(uuid.uuid4())
+        respuesta: dict[str, Any] = {}
+
+        def al_llegar(ch, method, props, cuerpo):
+            if props.correlation_id == correlation_id:
+                respuesta["cuerpo"] = cuerpo
+
+        canal.basic_consume(queue=reply_to, on_message_callback=al_llegar, auto_ack=True)
+        canal.basic_publish(
+            exchange="",
+            routing_key=cola,
+            body=json.dumps(mensaje),
+            properties=pika.BasicProperties(
+                content_type="application/json",
+                delivery_mode=2,
+                reply_to=reply_to,
+                correlation_id=correlation_id,
+                # Si nadie la toma a tiempo, el Broker la descarta: una orden
+                # vieja no debe programar una simulación después de que la
+                # CLI ya recibió "tardó demasiado".
+                expiration=str(int(timeout * 1000)),
+            ),
+        )
+        # process_data_events vuelve apenas procesa algún evento, no al vencer
+        # time_limit: por eso se repite hasta la respuesta o el plazo.
+        plazo = time.monotonic() + timeout
+        while "cuerpo" not in respuesta:
+            restante = plazo - time.monotonic()
+            if restante <= 0:
+                break
+            conexion.process_data_events(time_limit=restante)
+        if "cuerpo" not in respuesta:
+            raise SinRespuesta()
+        return json.loads(respuesta["cuerpo"])
+    finally:
+        if conexion.is_open:
+            conexion.close()
+
+
+def _pedir(cola: str, mensaje: dict, destino: str) -> dict:
+    try:
+        return rpc_call(cola, mensaje)
+    except SinRespuesta:
+        raise HTTPException(status_code=504, detail=f"La consulta tardó demasiado: {destino} no respondió en {TIMEOUT_S:.0f} s")
+    except (AMQPError, OSError) as e:
+        log.warning("Broker no disponible: %s", e)
+        raise HTTPException(status_code=503, detail="Broker no disponible")
+
 
 # --- Healthcheck ---
 @app.get("/health")
 def health():
     return {"estado": "ok", "servicio": "admin"}
 
-# --- Utilidad: petición-respuesta con cola temporal ---
-def rpc_call(queue: str, mensaje: dict, timeout: float = 10.0) -> dict:
-    """
-    Publica un mensaje en 'queue' y espera la respuesta en una cola temporal.
-    Devuelve el body de la respuesta o lanza HTTPException si hay timeout.
-    """
-    conn = get_rabbitmq_connection()
-    ch = conn.channel()
-    try:
-        # Declarar cola de destino
-        ch.queue_declare(queue=queue, durable=True)
 
-        # Cola temporal exclusiva para la respuesta
-        result = ch.queue_declare(queue="", exclusive=True, auto_delete=True)
-        reply_queue = result.method.queue
+# --- HU2-19: lista de carreras descargadas (las pide al Ingestor) ---
+@app.get("/carreras")
+def listar_carreras():
+    resp = _pedir(COLA_CONSULTAS_INGESTOR, {"action": "list_races"}, "el Ingestor")
+    if not resp.get("ok"):
+        raise HTTPException(status_code=502, detail=f"Error en el Ingestor: {resp.get('error')}")
+    return {"status": "ok", "carreras": resp.get("carreras", [])}
 
-        correlation_id = str(uuid.uuid4())
 
-        ch.basic_publish(
-            exchange="",
-            routing_key=queue,
-            body=json.dumps(mensaje),
-            properties=pika.BasicProperties(
-                delivery_mode=2,
-                reply_to=reply_queue,
-                correlation_id=correlation_id,
-            ),
-        )
-
-        # Esperar la respuesta
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            method, properties, body = ch.basic_get(queue=reply_queue, auto_ack=True)
-            if method:
-                if properties.correlation_id == correlation_id:
-                    return json.loads(body)
-            time.sleep(0.05)
-
-        raise HTTPException(status_code=504, detail=f"Timeout: {queue} no respondió en {timeout}s")
-    finally:
-        if conn and conn.is_open:
-            conn.close()
-
-# --- HU2-19: Iniciar Simulación (petición-respuesta) ---
+# --- HU2-19: iniciar simulación ---
 @app.post("/simulacion")
 def iniciar_simulacion(req: SimulacionRequest):
     mensaje = {
@@ -94,65 +177,32 @@ def iniciar_simulacion(req: SimulacionRequest):
         "race_id": req.race_id,
         "minutos_anticipacion": req.minutos_anticipacion,
     }
-    try:
-        resp = rpc_call("ingestor.commands", mensaje, timeout=10.0)
-        if resp.get("ok"):
-            return {"status": "ok", "simulacion_id": resp.get("simulacion_id"), "hora_largada": resp.get("hora_largada")}
-        else:
-            error = resp.get("error", "error_desconocido")
-            if error == "ya_hay_simulacion":
-                raise HTTPException(status_code=409, detail="Ya hay una simulación programada o en curso")
-            elif error == "carrera_no_descargada":
-                raise HTTPException(status_code=404, detail="La carrera no está descargada")
-            else:
-                raise HTTPException(status_code=500, detail=f"Error en Ingestor: {error}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en RabbitMQ: {str(e)}")
+    resp = _pedir(COLA_ORDENES_INGESTOR, mensaje, "el Ingestor")
+    if resp.get("ok"):
+        return {"status": "ok", "simulacion_id": resp.get("simulacion_id"), "hora_largada": resp.get("hora_largada")}
+    error = resp.get("error", "error_desconocido")
+    if error == "ya_hay_simulacion":
+        raise HTTPException(status_code=409, detail="Ya hay una simulación programada o en curso")
+    if error == "carrera_no_descargada":
+        raise HTTPException(status_code=404, detail="La carrera no está descargada")
+    if error == "orden_invalida":
+        raise HTTPException(status_code=422, detail="Orden de simulación inválida")
+    raise HTTPException(status_code=502, detail=f"Error en el Ingestor: {error}")
 
-# --- HU2-19: Listar carreras (petición-respuesta con Ingestor) ---
-@app.get("/carreras")
-def listar_carreras():
-    mensaje = {"action": "list_races"}
-    try:
-        resp = rpc_call("ingestor.consultas", mensaje, timeout=10.0)
-        if resp.get("ok"):
-            return {"status": "ok", "carreras": resp.get("carreras", [])}
-        else:
-            raise HTTPException(status_code=500, detail=f"Error en Ingestor: {resp.get('error')}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en RabbitMQ: {str(e)}")
 
-# --- HU2-18 y HU2-23: Consultas Financieras con Filtros (petición-respuesta) ---
+# --- HU2-18 y HU2-23: consultas a Pagos con filtros ---
 @app.post("/consultas")
 def ejecutar_consulta(req: ConsultaRequest):
-    # Mapear filtros al contrato de Pagos
-    filtros = {}
-    if req.params.evento_id:
-        filtros["event_id"] = req.params.evento_id
-    if req.params.fecha_inicio:
-        filtros["desde"] = req.params.fecha_inicio
-    if req.params.fecha_fin:
-        filtros["hasta"] = req.params.fecha_fin
-    if req.params.tipo_apuesta:
-        filtros["kind"] = req.params.tipo_apuesta
-    # NOTA: 'modo' no se manda porque Pagos aún no lo acepta (acordar con Guillermo y Juan Diego)
-
-    mensaje = {
-        "tipo": "rentabilidad",  # Según el contrato de Pagos
-        "filtros": filtros,
+    filtros = filtros_para_pagos(req.params)
+    resp = _pedir(COLA_CONSULTAS_PAGOS, {"tipo": req.query, "filtros": filtros}, "Pagos")
+    if not resp.get("ok"):
+        raise HTTPException(status_code=502, detail=f"Error en Pagos: {resp.get('error')}")
+    # HU2-23: la CLI muestra qué filtros quedaron activos.
+    no_aplicados = ["modo"] if req.params.modo else []
+    return {
+        "status": "ok",
+        "tipo": resp.get("tipo"),
+        "filtros_aplicados": req.params.model_dump(mode="json", exclude_none=True, exclude={"modo"}),
+        "filtros_no_aplicados": no_aplicados,
+        "data": resp.get("datos"),
     }
-
-    try:
-        resp = rpc_call("admin.consultas", mensaje, timeout=10.0)
-        if resp.get("ok"):
-            return {"status": "ok", "data": resp.get("datos")}
-        else:
-            raise HTTPException(status_code=500, detail=f"Error en Pagos: {resp.get('error')}")
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error en RabbitMQ: {str(e)}")
