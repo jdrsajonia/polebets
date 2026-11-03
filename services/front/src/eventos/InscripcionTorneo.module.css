@@ -1,0 +1,44 @@
+/* Inscripcion al torneo en el detalle del evento (HU2-06). */
+
+.tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.confirmacion {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.confirmacion p {
+  margin: 0;
+}
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ok {
+  margin: 0;
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.aviso,
+.error {
+  margin: 0;
+  color: var(--warn);
+}
+
+.aviso {
+  font-weight: 700;
+}

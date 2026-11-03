@@ -1,0 +1,55 @@
+/* Apuesta estatica en el detalle del evento (HU2-09). */
+
+.apuesta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Mismo aspecto que la lista de opciones del calendario, como botones */
+.opciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: var(--tap);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.opcion:disabled {
+  cursor: default;
+}
+
+.opcionElegida {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+}
+
+.resumen {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.error {
+  margin: 0;
+  color: var(--warn);
+}
+
+.ok {
+  margin: 0;
+  color: var(--ok);
+}

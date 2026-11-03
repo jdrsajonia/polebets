@@ -207,3 +207,58 @@ def test_la_largada_y_una_inscripcion_no_se_cruzan(client, fabrica, monkeypatch)
     # Un solo jugador con minimo 2: si entro se le devolvio; si no entro, nunca se cobro.
     assert _saldo(uid) == 300
     assert estado["largada"]["tournament_status"] == "cancelado"
+
+
+# ---------------------------------------------------------------------------
+# HU2-05: calendario (listar eventos y mercados del evento)
+# ---------------------------------------------------------------------------
+@requires_db
+def test_listar_eventos_filtra_por_status_y_cuenta_inscritos(client, fabrica):
+    eid = _crear(client, fabrica)
+    # Dos inscritos para ver el conteo.
+    for _ in range(2):
+        uid = fabrica.billetera(balance=500)
+        assert _inscribir(client, eid, uid).status_code == 201
+
+    r = client.get("/internal/events?status=programado,en_curso", headers=headers())
+    assert r.status_code == 200, r.text
+    nuestro = [e for e in r.json() if e["event_id"] == str(eid)]
+    assert len(nuestro) == 1
+    e = nuestro[0]
+    assert e["status"] == "programado"
+    assert e["registered"] == 2
+    assert e["pot"] == 200
+
+    # Un filtro que no incluye 'programado' no lo trae.
+    r2 = client.get("/internal/events?status=finalizado", headers=headers())
+    assert all(e["event_id"] != str(eid) for e in r2.json())
+
+
+@requires_db
+def test_listar_eventos_exige_token(client):
+    assert client.get("/internal/events").status_code == 401
+
+
+@requires_db
+def test_mercados_del_evento_filtra_por_kind(client, fabrica):
+    evento = fabrica.evento()
+    fabrica.eventos.append(evento.id)
+    fabrica.mercado(event_id=evento.id)  # estatica (la fabrica crea estaticas)
+
+    # Sin filtro: trae la estatica.
+    r = client.get(f"/internal/events/{evento.id}/markets", headers=headers())
+    assert r.status_code == 200, r.text
+    assert len(r.json()) == 1
+    m = r.json()[0]
+    assert (m["kind"], m["template"]) == ("estatica", "ganador")
+    assert m["options"] == [{"opcion": "VER", "multiplicador": 2.5}, {"opcion": "NOR", "multiplicador": 3.0}]
+
+    # kind=estatica: la trae; kind=dinamica: no hay ninguna.
+    assert len(client.get(f"/internal/events/{evento.id}/markets?kind=estatica", headers=headers()).json()) == 1
+    assert client.get(f"/internal/events/{evento.id}/markets?kind=dinamica", headers=headers()).json() == []
+
+
+@requires_db
+def test_mercados_de_evento_inexistente_da_404(client):
+    assert client.get(f"/internal/events/{uuid.uuid4()}/markets", headers=headers()).status_code == 404
+    assert client.get(f"/internal/events/{uuid.uuid4()}/markets").status_code == 401

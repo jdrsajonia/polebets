@@ -20,6 +20,7 @@ interface Enlace {
 // Enlaces del menu. Cada HU que agregue una pantalla la registra aqui.
 const ENLACES: Enlace[] = [
   { a: "/carrera", texto: "En vivo", roles: ["player"] },
+  { a: "/eventos", texto: "Calendario", roles: ["player"] },
   { a: "/billetera", texto: "Billetera", roles: ["player"] },
   { a: "/mi-pagina", texto: "Mi página", roles: ["player"], servidor: true },
   { a: "/admin", texto: "Admin", roles: ["admin"] },

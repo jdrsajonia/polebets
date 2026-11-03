@@ -16,6 +16,7 @@ import RecargaPorResultado from "./billetera/RecargaPorResultado";
 import Layout from "./componentes/Layout";
 import Admin from "./paginas/Admin";
 import Billetera from "./paginas/Billetera";
+import Calendario from "./paginas/Calendario";
 import Carrera from "./paginas/Carrera";
 import Estado from "./paginas/Estado";
 import Login from "./paginas/Login";
@@ -50,6 +51,7 @@ export default function App() {
           <Route element={<RutaProtegida roles={["player"]} />}>
             <Route path="/carrera" element={<Carrera />} />
             <Route path="/billetera" element={<Billetera />} />
+            <Route path="/eventos" element={<Calendario />} />
           </Route>
 
           <Route path="*" element={<NoEncontrada />} />
