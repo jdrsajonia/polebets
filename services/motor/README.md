@@ -361,7 +361,10 @@ WebSocket "mercado_dinamico"        Pagos /internal/markets (kind = dinamica)
 - Usa `BETTING_WINDOW_SECONDS` y `OBSERVATION_WINDOW_SECONDS`, en tiempo de carrera.
 
 Payload de `mercado_dinamico` (`status` es `abierto` o `cerrado`;
-`winning_option` solo llega al resolver):
+`winning_option` solo llega al resolver). `closes_at` (ISO, UTC) es el mismo
+que se guarda en Pagos (`iniciada_en + (race_close − t_inicio_ms)`): sirve
+para la cuenta regresiva del front. Quien decide el cierre es el Motor con el
+tiempo de carrera; `race_close_s` es ese mismo cierre en segundos de carrera.
 
 ```json
 {
@@ -374,6 +377,7 @@ Payload de `mercado_dinamico` (`status` es `abierto` o `cerrado`;
     "options": [{ "opcion": "Sí", "multiplicador": 3.5 }, { "opcion": "No", "multiplicador": 1.25 }],
     "status": "cerrado",
     "race_close_s": 130,
+    "closes_at": "2026-11-02T20:02:10Z",
     "winning_option": "No"
   }
 }

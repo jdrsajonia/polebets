@@ -35,14 +35,17 @@ type Difusor interface {
 
 // MensajeDinamico es el payload de "mercado_dinamico".
 type MensajeDinamico struct {
-	MarketID      string        `json:"market_id"`
-	EventID       string        `json:"event_id"`
-	Template      string        `json:"template"`
-	Question      string        `json:"question"`
-	Options       []opcionPagos `json:"options"`
-	Status        string        `json:"status"` // abierto | cerrado
-	RaceCloseS    int64         `json:"race_close_s"`
-	WinningOption *string       `json:"winning_option"` // solo al resolver
+	MarketID   string        `json:"market_id"`
+	EventID    string        `json:"event_id"`
+	Template   string        `json:"template"`
+	Question   string        `json:"question"`
+	Options    []opcionPagos `json:"options"`
+	Status     string        `json:"status"` // abierto | cerrado
+	RaceCloseS int64         `json:"race_close_s"`
+	// ClosesAt es el mismo closes_at que va a Pagos (Simulacion.HoraReal del
+	// cierre), en UTC: el front lo usa para la cuenta regresiva.
+	ClosesAt      time.Time `json:"closes_at"`
+	WinningOption *string   `json:"winning_option"` // solo al resolver
 }
 
 // pendiente es una accion del Gestor que aun no se aplico en Pagos.
@@ -290,7 +293,8 @@ func (w *Worker) difundir(m Mercado, estado string, ganadora *string) {
 	}
 	msg := MensajeDinamico{
 		MarketID: m.ID, EventID: m.EventoID, Template: m.Plantilla, Question: m.Pregunta,
-		Status: estado, RaceCloseS: segundoCierre(m.Cierre), WinningOption: ganadora,
+		Status: estado, RaceCloseS: segundoCierre(m.Cierre), ClosesAt: w.sim.HoraReal(m.Cierre),
+		WinningOption: ganadora,
 	}
 	for _, o := range m.Opciones {
 		msg.Options = append(msg.Options, opcionPagos{Opcion: o.Nombre, Multiplicador: o.Multiplicador})

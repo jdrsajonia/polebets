@@ -3,6 +3,7 @@ package dinamicas
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"math"
@@ -144,6 +145,12 @@ func TestWorkerEnVivo(t *testing.T) {
 		t.Fatalf("opens_at = %v, closes_at = %v", a.AbreEn, a.CierraEn)
 	}
 	m := d.msgs[0]
+	if !m.ClosesAt.Equal(a.CierraEn) {
+		t.Fatalf("closes_at del mensaje = %v, a Pagos = %v", m.ClosesAt, a.CierraEn)
+	}
+	if b, _ := json.Marshal(m); !strings.Contains(string(b), `"closes_at":"2026-11-02T20:02:10Z"`) {
+		t.Fatalf("json = %s", b)
+	}
 	if m.MarketID != a.Mercado.ID || m.EventID != "sim-a" || m.Template != PlantillaCambioLider || m.RaceCloseS != 130 ||
 		len(m.Options) != 2 || m.Options[0].Opcion != OpcionSi {
 		t.Fatalf("mensaje = %+v", m)

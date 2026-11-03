@@ -189,6 +189,12 @@ reprocesar da exactamente lo mismo. Van en UTC (con zona, como exige Pagos).
 | Motor que arranca a mitad de carrera | Reprocesa desde el inicio; Pagos responde 200 a lo ya creado. Si `race_close` ya pasó, crea `programado` y luego cierra |
 | Aparece otra simulación | `Terminar()` en el Gestor viejo y aplica sus cierres (un intento) antes de cambiar |
 
+El payload de `mercado_dinamico` lleva `market_id`, `event_id`, `template`,
+`question`, `options`, `status` (`abierto` o `cerrado`), `race_close_s`,
+`closes_at` y `winning_option` (solo al resolver). `closes_at` es el mismo
+`Simulacion.HoraReal(race_close)` que se manda a Pagos, en UTC, para que el
+front muestre la cuenta regresiva.
+
 Se difunde `mercado_dinamico` solo en vivo. En el primer lote de una
 simulación, una acción más de 5 s detrás del reloj es recuperación y no se
 anuncia, ni nada de una simulación que ya estaba terminada.
