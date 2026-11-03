@@ -107,6 +107,9 @@ func main() {
 	)
 	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
 		workerP2.Fichas = t
+		// HU2-13: reenvia ranking_torneo de los torneos activos cada 5 s, para
+		// quien recarga /carrera sin esperar al siguiente cambio de fichas.
+		go t.difusor.Run(ctx, fichas.ReenvioRanking)
 		// HU2-12: con la carrera finalizada y nada pendiente en Pagos, reparte
 		// el botin y limpia Redis. Sin Redis no hay torneo que cerrar.
 		go cierre.NuevoWorker(
@@ -254,6 +257,8 @@ func construirTorneo(ctx context.Context, cfg config.Config, hub *ws.Hub) (liqui
 		FichasIniciales: cfg.FichasIniciales,
 		MinWagerPct:     cfg.MinApostadoPct,
 	})
+	// El botin de cada evento (events.pot) lo da Pagos; el difusor lo guarda.
+	difusor.Pagos = fichas.NuevoPagosBotinHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)
 	return adaptadorTorneo{almacen: almacen, difusor: difusor}, func() { _ = rdb.Close() }
 }
 

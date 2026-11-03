@@ -2,10 +2,10 @@
 // pantalla, para que los PoleCoins del header se actualicen sin recargar la
 // pagina (HU2-10 paga y avisa al jugador).
 //
-// Acepta cualquier payload: el del P1 (HU-08, con puntos) y el de
-// internal/liquidar (HU2-10, con pago y saldo). Lo que muestra cada uno lo
-// sigue decidiendo PanelResultado; aqui solo se pide el saldo a Pagos, que es
-// quien lo sabe.
+// Acepta cualquier payload: el del P1 (HU-08, con puntos) y los dos de
+// internal/liquidar (HU2-10: individual con pago y saldo; torneo con fichas).
+// Lo que muestra cada uno lo deciden PanelResultado (P1) y PanelDinamico
+// (HU2-13); aqui solo se pide el saldo a Pagos, que es quien lo sabe.
 
 import { useEffect } from "react";
 import { TIPOS_WS } from "../api/tipos";

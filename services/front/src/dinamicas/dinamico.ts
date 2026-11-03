@@ -46,14 +46,17 @@ export function faseDinamica(m: MensajeDinamico): FaseDinamica {
 const ORDEN: Record<FaseDinamica, number> = { abierto: 0, cerrado: 1, resuelto: 2 };
 
 // Siguiente mercado en pantalla al llegar `msg`:
-//   - abierto: es el mercado nuevo (el motor abre uno a la vez).
-//   - cerrado o resuelto de OTRO mercado: se ignora (p. ej. el cierre de uno
-//     que se abrio antes de entrar a la pagina, que nunca se vio abierto).
+//   - sin mercado en pantalla: se muestra, en cualquier fase. HU2-13: el motor
+//     reenvia cada 5 s el ultimo cerrado o resuelto mientras la carrera sigue,
+//     asi quien recarga en la observacion ve su apuesta y el resultado.
+//   - abierto de otro mercado: es el mercado nuevo (el motor abre uno a la vez).
+//   - cerrado o resuelto de OTRO mercado, con uno ya en pantalla: se ignora.
 //   - del mismo mercado: avanza de fase; nunca retrocede (un mensaje viejo
 //     que llega tarde no reabre un mercado cerrado).
 export function siguienteMercado(actual: MensajeDinamico | null, msg: MensajeDinamico): MensajeDinamico | null {
   const fase = faseDinamica(msg);
-  if (!actual || actual.market_id !== msg.market_id) {
+  if (!actual) return msg;
+  if (actual.market_id !== msg.market_id) {
     return fase === "abierto" ? msg : actual;
   }
   return ORDEN[fase] >= ORDEN[faseDinamica(actual)] ? msg : actual;

@@ -38,6 +38,7 @@ var (
 	SoloJugadores         = Error{http.StatusForbidden, "solo_jugadores", "Solo los jugadores"}
 	EventoNoExiste        = Error{http.StatusNotFound, "evento_no_existe", "El evento no existe"}
 	MercadoNoExiste       = Error{http.StatusNotFound, "mercado_no_existe", "El mercado no existe"}
+	SinApuesta            = Error{http.StatusNotFound, "sin_apuesta", "No apostaste en este mercado"}
 	CorreoRegistrado      = Error{http.StatusConflict, "correo_registrado", "Este correo ya está registrado"}
 	InscripcionesCerradas = Error{http.StatusConflict, "inscripciones_cerradas", "La carrera ya empezó: las inscripciones están cerradas"}
 	MercadoCerrado        = Error{http.StatusConflict, "mercado_cerrado", "Mercado cerrado"}

@@ -1,7 +1,7 @@
 // Logica de POST /api/apuestas (orquestador-api.md §3.6), sin React.
 
 import { ErrorHttp } from "../api/http";
-import type { PeticionApuesta, RespuestaApuesta } from "../api/tipos";
+import type { MiApuesta, PeticionApuesta, RespuestaApuesta } from "../api/tipos";
 import { unidad } from "./modo";
 
 // ---------------------------------------------------------------------------
@@ -65,13 +65,19 @@ export function bloqueaElMercado(causa: unknown): boolean {
 // Lo que se muestra de la apuesta hecha
 // ---------------------------------------------------------------------------
 
-// Antes del resultado: la apuesta registrada y lo que recibiria si acierta.
-// Con el resultado: si gano, el pago; si perdio, lo que aposto (nunca "pago 0").
-export function textoApuesta(a: RespuestaApuesta, ganadora: string | null): string {
+// Mientras el mercado esta abierto: la apuesta registrada y lo que recibiria
+// si acierta. Cerrado (o con winning_option) y sin resultado_apuesta: espera,
+// porque el pago lo confirma el servidor (resultado.ts).
+export function textoApuesta(a: RespuestaApuesta, esperando: boolean): string {
+  if (esperando) return textoMiApuesta(a, true);
   const u = unidad(a.modo);
-  if (ganadora !== null) {
-    return a.opcion === ganadora ? `¡Acertaste! Recibes ${a.pago_si_acierta} ${u}.` : `Perdiste ${a.monto} ${u}.`;
-  }
   const quedan = a.modo === "torneo" ? a.fichas : a.saldo;
   return `Apuesta registrada en modo ${a.modo}: ${a.monto} a «${a.opcion}». Si aciertas recibes ${a.pago_si_acierta} ${u}. Te quedan ${quedan ?? "—"} ${u}.`;
+}
+
+// La apuesta que devuelve mi-apuesta (al recargar la pagina, HU2-13), aun sin
+// liquidar. Sirve tambien para la RespuestaApuesta: tienen monto, modo y opcion.
+export function textoMiApuesta(a: Pick<MiApuesta, "monto" | "modo" | "opcion">, esperando: boolean): string {
+  const texto = `Tu apuesta: ${a.monto} ${unidad(a.modo)} a «${a.opcion}».`;
+  return esperando ? `${texto} Esperando el resultado…` : texto;
 }

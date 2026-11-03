@@ -74,7 +74,7 @@ export default function Billetera() {
     try {
       const compra = await comprar(montoCop, clave.current);
       clave.current = null; // compra terminada: la siguiente lleva clave nueva
-      setMensaje({ ok: true, texto: `Compra aprobada: recibiste ${numero.format(compra.tokens_acreditados)} PBT.` });
+      setMensaje({ ok: true, texto: `Compra aprobada: recibiste ${numero.format(compra.tokens_acreditados)} PoleCoins.` });
     } catch (causa) {
       // ErrorHttp ya trae el mensaje en español: monto invalido (422), red
       // caida (status 0), etc.
@@ -103,11 +103,11 @@ export default function Billetera() {
         ) : (
           <>
             <p className={estilos.cifra} data-testid="saldo">
-              {saldo === null ? "—" : numero.format(saldo)} <span className={estilos.moneda}>PBT</span>
+              {saldo === null ? "—" : numero.format(saldo)} <span className={estilos.moneda}>PoleCoins</span>
             </p>
             {saldo !== null && copPorToken !== null && (
               <p className="texto-secundario">
-                ≈ ${numero.format(saldo * copPorToken)} COP · 1 PBT = ${numero.format(copPorToken)} COP (valor indexado al USD)
+                ≈ ${numero.format(saldo * copPorToken)} COP · 1 PoleCoin = ${numero.format(copPorToken)} COP (valor indexado al USD)
               </p>
             )}
           </>
@@ -175,7 +175,7 @@ export default function Billetera() {
 
           <div className={estilos.recibes}>
             <span className="texto-secundario">Recibes</span>
-            <b>{numero.format(tokens)} PBT</b>
+            <b>{numero.format(tokens)} PoleCoins</b>
           </div>
 
           <button type="submit" className={`boton ${estilos.comprar}`} disabled={!puedeComprar}>

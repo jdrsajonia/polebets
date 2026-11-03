@@ -67,9 +67,9 @@ describe("HU-03 · ver el saldo", () => {
     rutas = { "GET /billetera": BILLETERA };
     abrir();
 
-    expect(await screen.findByTestId("saldo")).toHaveTextContent("2.450 PBT");
-    expect(saldoEnHeader()).toHaveTextContent("2.450 PBT");
-    expect(screen.getByText(/1 PBT = \$1\.000 COP/)).toBeInTheDocument();
+    expect(await screen.findByTestId("saldo")).toHaveTextContent("2.450 PoleCoins");
+    expect(saldoEnHeader()).toHaveTextContent("2.450 PoleCoins");
+    expect(screen.getByText(/1 PoleCoin = \$1\.000 COP/)).toBeInTheDocument();
   });
 
   it("si el saldo no carga, lo explica y permite reintentar", async () => {
@@ -78,7 +78,7 @@ describe("HU-03 · ver el saldo", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo conectar con el servidor");
     fireEvent.click(screen.getByRole("button", { name: "Reintentar" }));
-    expect(await screen.findByTestId("saldo")).toHaveTextContent("2.450 PBT");
+    expect(await screen.findByTestId("saldo")).toHaveTextContent("2.450 PoleCoins");
   });
 
   it("el admin no tiene billetera: no se le pide el saldo a Pagos", async () => {
@@ -93,13 +93,13 @@ describe("HU-03 · comprar tokens", () => {
   it("convierte con la tasa, envia la compra y muestra el saldo nuevo en todos lados", async () => {
     rutas = { "GET /billetera": BILLETERA, "POST /billetera/compras": compra(2500, 50) };
     abrir();
-    await screen.findByText("50 PBT"); // "Recibes": $50.000 / 1.000
+    await screen.findByText("50 PoleCoins"); // "Recibes": $50.000 / 1.000
 
     fireEvent.click(botonComprar());
 
-    expect(await screen.findByText("Compra aprobada: recibiste 50 PBT.")).toBeInTheDocument();
-    expect(screen.getByTestId("saldo")).toHaveTextContent("2.500 PBT");
-    expect(saldoEnHeader()).toHaveTextContent("2.500 PBT");
+    expect(await screen.findByText("Compra aprobada: recibiste 50 PoleCoins.")).toBeInTheDocument();
+    expect(screen.getByTestId("saldo")).toHaveTextContent("2.500 PoleCoins");
+    expect(saldoEnHeader()).toHaveTextContent("2.500 PoleCoins");
     const [[, init]] = compras();
     expect(JSON.parse(init.body)).toEqual({ monto_cop: 50000 });
     expect(init.credentials).toBe("include");
@@ -110,7 +110,7 @@ describe("HU-03 · comprar tokens", () => {
     rutas = { "GET /billetera": BILLETERA };
     abrir();
     const monto = await screen.findByLabelText("Monto en pesos (COP)");
-    await screen.findByText("50 PBT");
+    await screen.findByText("50 PoleCoins");
 
     fireEvent.change(monto, { target: { value: "" } });
     expect(botonComprar()).toBeDisabled();
@@ -133,7 +133,7 @@ describe("HU-03 · comprar tokens", () => {
       "POST /billetera/compras": new Promise((r) => (responder = r)),
     };
     abrir();
-    await screen.findByText("50 PBT");
+    await screen.findByText("50 PoleCoins");
 
     fireEvent.click(botonComprar());
     fireEvent.click(botonComprar());
@@ -141,7 +141,7 @@ describe("HU-03 · comprar tokens", () => {
     expect(botonComprar()).toBeDisabled();
     expect(botonComprar()).toHaveTextContent("Comprando…");
     responder(compra(2500, 50));
-    await screen.findByText("Compra aprobada: recibiste 50 PBT.");
+    await screen.findByText("Compra aprobada: recibiste 50 PoleCoins.");
     expect(compras()).toHaveLength(1);
   });
 
@@ -151,17 +151,17 @@ describe("HU-03 · comprar tokens", () => {
       "POST /billetera/compras": [new TypeError("Failed to fetch"), compra(2500, 50), compra(2520, 20)],
     };
     abrir();
-    await screen.findByText("50 PBT");
+    await screen.findByText("50 PoleCoins");
 
     fireEvent.click(botonComprar());
     expect(await screen.findByRole("alert")).toHaveTextContent("No se pudo conectar con el servidor");
 
     fireEvent.click(botonComprar()); // reintento del mismo pedido
-    await screen.findByText("Compra aprobada: recibiste 50 PBT.");
+    await screen.findByText("Compra aprobada: recibiste 50 PoleCoins.");
 
     fireEvent.click(screen.getByRole("button", { name: "$20.000" }));
     fireEvent.click(botonComprar()); // compra nueva
-    await screen.findByText("Compra aprobada: recibiste 20 PBT.");
+    await screen.findByText("Compra aprobada: recibiste 20 PoleCoins.");
 
     const [primera, reintento, nueva] = clavesEnviadas();
     expect(reintento).toBe(primera); // Pagos no acredita dos veces (RNF-02)
@@ -174,13 +174,13 @@ describe("HU-03 · comprar tokens", () => {
       "POST /billetera/compras": { status: 422, body: { detail: "El monto máximo por compra es $10.000.000 COP" } },
     };
     abrir();
-    await screen.findByText("50 PBT");
+    await screen.findByText("50 PoleCoins");
 
     fireEvent.click(botonComprar());
 
     expect(await screen.findByRole("alert")).toHaveTextContent("El monto máximo por compra es $10.000.000 COP");
     await waitFor(() => expect(botonComprar()).toBeEnabled());
-    expect(screen.getByTestId("saldo")).toHaveTextContent("2.450 PBT");
+    expect(screen.getByTestId("saldo")).toHaveTextContent("2.450 PoleCoins");
   });
 });
 
