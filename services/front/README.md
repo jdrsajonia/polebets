@@ -29,6 +29,7 @@ src/
   mercados/               # HU-11: mercado actual, panel del admin y estado en /carrera
   apuestas/               # HU-06: apostar (JavaScript)
   dinamicas/              # HU2-08: apuesta dinámica en vivo en /carrera
+  visor/                  # HU2-15: tarjeta del visor de pista (<visor-pista>, Blazor) y "Siguiendo"
 ```
 
 ## Rutas
@@ -220,6 +221,33 @@ con el mercado del P1 (`mercado_abierto/cerrado/liquidado`), que no cambia.
   `Idempotency-Key` por intento (`dinamicas/apuesta.ts`): los reintentos la
   reutilizan y solo se renueva tras un éxito o si cambian mercado, opción o
   monto. Los errores del contrato se leen por `codigo` (`ErrorHttp.codigo`).
+
+## Visor de pista (HU2-15)
+
+El visor es un componente en C# / Blazor WebAssembly (`services/visor`) que se usa como
+el elemento HTML `<visor-pista>`. React no le pasa datos: el visor abre su propio
+WebSocket a `/api/ws` y dibuja solo. `/carrera` le dice a quién seguir:
+
+```tsx
+<visor-pista seguir="44" mostrar-codigos="true" />
+```
+
+| Archivo | Qué hace |
+| --- | --- |
+| `visor/cargarVisor.ts` | Carga `/_framework/blazor.webassembly.js` una sola vez y solo al abrir `/carrera`; espera a que exista `<visor-pista>` |
+| `visor/VisorPista.tsx` | Tarjeta del mockup 07: el elemento, el botón «Mostrar códigos» y el aviso si el visor no carga |
+| `visor/PanelSiguiendo.tsx` | Tarjeta «Siguiendo» con el piloto resaltado |
+| `posiciones/TablaPosiciones.tsx` | Con `alSeguir`, cada piloto es un botón que lo sigue en el visor |
+
+Mientras el jugador no elige, el visor sigue al líder.
+
+**Dónde están los archivos.** El Dockerfile publica el visor con el SDK de .NET (contexto
+adicional `visor` del compose) y copia `_framework/` y `_content/` a `dist/`.
+`server/servidor.mjs` los sirve con `application/wasm`, responde 404 (no `index.html`)
+si falta uno y manda la versión `.br` si el navegador acepta Brotli. Por eso la imagen
+del Front se construye con `docker compose build front`; un `docker build` solo de
+`services/front` no tiene el código del visor. Con `npm run dev` no hay `_framework/` y
+la tarjeta muestra «Visor no disponible».
 
 ## Página del usuario con SSR (HU2-03)
 

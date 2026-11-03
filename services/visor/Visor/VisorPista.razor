@@ -1,0 +1,187 @@
+@* Elemento <visor-pista> (HU2-15, RF-20): la carrera vista desde arriba.
+
+   Atributos (los pone la página que lo incrusta):
+     seguir="44"              número del piloto a resaltar (0 = ninguno)
+     mostrar-codigos="false"  oculta los códigos (el seguido siempre lo muestra)
+     mostrar-fps="true"       muestra los cuadros por segundo (RNF-13)
+     demo="true"              carrera de mentira, sin Motor (para desarrollar)
+     url-ws="ws://..."        otro WebSocket (por defecto ws(s)://<host>/api/ws)
+
+   Dibuja con SVG: la pista una vez y los autos en cada cuadro (~60 por
+   segundo), interpolando entre las muestras que llegan cada ~270 ms. *@
+
+@using System.Diagnostics
+@using Visor.Nucleo
+@implements IAsyncDisposable
+@inject NavigationManager Navegacion
+
+<div data-fps="@fps" data-autos="@autos.Count"
+     style="position:relative;width:100%;aspect-ratio:@Aspecto;background:#0F0F13;border-radius:6px;overflow:hidden;font-family:'Barlow Condensed','Barlow',sans-serif;color:#F5F5F7">
+    @if (estado.Proyeccion is { } proy)
+    {
+        <svg viewBox="0 0 @EstadoVisor.Numero(Proyeccion.Ancho) @EstadoVisor.Numero(proy.Alto)" role="img" aria-label="Visor de pista"
+             style="position:absolute;inset:0;width:100%;height:100%">
+            <polyline points="@estado.PuntosPista" fill="none" stroke="#2A2A31" stroke-width="22" stroke-linejoin="round" stroke-linecap="round" />
+            <polyline points="@estado.PuntosPista" fill="none" stroke="#3A3A42" stroke-width="1.5" stroke-dasharray="6 8" stroke-linejoin="round" />
+            <circle cx="@EstadoVisor.Numero(estado.Meta.X)" cy="@EstadoVisor.Numero(estado.Meta.Y)" r="6" fill="#F5F5F7" />
+            @* Si la meta queda pegada al borde derecho, el texto va a su izquierda. *@
+            @{ var metaX = estado.Meta.X > Proyeccion.Ancho - 90 ? estado.Meta.X - 64 : estado.Meta.X + 12; }
+            <TextoSvg X="@EstadoVisor.Numero(metaX)" Y="@EstadoVisor.Numero(estado.Meta.Y + 26)" Color="#71717A" Espaciado="2" Texto="META" />
+            @foreach (var a in autos)
+            {
+                <g @key="a.Numero" transform="translate(@EstadoVisor.Numero(a.X) @EstadoVisor.Numero(a.Y))">
+                    <circle r="@(a.Seguido ? 11 : 7)" fill="@a.Color" stroke="@(a.Seguido ? "#F5F5F7" : "#0B0B0D")" stroke-width="@(a.Seguido ? 3 : 1.5)" />
+                    @if (MostrarCodigos || a.Seguido)
+                    {
+                        <TextoSvg X="13" Y="-9" Tamano="@(a.Seguido ? 22 : 17)" Peso="700" Borde="#0B0B0D" Texto="@a.Codigo" />
+                    }
+                </g>
+            }
+        </svg>
+    }
+
+    <div style="position:absolute;left:12px;top:10px;display:flex;align-items:center;gap:8px;font-size:14px;letter-spacing:1px;color:#A1A1AA">
+        <span style="display:block;width:8px;height:8px;border-radius:50%;background:@ColorEstado"></span>
+        <span>@TextoEstado</span>
+        @if (MostrarFps && estado.HayAutos)
+        {
+            <span style="color:#71717A">· @fps fps</span>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>Número del piloto a resaltar (0 = ninguno).</summary>
+    [Parameter] public int Seguir { get; set; }
+    /// <summary>Mostrar el código de cada auto.</summary>
+    [Parameter] public bool MostrarCodigos { get; set; } = true;
+    /// <summary>Mostrar los cuadros por segundo.</summary>
+    [Parameter] public bool MostrarFps { get; set; }
+    /// <summary>Carrera de mentira, sin Motor.</summary>
+    [Parameter] public bool Demo { get; set; }
+    /// <summary>WebSocket a usar; vacío = el del mismo origen.</summary>
+    [Parameter] public string? UrlWs { get; set; }
+
+    // Cuadros por segundo objetivo: el navegador limita a su refresco.
+    private static readonly TimeSpan Cuadro = TimeSpan.FromMilliseconds(1000.0 / 60);
+
+    private readonly EstadoVisor estado = new();
+    private readonly CancellationTokenSource cancelar = new();
+    private readonly long inicio = Stopwatch.GetTimestamp();
+    private IReadOnlyList<AutoEnPista> autos = [];
+    private EstadoConexion conexion = EstadoConexion.Conectando;
+    private int fps;
+    private int cuadrosEnElSegundo;
+    private double inicioSegundo;
+
+    /// <summary>Milisegundos desde que se creó el visor (reloj local monótono).</summary>
+    private double Ahora() => Stopwatch.GetElapsedTime(inicio).TotalMilliseconds;
+
+    /// <summary>Proporción del lienzo: la de la pista, o 5:3 mientras no llega.</summary>
+    private string Aspecto => estado.Proyeccion is { } p
+        ? $"{EstadoVisor.Numero(Proyeccion.Ancho)} / {EstadoVisor.Numero(p.Alto)}"
+        : "5 / 3";
+
+    /// <summary>Arranca la conexión (o la demo) y el bucle de cuadros.</summary>
+    protected override void OnInitialized()
+    {
+        _ = Demo ? CorrerDemo(cancelar.Token) : CorrerConexion(cancelar.Token);
+        _ = Animar(cancelar.Token);
+    }
+
+    /// <summary>Conecta con el Motor y aplica cada mensaje que llega.</summary>
+    private Task CorrerConexion(CancellationToken ct)
+    {
+        var url = string.IsNullOrWhiteSpace(UrlWs) ? ConexionMotor.UrlPorDefecto(Navegacion.BaseUri) : new Uri(UrlWs);
+        var conexionMotor = new ConexionMotor(
+            url,
+            texto =>
+            {
+                if (MensajeVisor.Leer(texto) is not { } mensaje) return;
+                estado.Aplicar(mensaje, Ahora());
+                // Las coordenadas las dibuja el bucle de cuadros; lo demás (pista,
+                // pilotos) cambia poco y se muestra de una.
+                if (mensaje is not MensajeVisor.Coordenadas) _ = InvokeAsync(StateHasChanged);
+            },
+            nuevo =>
+            {
+                conexion = nuevo;
+                _ = InvokeAsync(StateHasChanged);
+            });
+        return conexionMotor.Correr(ct);
+    }
+
+    /// <summary>Modo demo: cada segundo genera un tramo, como el Motor.</summary>
+    private async Task CorrerDemo(CancellationToken ct)
+    {
+        var demo = new CarreraDemo();
+        conexion = EstadoConexion.Abierta;
+        estado.Aplicar(new MensajeVisor.Pista(demo.Pista()), Ahora());
+        long desde = -1000;
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            do
+            {
+                var hasta = (long)Ahora();
+                estado.Aplicar(new MensajeVisor.Coordenadas(demo.Tramo(desde, hasta)), Ahora());
+                estado.Aplicar(new MensajeVisor.Posiciones(demo.Posiciones(hasta)), Ahora());
+                desde = hasta;
+            } while (await timer.WaitForNextTickAsync(ct));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>Bucle de cuadros: recalcula los autos y redibuja mientras haya autos que mover.</summary>
+    private async Task Animar(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(Cuadro);
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                if (!estado.HayAutos && autos.Count == 0) continue;
+                autos = estado.Autos(Ahora(), Seguir);
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>Cuenta los cuadros dibujados en el último segundo (RNF-13).</summary>
+    protected override void OnAfterRender(bool primera)
+    {
+        var ahora = Ahora();
+        cuadrosEnElSegundo++;
+        if (ahora - inicioSegundo < 1000) return;
+        fps = (int)Math.Round(cuadrosEnElSegundo * 1000 / (ahora - inicioSegundo));
+        cuadrosEnElSegundo = 0;
+        inicioSegundo = ahora;
+    }
+
+    /// <summary>Texto del indicador de arriba a la izquierda.</summary>
+    private string TextoEstado => (conexion, estado.Proyeccion, estado.HayAutos, estado.EstadoCarrera) switch
+    {
+        (EstadoConexion.Conectando, _, _, _) => "Conectando…",
+        (EstadoConexion.Reconectando, _, _, _) => "Reconectando…",
+        (_, _, true, _) => Demo ? "Demo" : "En vivo",
+        (_, not null, false, "programada") => "Esperando la largada",
+        (_, not null, false, _) => "Esperando coordenadas…",
+        _ => "Sin carrera programada",
+    };
+
+    /// <summary>Color del punto del indicador.</summary>
+    private string ColorEstado => conexion != EstadoConexion.Abierta ? "#F59E0B" : estado.HayAutos ? "#22C55E" : "#71717A";
+
+    /// <summary>Cierra el WebSocket y detiene los bucles al quitar el elemento de la página.</summary>
+    public ValueTask DisposeAsync()
+    {
+        cancelar.Cancel();
+        cancelar.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

@@ -163,6 +163,10 @@ services:
   front:
     build:
       context: ./services/front
+      # HU2-15: el visor de pista (C# / Blazor) se compila dentro de la imagen
+      # del Front y se sirve con la SPA (ver services/front/Dockerfile).
+      additional_contexts:
+        visor: ./services/visor
     container_name: arqui_front
     restart: unless-stopped
     environment:

@@ -9,6 +9,7 @@
 //   - POST /mercados, GET /mercados/actual : ciclo del mercado (HU-11)
 //   - GET /posiciones : tabla de posiciones en vivo (HU-05)
 //   - worker HU2-08: abre, cierra y resuelve las dinamicas en Pagos
+//   - lector HU2-15: difunde la pista y las coordenadas para el visor
 package main
 
 import (
@@ -38,6 +39,7 @@ import (
 	"github.com/arquisoft/motor/internal/mercados"
 	"github.com/arquisoft/motor/internal/mongodb"
 	"github.com/arquisoft/motor/internal/posiciones"
+	"github.com/arquisoft/motor/internal/visor"
 	"github.com/arquisoft/motor/internal/ws"
 
 	"github.com/redis/go-redis/v9"
@@ -166,6 +168,9 @@ func main() {
 		tableroEnVivo{posiciones.NuevoDifusor(tablero, hub)},
 		500*time.Millisecond,
 	).Run(ctx)
+	// HU2-15: lee de Mongo el trazado y las coordenadas x/y de la carrera y
+	// los difunde para el visor de pista ("pista" y "coordenadas").
+	go visor.NuevoLector(visor.NuevaMongoFuente(db.DB), difusionWS{hub: hub}, 250*time.Millisecond).Run(ctx)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,

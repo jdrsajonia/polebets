@@ -25,6 +25,7 @@ jobs:
       front: ${{ steps.filtro.outputs.front }}
       admin: ${{ steps.filtro.outputs.admin }}
       cli: ${{ steps.filtro.outputs.cli }}
+      visor: ${{ steps.filtro.outputs.visor }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -45,6 +46,9 @@ jobs:
               - '.github/workflows/ci.yml'
             cli:
               - 'services/cli/**'
+              - '.github/workflows/ci.yml'
+            visor:
+              - 'services/visor/**'
               - '.github/workflows/ci.yml'
 
   # ---------------------------------------------------------------------------
@@ -146,6 +150,24 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked
       - run: cargo test --locked
+
+  # ---------------------------------------------------------------------------
+  # Visor de pista (C# / Blazor): pruebas del nucleo y que publique.
+  # ---------------------------------------------------------------------------
+  visor:
+    needs: cambios
+    if: needs.cambios.outputs.visor == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/visor
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet test Visor.Pruebas
+      - run: dotnet publish Visor -c Release -o publicado
 
   # ---------------------------------------------------------------------------
   # Front (React/Vite): instala, corre tests y compila.

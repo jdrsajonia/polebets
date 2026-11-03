@@ -17,6 +17,7 @@ internal/apuestas    # HU-06: POST /apuestas
 internal/mercados    # HU-11: abrir mercado y ciclo abierto → cerrado → liquidar
 internal/ingest      # HU-04: ingesta de OpenF1 y replay
 internal/posiciones  # HU-05: tablero de posiciones, GET /posiciones y difusión de la foto
+internal/visor       # HU2-15: trazado de la pista y coordenadas x/y para el visor de pista
 internal/dinamicas   # HU2-08: Gestor de mercados dinámicos (dominio puro + lector de Mongo, cliente de Pagos y worker)
 ```
 
@@ -116,6 +117,8 @@ El front decide qué hacer según `type`. Los tipos están en `internal/ws/mensa
 | `resultado_apuesta` | solo al usuario | HU-08 / HU2-11 | se liquidó la apuesta de ese usuario (puntos en individual, fichas en torneo) |
 | `ranking_torneo` | todos | HU2-11 | cambiaron las fichas de un torneo (tras liquidar sus apuestas) |
 | `mercado_dinamico` | todos | HU2-08 | el Gestor abre, cierra o resuelve un mercado dinámico (no reemplaza `mercado_abierto`/`mercado_cerrado`, que siguen siendo del P1) |
+| `pista` | todos | HU2-15 | al tomar la simulación programada o en curso, y cada 5 s mientras siga (trazado para el visor) |
+| `coordenadas` | todos | HU2-15 | cada vez que avanza el reloj de la simulación en curso (~1 s): x/y de los autos del tramo |
 
 Desde Go:
 
@@ -251,6 +254,45 @@ No hay `vuelta`, porque OpenF1 `/position` no la trae. Si dos pilotos tienen un 
 El mensaje `evento_carrera` (cada evento suelto de la reproducción) **ya no se difunde**: nadie lo usaba y duplicaba el tráfico del WebSocket.
 
 **Después de actualizar a esta versión, vuelve a correr la ingesta** (`POST /ingest/openf1`, README de la raíz): `team_colour` se agregó con HU-05 y las carreras ingeridas antes no lo tienen (la tabla sale sin colores). La ingesta es idempotente. Hazlo antes de lanzar la reproducción, nunca con una en curso.
+
+## Visor de pista (HU2-15)
+
+`internal/visor` alimenta el visor de pista (`services/visor`, C# / Blazor). Igual que
+HU2-14, solo **lee** lo que el Ingestor dejó en Mongo (RNF-18) y, cada 250 ms:
+
+1. Toma la simulación `programada` o `en_curso`. Si es nueva, lee una vez su **trazado**:
+   la vuelta más rápida sin salida de pits (desde la vuelta 2) y las coordenadas
+   `ubicacion` de ese piloto en esa vuelta (~360 puntos). Lo difunde como `pista`, y lo
+   repite cada 5 s para que un visor que se abre tarde lo reciba sin pedirlo (GET al
+   Motor no llega por el Gateway).
+2. Con la simulación `en_curso`, lee los eventos `ubicacion` con `t_carrera_ms` en
+   `(cursor, simulaciones.t_carrera_ms]`, la misma regla de HU2-14 que evita leer un
+   tramo a medias, y los difunde como `coordenadas`. Al tomar una carrera ya empezada, o
+   si el cursor se atrasó más de 10 s, salta a los últimos 2 s: al visor solo le sirve
+   el presente.
+
+```json
+{ "type": "pista", "payload": {
+    "simulacion_id": "b5a431bb-…", "carrera_id": "9165", "estado": "en_curso",
+    "piloto_referencia": 44, "vuelta_referencia": 47,
+    "puntos": [[1053, -305], [1083, -488], …],
+    "emitido_en": "2026-11-03T22:22:12.5Z" } }
+
+{ "type": "coordenadas", "payload": {
+    "simulacion_id": "b5a431bb-…", "carrera_id": "9165", "t_carrera_ms": 5788711,
+    "muestras": [{ "numero": 1, "t": 5787906, "x": -1797, "y": 171 }, …],
+    "emitido_en": "2026-11-03T22:22:13.0Z" } }
+```
+
+| Campo | Qué es |
+| --- | --- |
+| `puntos` | `[x, y]` de OpenF1 (la y crece hacia arriba); el visor los ajusta a su lienzo |
+| `t_carrera_ms` | hasta dónde llega el tramo; el visor estima con él el reloj de carrera |
+| `muestras[].t` | `t_carrera_ms` de cada muestra (~3,7 por segundo y por auto): el visor interpola entre ellas |
+| `emitido_en` | hora real del envío, para medir la latencia (RNF-13) |
+
+Con la carrera 9165 cada `coordenadas` lleva 57–95 muestras de 19 autos (3–5 KB por
+segundo). La consulta de un tramo usa el índice `{carrera_id, t_carrera_ms}` y tarda ~1 ms.
 
 ## Fichas y ranking del torneo (HU2-11)
 

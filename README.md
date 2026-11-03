@@ -43,6 +43,7 @@ services/
 ├── motor/        # Go: mercados, apuestas, liquidación, difusión WebSocket
 ├── ingestor/     # Go: descarga OpenF1 y reproduce la carrera en MongoDB      [stub → HU2-16/19]
 ├── admin/        # FastAPI: atiende la CLI, publica en el Broker              [stub → HU2-18/19]
+├── visor/        # C# Blazor WASM: <visor-pista>, se sirve dentro del Front    [HU2-15]
 └── cli/          # Rust: CLI del administrador (no es servicio; perfil "cli")  [HU2-17]
 ```
 
@@ -110,6 +111,7 @@ Rust instalado: [`services/cli/README.md`](services/cli/README.md).
 | `ingestor`        | **stub**                      | HU2-16/19 · Iván |
 | `admin`           | **stub**                      | HU2-18/19 · Iván |
 | `cli` (perfil `cli`) | real (Rust, ratatui)       | HU2-17 · William |
+| visor (dentro de `front`) | real (C#, Blazor WebAssembly) | HU2-15 · William |
 | Infra (2×PostgreSQL, MongoDB, Redis, RabbitMQ) | real (imágenes oficiales) | — |
 
 Cada stub tiene su propio `README.md` dentro de `services/<nombre>/` con la

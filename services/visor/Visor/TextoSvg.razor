@@ -1,0 +1,16 @@
+@* Un <text> de SVG. Va en su propio componente porque, dentro de un bloque de
+   código (@if, @foreach), Razor toma <text> como su etiqueta especial y no como
+   el elemento de SVG; aquí está en la raíz del componente, fuera de todo bloque. *@
+<text x="@X" y="@Y" font-size="@Tamano" font-weight="@Peso" letter-spacing="@Espaciado" fill="@Color" stroke="@Borde" stroke-width="@(Borde is null ? null : "4")" paint-order="stroke">@Texto</text>
+
+@code {
+    [Parameter] public string X { get; set; } = "0";
+    [Parameter] public string Y { get; set; } = "0";
+    [Parameter] public int Tamano { get; set; } = 16;
+    [Parameter] public int Peso { get; set; } = 400;
+    [Parameter] public int Espaciado { get; set; }
+    [Parameter] public string Color { get; set; } = "#F5F5F7";
+    /// <summary>Contorno oscuro para que se lea sobre la pista (null = sin contorno).</summary>
+    [Parameter] public string? Borde { get; set; }
+    [Parameter] public string Texto { get; set; } = "";
+}
