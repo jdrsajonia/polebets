@@ -1,10 +1,15 @@
 """
-Admin — HU2-18 (Broker), HU2-19 (iniciar simulación) y HU2-23 (filtros).
+Admin — HU2-17 (login de la CLI), HU2-18 (Broker), HU2-19 (iniciar simulación)
+y HU2-23 (filtros).
 
 Atiende a la CLI por REST y habla con Pagos y el Ingestor solo por el Broker
 (RabbitMQ), en petición-respuesta: cada petición declara una cola temporal
 exclusiva, la pasa en `reply_to` y espera la respuesta con su `correlation_id`
 hasta [10 s] (RF-30). Así dos consultas a la vez nunca se cruzan.
+
+Solo atiende administradores (RF-21): `POST /login` valida las credenciales
+contra Usuarios y entrega el token; el resto de rutas, salvo /health, lo exigen
+en `Authorization: Bearer` (ver app/sesion.py).
 
 Colas (contrato «Colas y mensajes del Broker»):
   - admin.consultas     → Pagos   {"tipo": "rentabilidad" | "resumen_financiero" | "horarios" | "participacion", "filtros": {...}}
@@ -23,6 +28,8 @@ import pika
 from pika.exceptions import AMQPError
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
+
+from app.sesion import ClienteUsuarios, LoginRequest, SoloAdmin, iniciar_sesion
 
 log = logging.getLogger("admin")
 
@@ -170,8 +177,14 @@ def health():
     return {"estado": "ok", "servicio": "admin"}
 
 
+# --- HU2-17 (RF-21): login de la CLI; solo entra el rol admin ---
+@app.post("/login")
+def login(req: LoginRequest, usuarios: ClienteUsuarios):
+    return {"status": "ok", **iniciar_sesion(usuarios, req)}
+
+
 # --- HU2-19: lista de carreras descargadas (las pide al Ingestor) ---
-@app.get("/carreras")
+@app.get("/carreras", dependencies=[SoloAdmin])
 def listar_carreras():
     resp = _pedir(COLA_CONSULTAS_INGESTOR, {"action": "list_races"}, "el Ingestor")
     if not resp.get("ok"):
@@ -180,7 +193,7 @@ def listar_carreras():
 
 
 # --- HU2-19: iniciar simulación ---
-@app.post("/simulacion")
+@app.post("/simulacion", dependencies=[SoloAdmin])
 def iniciar_simulacion(req: SimulacionRequest):
     mensaje = {
         "action": "start_simulation",
@@ -201,7 +214,7 @@ def iniciar_simulacion(req: SimulacionRequest):
 
 
 # --- HU2-18 y HU2-23: consultas a Pagos con filtros ---
-@app.post("/consultas")
+@app.post("/consultas", dependencies=[SoloAdmin])
 def ejecutar_consulta(req: ConsultaRequest):
     filtros = filtros_para_pagos(req.query, req.params)
     resp = _pedir(COLA_CONSULTAS_PAGOS, {"tipo": req.query, "filtros": filtros}, "Pagos")

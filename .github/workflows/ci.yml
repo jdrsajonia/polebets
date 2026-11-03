@@ -23,6 +23,7 @@ jobs:
       motor: ${{ steps.filtro.outputs.motor }}
       pagos: ${{ steps.filtro.outputs.pagos }}
       front: ${{ steps.filtro.outputs.front }}
+      admin: ${{ steps.filtro.outputs.admin }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -37,6 +38,9 @@ jobs:
               - '.github/workflows/ci.yml'
             front:
               - 'services/front/**'
+              - '.github/workflows/ci.yml'
+            admin:
+              - 'services/admin/**'
               - '.github/workflows/ci.yml'
 
   # ---------------------------------------------------------------------------
@@ -94,6 +98,26 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: services/pagos/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -v
+
+  # ---------------------------------------------------------------------------
+  # Admin (FastAPI): pytest con Usuarios y el Broker falsos (sin servicios).
+  # ---------------------------------------------------------------------------
+  admin:
+    needs: cambios
+    if: needs.cambios.outputs.admin == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/admin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/admin/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: pytest -v
 
