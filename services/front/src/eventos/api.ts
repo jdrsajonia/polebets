@@ -53,3 +53,20 @@ export function listarEventos(signal?: AbortSignal): Promise<RespuestaLista> {
 export function obtenerEvento(eventoID: string, signal?: AbortSignal): Promise<DetalleEvento> {
   return http.get<DetalleEvento>("api", `/eventos/${encodeURIComponent(eventoID)}`, { signal });
 }
+
+// POST /api/eventos/{id}/inscripcion (orquestador-api.md §3.5, HU2-06). Sin
+// cuerpo y sin Idempotency-Key: la clave la arma el Orquestador con
+// (evento, usuario), asi que un reintento o un segundo clic no cobran dos
+// veces. 201 inscrito ahora; 200 ya estaba inscrito (ya_inscrito, sin cobro).
+export interface RespuestaInscripcion {
+  evento_id: string;
+  ya_inscrito: boolean;
+  costo_inscripcion: number;
+  fichas_iniciales: number;
+  botin: number;
+  saldo: number | null;
+}
+
+export function inscribirme(eventoID: string): Promise<RespuestaInscripcion> {
+  return http.post<RespuestaInscripcion>("api", `/eventos/${encodeURIComponent(eventoID)}/inscripcion`);
+}

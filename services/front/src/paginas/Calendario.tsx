@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ErrorHttp } from "../api/http";
 import CuentaRegresiva from "../eventos/CuentaRegresiva";
+import InscripcionTorneo from "../eventos/InscripcionTorneo";
 import { listarEventos, obtenerEvento, type DetalleEvento, type Evento } from "../eventos/api";
 import estilos from "./Calendario.module.css";
 
@@ -126,6 +127,15 @@ function Detalle({ eventoID, onVolver }: DetalleProps) {
     return () => ac.abort();
   }, [cargar]);
 
+  // HU2-06: tras inscribirse, vuelve a pedir el detalle (inscritos, botin,
+  // mi_inscripcion) sin pasar por "Cargando…", para no desmontar la tarjeta.
+  // Si falla, se queda lo que habia.
+  const refrescar = useCallback(() => {
+    obtenerEvento(eventoID)
+      .then(setDatos)
+      .catch(() => {});
+  }, [eventoID]);
+
   return (
     <div className={estilos.pagina}>
       <button type="button" className="boton boton-secundario" onClick={onVolver}>
@@ -154,11 +164,8 @@ function Detalle({ eventoID, onVolver }: DetalleProps) {
               <span>· {numero.format(datos.evento.inscritos)} inscritos</span>
               <span>· Botín {numero.format(datos.evento.botin)} PBT</span>
             </div>
-            {datos.mi_inscripcion.inscrito && (
-              <p className="texto-secundario">
-                {datos.mi_inscripcion.devuelta ? "Tu inscripción fue devuelta (torneo cancelado)." : "Estás inscrito en el torneo."}
-              </p>
-            )}
+            {/* HU2-06: inscripcion al torneo, o si ya esta inscrito o se cancelo */}
+            <InscripcionTorneo detalle={datos} onInscrito={refrescar} />
           </section>
 
           <h2 className={estilos.subtitulo}>Apuestas estáticas</h2>
