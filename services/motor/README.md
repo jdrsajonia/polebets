@@ -358,6 +358,14 @@ WebSocket "mercado_dinamico"        Pagos /internal/markets (kind = dinamica)
 - Una simulación que ya estaba terminada al verla se procesa una sola vez; si
   una acción falla, se loguea y se abandona. Si aparece otra simulación, se
   cierra lo que dejó abierto la anterior.
+- **Reenvío del abierto:** mientras haya un mercado dinámico abierto, el
+  worker vuelve a difundir el mismo `mercado_dinamico` (status `abierto`) cada
+  5 s de hora real, para que quien entra o recarga la página lo vea sin
+  esperar al siguiente cambio. Solo en simulaciones `en_curso`, solo si su
+  `Crear` ya se aplicó en Pagos y se anunció en vivo (lo recuperado al arrancar
+  el Motor no se anuncia) y mientras el reloj de carrera no llegue a
+  `race_close`; deja de reenviarlo al aplicarse el `Cerrar`. La hora real solo
+  decide cuándo reenviar: abrir y cerrar los decide el tiempo de carrera (RNF-19).
 - Usa `BETTING_WINDOW_SECONDS` y `OBSERVATION_WINDOW_SECONDS`, en tiempo de carrera.
 
 Payload de `mercado_dinamico` (`status` es `abierto` o `cerrado`;

@@ -23,6 +23,12 @@ const EstadoProgramado = "programado"
 // 500 ms; sin esto, un evento que aun no existe en Pagos llena el log).
 const avisoReintento = 10 * time.Second
 
+// reenvioAbierto: mientras haya un mercado dinamico abierto se vuelve a
+// difundir con esta frecuencia de hora real, para que quien entra o recarga
+// la pagina lo vea sin esperar al siguiente cambio. La hora real solo decide
+// cuando reenviar; abrir y cerrar los decide el tiempo de carrera (RNF-19).
+const reenvioAbierto = 5 * time.Second
+
 // margenVivoMs: en el primer lote de una simulacion, una accion con t mas
 // atras que esto respecto al reloj es de recuperacion y no se difunde.
 const margenVivoMs = 5_000
@@ -82,10 +88,13 @@ type Worker struct {
 	cola       []pendiente
 	abandonada string
 
-	// Ahora es la hora real, solo para espaciar los logs (nunca decide
-	// mercados: eso es del tiempo de carrera). nil = time.Now.
+	// Ahora es la hora real, solo para espaciar los logs y los reenvios
+	// (nunca decide mercados: eso es del tiempo de carrera). nil = time.Now.
 	Ahora    func() time.Time
 	avisados map[string]time.Time // market_id -> ultimo aviso de reintento
+
+	abierto     *Mercado  // creado "abierto" en Pagos y anunciado en vivo, aun sin Cerrar aplicado
+	ultimoEnvio time.Time // ultima difusion de abierto
 }
 
 func NuevoWorker(f Fuente, p Pagos, d Difusor, ventana, observacion time.Duration) *Worker {
@@ -108,8 +117,14 @@ func (w *Worker) Run(ctx context.Context) {
 	}
 }
 
-// Procesar hace un tick.
+// Procesar hace un tick y, al final, reenvia el mercado abierto si toca.
 func (w *Worker) Procesar(ctx context.Context) error {
+	err := w.procesar(ctx)
+	w.reenviarAbierto()
+	return err
+}
+
+func (w *Worker) procesar(ctx context.Context) error {
 	sim, ok, err := w.Fuente.SimulacionActual(ctx)
 	if err != nil {
 		return err
@@ -199,7 +214,7 @@ func (w *Worker) cambiar(ctx context.Context, nueva Simulacion) {
 			w.aplicarCola(ctx)
 		}
 	}
-	w.gestor, w.cola, w.terminado, w.abandonada, w.avisados = nil, nil, false, "", nil
+	w.gestor, w.cola, w.terminado, w.abandonada, w.avisados, w.abierto = nil, nil, false, "", nil, nil
 }
 
 // aplicarCola aplica en orden. Una accion reintentable de una simulacion
@@ -216,7 +231,7 @@ func (w *Worker) aplicarCola(ctx context.Context) {
 		if w.sim.Termino() {
 			log.Printf("HU2-08: ATENCION simulacion %s terminada: %s fallo (%v); se abandona con %d acciones sin aplicar",
 				w.sim.ID, describir(p.Accion), err, len(w.cola))
-			w.cola, w.abandonada = nil, w.sim.ID
+			w.cola, w.abandonada, w.abierto = nil, w.sim.ID, nil
 			return
 		}
 		if errors.Is(err, ErrReintentable) {
@@ -230,10 +245,7 @@ func (w *Worker) aplicarCola(ctx context.Context) {
 
 // avisarReintento loguea a lo sumo una vez cada avisoReintento por mercado.
 func (w *Worker) avisarReintento(a Accion, err error) {
-	ahora := time.Now()
-	if w.Ahora != nil {
-		ahora = w.Ahora()
-	}
+	ahora := w.ahora()
 	if previo, ok := w.avisados[a.Mercado.ID]; ok && ahora.Sub(previo) < avisoReintento {
 		return
 	}
@@ -267,9 +279,18 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 			nota = "ya existia"
 		}
 		log.Printf("HU2-08: %s estado=%s (%s) %q", describir(p.Accion), estado, nota, m.Pregunta)
+		// Solo se reenvia lo que se anuncio en vivo: un mercado recuperado al
+		// arrancar el Motor sigue sin difundirse.
+		if estado == EstadoAbierto && p.vivo {
+			copia := m
+			w.abierto = &copia
+		}
 	case AccionCerrar:
 		if err := w.Pagos.Cerrar(ctx, m.ID); err != nil {
 			return err
+		}
+		if w.abierto != nil && w.abierto.ID == m.ID {
+			w.abierto = nil
 		}
 		log.Printf("HU2-08: %s", describir(p.Accion))
 	case AccionResolver:
@@ -282,8 +303,35 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 	}
 	if p.vivo && estado != EstadoProgramado {
 		w.difundir(m, estado, ganadora)
+		if w.abierto != nil && w.abierto.ID == m.ID {
+			w.ultimoEnvio = w.ahora()
+		}
 	}
 	return nil
+}
+
+// reenviarAbierto vuelve a difundir el mercado abierto cada reenvioAbierto,
+// solo en una simulacion en_curso, con su Crear ya aplicado en Pagos y
+// mientras el reloj de carrera no llegue a su cierre (si el Cerrar quedo en
+// la cola por un fallo, no se anuncia como abierto).
+func (w *Worker) reenviarAbierto() {
+	m := w.abierto
+	if m == nil || w.sim.Termino() || w.sim.ID == w.abandonada || w.sim.ID != m.EventoID || w.sim.TCarreraMs >= m.Cierre {
+		return
+	}
+	ahora := w.ahora()
+	if ahora.Sub(w.ultimoEnvio) < reenvioAbierto {
+		return
+	}
+	w.difundir(*m, EstadoAbierto, nil)
+	w.ultimoEnvio = ahora
+}
+
+func (w *Worker) ahora() time.Time {
+	if w.Ahora != nil {
+		return w.Ahora()
+	}
+	return time.Now()
 }
 
 // difundir no falla la accion: Pagos ya quedo al dia.

@@ -346,3 +346,78 @@ func TestWorkerAvisoDeReintentoCada10s(t *testing.T) {
 		t.Fatalf("avisos = %d:\n%s", n, buf.String())
 	}
 }
+
+// relojReal devuelve un tick que mueve el reloj de carrera y la hora real.
+func relojReal(w *Worker, f *fuenteFalsa) (tick func(reloj int64, real time.Duration)) {
+	inicio := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
+	ahora := inicio
+	w.Ahora = func() time.Time { return ahora }
+	return func(reloj int64, real time.Duration) {
+		ahora = inicio.Add(real)
+		f.sim.TCarreraMs = reloj
+		_ = w.Procesar(context.Background())
+	}
+}
+
+func TestWorkerReenviaElMercadoAbiertoCada5s(t *testing.T) {
+	t.Run("en_curso: cada 5 s de hora real hasta que se cierra", func(t *testing.T) {
+		w, f, _, d := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		// Un tick por segundo: abre en 100 s de carrera y cierra en 130 s.
+		for i := 0; i <= 40; i++ {
+			tick(100000+int64(i)*1000, time.Duration(1+i)*time.Second)
+		}
+		// Se anuncia en i=0 y se reenvia en i=5, 10, 15, 20, 25; en i=30 cierra.
+		want := []string{"abierto", "abierto", "abierto", "abierto", "abierto", "abierto", "cerrado"}
+		if got := d.estados(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("difusion = %v", got)
+		}
+		for _, m := range d.msgs[1:6] {
+			if !reflect.DeepEqual(m, d.msgs[0]) {
+				t.Fatalf("el reenvio debe ser el mismo payload: %+v vs %+v", m, d.msgs[0])
+			}
+		}
+	})
+	t.Run("sin el Crear aplicado en Pagos no se reenvia", func(t *testing.T) {
+		w, f, p, d := escenarioWorker()
+		for i := 0; i < 20; i++ {
+			p.errores["crear"] = append(p.errores["crear"], ErrReintentable)
+		}
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		for i := 0; i <= 15; i++ {
+			tick(100000+int64(i)*1000, time.Duration(1+i)*time.Second)
+		}
+		if len(d.msgs) != 0 {
+			t.Fatalf("difusion = %v", d.estados())
+		}
+	})
+	t.Run("si el Cerrar falla, al pasar race_close ya no se anuncia abierto", func(t *testing.T) {
+		w, f, p, d := escenarioWorker()
+		for i := 0; i < 20; i++ {
+			p.errores["cerrar"] = append(p.errores["cerrar"], ErrReintentable)
+		}
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second)
+		for i := 0; i < 10; i++ { // reloj de carrera ya en 130 s; hora real avanza
+			tick(130000, time.Duration(31+i*5)*time.Second)
+		}
+		if got := d.estados(); !reflect.DeepEqual(got, []string{"abierto"}) {
+			t.Fatalf("difusion = %v", got)
+		}
+	})
+	t.Run("una simulacion que termina deja de reenviar", func(t *testing.T) {
+		w, f, _, d := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second)
+		f.sim.Estado = SimFallida
+		tick(110000, 20*time.Second) // Terminar cierra el abierto
+		tick(110000, 30*time.Second)
+		if got := d.estados(); !reflect.DeepEqual(got, []string{"abierto", "cerrado"}) {
+			t.Fatalf("difusion = %v", got)
+		}
+	})
+}

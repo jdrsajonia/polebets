@@ -199,6 +199,12 @@ Se difunde `mercado_dinamico` solo en vivo. En el primer lote de una
 simulación, una acción más de 5 s detrás del reloj es recuperación y no se
 anuncia, ni nada de una simulación que ya estaba terminada.
 
+Mientras el mercado anunciado siga abierto (simulación `en_curso`, su `Crear`
+ya aplicado en Pagos y el reloj de carrera antes de `race_close`), el worker
+lo reenvía igual cada 5 s de hora real, para quien entra o recarga la página.
+La hora real solo decide cuándo reenviar; deja de hacerlo al aplicar el
+`Cerrar`.
+
 ## Código
 
 `services/motor/internal/dinamicas`:
