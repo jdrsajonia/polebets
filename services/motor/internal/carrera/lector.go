@@ -9,8 +9,9 @@
 //	        ▼
 //	Lector (cada Intervalo) ──► Tablero de HU-05 ──► WebSocket "posiciones"
 //
-// En cada paso toma la simulacion mas reciente (en_curso o finalizada) y lee
-// los eventos de posicion con t_carrera_ms en (cursor, simulacion.t_carrera_ms].
+// En cada paso toma la simulacion mas reciente (en_curso, finalizada o
+// fallida) y lee los eventos de posicion con t_carrera_ms en
+// (cursor, simulacion.t_carrera_ms].
 // El Ingestor escribe simulacion.t_carrera_ms DESPUES de marcar los eventos
 // de ese tramo, asi que todo lo que este por debajo ya salio: no se pierde un
 // evento a medias. Si el Motor se reinicia a mitad de carrera, la primera
@@ -33,7 +34,7 @@ import (
 type Simulacion struct {
 	ID         string
 	CarreraID  string
-	Estado     string // programada | en_curso | finalizada
+	Estado     string // programada | en_curso | finalizada | fallida
 	TCarreraMs int64  // reloj de carrera ya emitido; math.MinInt64 si aun no arranca
 	Vuelta     Vuelta
 }
@@ -62,8 +63,9 @@ type CambioPosicion struct {
 
 // Fuente es lo que el lector necesita de Mongo (implementacion en mongo.go).
 type Fuente interface {
-	// SimulacionActual devuelve la simulacion mas reciente en_curso o
-	// finalizada; ok=false si no hay ninguna.
+	// SimulacionActual devuelve la simulacion mas reciente en_curso,
+	// finalizada o fallida (asi el tablero no se queda en una anterior si la
+	// ultima fallo); ok=false si no hay ninguna.
 	SimulacionActual(ctx context.Context) (Simulacion, bool, error)
 	Pilotos(ctx context.Context, carreraID string) ([]Piloto, error)
 	// Posiciones devuelve los cambios con desde < t_carrera_ms <= hasta,

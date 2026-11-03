@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"math"
+	"reflect"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 // fuenteFalsa imita lo que el Ingestor deja en Mongo.
@@ -232,4 +235,24 @@ func igual(a, b map[int]int) bool {
 		}
 	}
 	return true
+}
+
+func TestSigueLaSimulacionMasRecienteAunqueHayaFallado(t *testing.T) {
+	// La consulta de MongoFuente incluye fallida junto a en_curso y finalizada.
+	if !reflect.DeepEqual(estadosSimulacion, bson.A{"en_curso", "finalizada", "fallida"}) {
+		t.Fatalf("estados = %v", estadosSimulacion)
+	}
+
+	// Tras una simulacion finalizada, una mas reciente que fallo reemplaza al
+	// tablero con su carrera.
+	f, tb, l := nueva()
+	f.sim.Estado, f.sim.TCarreraMs = "finalizada", 9500
+	paso(t, l)
+	f.sim = Simulacion{ID: "sim-2", CarreraID: "9999", Estado: "fallida", TCarreraMs: 100}
+	f.pilotos["9999"] = []Piloto{{Numero: 44, Codigo: "HAM"}}
+	f.eventos["9999"] = []CambioPosicion{{TCarreraMs: 50, Numero: 44, Posicion: 1}}
+	paso(t, l)
+	if len(tb.inicios) != 2 || tb.inicios[1] != "9999" || !igual(tb.posiciones, map[int]int{44: 1}) {
+		t.Errorf("inicios %v posiciones %v", tb.inicios, tb.posiciones)
+	}
 }
