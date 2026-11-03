@@ -29,6 +29,7 @@ import (
 	"github.com/arquisoft/motor/internal/cierre"
 	"github.com/arquisoft/motor/internal/config"
 	"github.com/arquisoft/motor/internal/dinamicas"
+	"github.com/arquisoft/motor/internal/estaticas"
 	"github.com/arquisoft/motor/internal/fichas"
 	"github.com/arquisoft/motor/internal/health"
 	"github.com/arquisoft/motor/internal/httpx"
@@ -135,6 +136,21 @@ func main() {
 		worker.ConLiquidadorTorneo(liquidadorTorneo)
 	}
 	go worker.Run(ctx)
+
+	// HU2-07: el Gestor de mercados estaticos lee las simulaciones del Ingestor
+	// (solo lectura, RNF-18), crea el evento y abre el mercado "ganador" en
+	// Pagos; al largar cierra las estaticas e inscripciones y arma las fichas
+	// del torneo (HU2-11); al terminar resuelve con el ganador real. event_id =
+	// _id de la simulacion (acordado con HU2-08).
+	var torneoEstaticas estaticas.Torneo
+	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
+		torneoEstaticas = t.almacen
+	}
+	go estaticas.NuevoWorker(
+		estaticas.NuevoLectorMongo(db.DB),
+		estaticas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		torneoEstaticas,
+	).Run(ctx)
 
 	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
