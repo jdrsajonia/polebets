@@ -15,6 +15,7 @@ import { formatoReloj, segundosHasta } from "../mercados/mercado";
 import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta, textoApuesta } from "./apuesta";
 import { ajustarMonto, esMensajeDinamico, faseDinamica, pagoSiAcierta, siguienteMercado, validarMonto } from "./dinamico";
 import { modoPrevisto, unidad } from "./modo";
+import { esResultadoDinamico, textoResultado } from "./resultado";
 
 // ---------------------------------------------------------------------------
 // Datos
@@ -39,6 +40,28 @@ function msg(cambios: Partial<MensajeDinamico> = {}): MensajeDinamico {
     ...cambios,
   };
 }
+
+// Payloads de "resultado_apuesta" de internal/liquidar (Resultado y ResultadoTorneo).
+function resIndividual(cambios = {}) {
+  return {
+    mercado_id: "m-1", apuesta_id: "a-1", pregunta: "¿?", opcion: "Sí", opcion_ganadora: "Sí", gano: true,
+    modo: "individual", monto: 10, multiplicador: 3.5, pago: 35, saldo: 1025, ...cambios,
+  };
+}
+
+function resTorneo(cambios = {}) {
+  return {
+    mercado_id: "m-1", apuesta_id: "a-1", pregunta: "¿?", opcion: "Sí", opcion_ganadora: "Sí", gano: true,
+    modo: "torneo", monto: 10, multiplicador: 3.5, fichas_ganadas: 35, fichas_perdidas: 0, fichas_total: 1135,
+    puesto: 2, ...cambios,
+  };
+}
+
+// Payload del P1 (HU-08), con puntos.
+const RES_P1 = {
+  mercado_id: "m-1", apuesta_id: "a-1", opcion: "Sí", opcion_ganadora: "Sí", gano: true,
+  puntos_obtenidos: 15, puntaje_total: 40,
+};
 
 function detalle(inscrito: boolean, estadoTorneo: string, devuelta = false): DetalleEvento {
   return {
@@ -140,19 +163,38 @@ describe("HU2-08 · logica", () => {
   });
 
   it.each([
-    ["sin resultado", null, "individual", "Apuesta registrada en modo individual: 200 a «Sí». Si aciertas recibes 360 PoleCoins. Te quedan 800 PoleCoins."],
-    ["sin resultado, torneo", null, "torneo", "Si aciertas recibes 360 fichas. Te quedan 1140 fichas."],
-    ["gano", "Sí", "individual", "¡Acertaste! Recibes 360 PoleCoins."],
-    ["perdio", "No", "individual", "Perdiste 200 PoleCoins."],
-    ["perdio en torneo", "No", "torneo", "Perdiste 200 fichas."],
-  ] as const)("textoApuesta: %s", (_, ganadora, modo, texto) => {
+    ["abierto", false, "individual", "Apuesta registrada en modo individual: 200 a «Sí». Si aciertas recibes 360 PoleCoins. Te quedan 800 PoleCoins."],
+    ["abierto, torneo", false, "torneo", "Si aciertas recibes 360 fichas. Te quedan 1140 fichas."],
+    ["esperando el resultado", true, "individual", "Tu apuesta: 200 PoleCoins a «Sí». Esperando el resultado…"],
+    ["esperando el resultado, torneo", true, "torneo", "Tu apuesta: 200 fichas a «Sí». Esperando el resultado…"],
+  ] as const)("textoApuesta: %s", (_, esperando, modo, texto) => {
     const a = {
       apuesta_id: "a", mercado_id: "m-1", opcion: "Sí", monto: 200, modo, multiplicador: 1.8,
       pago_si_acierta: 360, saldo: modo === "individual" ? 800 : null, fichas: modo === "torneo" ? 1140 : null,
     };
-    const r = textoApuesta(a, ganadora);
-    expect(r).toContain(texto);
-    if (ganadora === "No") expect(r).not.toMatch(/recib|pago| 0 /i);
+    expect(textoApuesta(a, esperando)).toContain(texto);
+  });
+
+  it("esResultadoDinamico acepta los dos modos de internal/liquidar y rechaza el del P1", () => {
+    expect(esResultadoDinamico(resIndividual())).toBe(true);
+    expect(esResultadoDinamico(resTorneo())).toBe(true);
+    expect(esResultadoDinamico(resTorneo({ gano: false, fichas_ganadas: 0, fichas_perdidas: 10 }))).toBe(true);
+    expect(esResultadoDinamico(RES_P1)).toBe(false);
+    expect(esResultadoDinamico(null)).toBe(false);
+    expect(esResultadoDinamico({ ...resIndividual(), modo: "otro" })).toBe(false);
+    expect(esResultadoDinamico({ ...resIndividual(), saldo: undefined })).toBe(false); // individual sin saldo
+    expect(esResultadoDinamico({ ...resTorneo(), puesto: "2" })).toBe(false);
+    expect(esResultadoDinamico({ ...resTorneo(), modo: "individual" })).toBe(false); // torneo sin pago/saldo
+  });
+
+  it.each([
+    ["individual gano", resIndividual(), "¡Ganaste 35 PoleCoins! Saldo: 1.025"],
+    ["individual perdio", resIndividual({ gano: false, opcion_ganadora: "No", pago: 0, saldo: 990 }), "Perdiste 10 PoleCoins"],
+    ["torneo gano", resTorneo(), "¡+35 fichas! Total: 1.135 · Puesto #2"],
+    ["torneo perdio", resTorneo({ gano: false, fichas_ganadas: 0, fichas_perdidas: 10, fichas_total: 1090, puesto: 4 }), "Perdiste 10 fichas · Puesto #4"],
+  ])("textoResultado: %s", (_, r, texto) => {
+    expect(esResultadoDinamico(r)).toBe(true);
+    if (esResultadoDinamico(r)) expect(textoResultado(r)).toBe(texto);
   });
 
   it.each([
@@ -328,7 +370,7 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     expect(botonConfirmar()).toBeDisabled();
   });
 
-  it("cerrado: sin boton; resuelto: muestra el ganador y si acerto; ignora el cierre de otro mercado", async () => {
+  it("cerrado y resuelto sin resultado_apuesta: espera al servidor; ignora el cierre de otro mercado", async () => {
     rutas["POST /api/apuestas"] = { status: 201, body: respuesta() };
     abrirCarrera();
     enviarWs("mercado_dinamico", msg());
@@ -347,8 +389,56 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     enviarWs("mercado_dinamico", msg({ status: "cerrado", winning_option: "No" }));
     expect(screen.getByTestId("fase-dinamica")).toHaveTextContent("Resuelto");
     expect(screen.getByTestId("cuenta-dinamica")).toHaveTextContent("Ganó «No»");
-    expect(screen.getByTestId("apuesta-dinamica")).toHaveTextContent("Perdiste 10 PoleCoins.");
-    expect(screen.getByTestId("apuesta-dinamica")).not.toHaveTextContent(/recibes|pago/i);
+    // Ya hay winning_option, pero el resultado lo confirma el servidor.
+    expect(screen.getByTestId("apuesta-dinamica")).toHaveTextContent("Tu apuesta: 10 PoleCoins a «Sí». Esperando el resultado…");
+    expect(screen.queryByTestId("resultado-dinamica")).not.toBeInTheDocument();
+  });
+
+  it("HU2-13: resultado_apuesta individual del mercado mostrado reemplaza la espera", async () => {
+    rutas["POST /api/apuestas"] = { status: 201, body: respuesta() };
+    abrirCarrera();
+    enviarWs("mercado_dinamico", msg());
+    fireEvent.click(screen.getByRole("button", { name: /Sí\s*×/ }));
+    fireEvent.click(botonConfirmar());
+    await screen.findByTestId("apuesta-dinamica");
+    enviarWs("mercado_dinamico", msg({ status: "cerrado" }));
+
+    enviarWs("resultado_apuesta", resIndividual());
+    expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("¡Ganaste 35 PoleCoins! Saldo: 1.025");
+    expect(screen.queryByTestId("apuesta-dinamica")).not.toBeInTheDocument();
+    // El winning_option que llega despues no lo cambia.
+    enviarWs("mercado_dinamico", msg({ status: "cerrado", winning_option: "Sí" }));
+    expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("¡Ganaste 35 PoleCoins!");
+  });
+
+  it("HU2-13: resultado_apuesta de torneo, ganado y perdido", async () => {
+    abrirCarrera();
+    enviarWs("mercado_dinamico", msg());
+    enviarWs("mercado_dinamico", msg({ status: "cerrado" }));
+    enviarWs("resultado_apuesta", resTorneo({ gano: false, fichas_ganadas: 0, fichas_perdidas: 10, puesto: 5 }));
+    expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("Perdiste 10 fichas · Puesto #5");
+    expect(screen.getByRole("button", { name: /Sí\s*×/ })).toHaveAttribute("aria-pressed", "true"); // su opcion
+
+    enviarWs("mercado_dinamico", msg({ market_id: "m-2" }));
+    enviarWs("mercado_dinamico", msg({ market_id: "m-2", status: "cerrado" }));
+    enviarWs("resultado_apuesta", resTorneo({ mercado_id: "m-2", fichas_total: 1200, puesto: 1 }));
+    expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("¡+35 fichas! Total: 1.200 · Puesto #1");
+  });
+
+  it("HU2-13: el resultado de otro mercado y el del P1 se ignoran", async () => {
+    rutas["POST /api/apuestas"] = { status: 201, body: respuesta() };
+    abrirCarrera();
+    enviarWs("mercado_dinamico", msg());
+    fireEvent.click(screen.getByRole("button", { name: /Sí\s*×/ }));
+    fireEvent.click(botonConfirmar());
+    await screen.findByTestId("apuesta-dinamica");
+    enviarWs("mercado_dinamico", msg({ status: "cerrado" }));
+
+    enviarWs("resultado_apuesta", resIndividual({ mercado_id: "m-0" }));
+    enviarWs("resultado_apuesta", resTorneo({ mercado_id: "m-0" }));
+    enviarWs("resultado_apuesta", RES_P1);
+    expect(screen.queryByTestId("resultado-dinamica")).not.toBeInTheDocument();
+    expect(screen.getByTestId("apuesta-dinamica")).toHaveTextContent("Esperando el resultado…");
   });
 
   it("el reenvio del mismo mercado abierto (cada 5 s) no cambia nada", async () => {
@@ -380,15 +470,16 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
       { status: 200, body: { saldo: 997, cop_por_token: 100 } },
     ];
     abrirCarrera();
-    expect(await screen.findByRole("link", { name: "Saldo: 990 PBT" })).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "Saldo: 990 PoleCoins" })).toBeInTheDocument();
 
     // HU2-10: el worker de liquidar avisa al jugador con este payload.
-    enviarWs("resultado_apuesta", {
-      mercado_id: "m-1", apuesta_id: "a-1", pregunta: "¿?", opcion: "No", opcion_ganadora: "No", gano: true,
-      modo: "individual", monto: 10, multiplicador: 1.25, pago: 12, saldo: 997,
-    });
-    expect(await screen.findByRole("link", { name: "Saldo: 997 PBT" })).toBeInTheDocument();
+    enviarWs("resultado_apuesta", resIndividual({ opcion: "No", opcion_ganadora: "No", pago: 12, saldo: 997 }));
+    expect(await screen.findByRole("link", { name: "Saldo: 997 PoleCoins" })).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([url]) => url === "/api/billetera")).toHaveLength(2);
+
+    // El de torneo tambien recarga (las fichas no cambian el saldo, pero no estorba).
+    enviarWs("resultado_apuesta", resTorneo());
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([url]) => url === "/api/billetera")).toHaveLength(3));
   });
 
   it("al abrir otro mercado el formulario arranca limpio", async () => {
