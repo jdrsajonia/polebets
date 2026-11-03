@@ -58,3 +58,36 @@ func (d *Difusor) Difundir(ctx context.Context, eventoID string) {
 		log.Printf("HU2-11: no se pudo difundir el ranking del torneo %s: %v", eventoID, err)
 	}
 }
+
+// ReenvioRanking: cada cuanto se vuelve a difundir el ranking de los torneos
+// activos aunque no cambie, para que quien entra o recarga /carrera lo vea sin
+// esperar a la siguiente liquidacion (mismo patron que posiciones y el
+// mercado dinamico abierto).
+const ReenvioRanking = 5 * time.Second
+
+// Reenviar difunde el ranking de cada torneo activo: los que tienen fichas en
+// Redis (largaron y aun no los cierra HU2-12). Uno cancelado nunca aparece.
+func (d *Difusor) Reenviar(ctx context.Context) {
+	eventos, err := d.almacen.EventosActivos(ctx)
+	if err != nil {
+		log.Printf("HU2-11: no se pudieron listar los torneos activos: %v", err)
+		return
+	}
+	for _, e := range eventos {
+		d.Difundir(ctx, e)
+	}
+}
+
+// Run llama a Reenviar cada `cada` hasta que se cancele el contexto.
+func (d *Difusor) Run(ctx context.Context, cada time.Duration) {
+	ticker := time.NewTicker(cada)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.Reenviar(ctx)
+		}
+	}
+}
