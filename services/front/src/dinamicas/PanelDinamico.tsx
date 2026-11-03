@@ -13,7 +13,7 @@ import { useBilletera } from "../billetera/BilleteraContexto";
 import { formatoReloj, segundosHasta } from "../mercados/mercado";
 import { useRelojServidor } from "../mercados/useMercado";
 import { apostar } from "./api";
-import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta, type ClaveIntento } from "./apuesta";
+import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta, textoApuesta, type ClaveIntento } from "./apuesta";
 import { faseDinamica, pagoSiAcierta, TEXTO_FASE_DINAMICA, validarMonto, type FaseDinamica } from "./dinamico";
 import { TEXTO_MODO, unidad } from "./modo";
 import estilos from "./PanelDinamico.module.css";
@@ -52,11 +52,6 @@ function textoCuenta(fase: FaseDinamica, segundos: number, ganadora: string | nu
   if (fase === "resuelto") return `Ganó «${ganadora}»`;
   if (fase === "cerrado") return "Esperando el resultado…";
   return segundos > 0 ? `Cierra en ${formatoReloj(segundos)}` : "Cerrando…";
-}
-
-function textoApuesta(a: RespuestaApuesta): string {
-  const quedan = a.modo === "torneo" ? `Te quedan ${a.fichas ?? "—"} fichas.` : `Te quedan ${a.saldo ?? "—"} tokens.`;
-  return `Apuesta registrada en modo ${a.modo}: ${a.monto} a «${a.opcion}». Si aciertas recibes ${a.pago_si_acierta} ${unidad(a.modo)}. ${quedan}`;
 }
 
 // Un mercado (key = market_id: al llegar otro, el formulario arranca limpio).
@@ -161,9 +156,12 @@ function MercadoDinamico({ mercado, modo }: Props) {
         </p>
       )}
       {apuesta && (
-        <p className={estilos.ok} role="status" data-testid="apuesta-dinamica">
-          {textoApuesta(apuesta)}
-          {fase === "resuelto" && (apuesta.opcion === mercado.winning_option ? " ¡Acertaste!" : " Esta vez no acertaste.")}
+        <p
+          className={fase === "resuelto" && apuesta.opcion !== mercado.winning_option ? estilos.error : estilos.ok}
+          role="status"
+          data-testid="apuesta-dinamica"
+        >
+          {textoApuesta(apuesta, fase === "resuelto" ? mercado.winning_option : null)}
         </p>
       )}
     </div>

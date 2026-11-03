@@ -12,7 +12,7 @@ import App from "../App";
 import { AuthProvider } from "../auth/AuthContext";
 import { USUARIOS_SIMULADOS } from "../auth/usuariosPrueba";
 import { formatoReloj, segundosHasta } from "../mercados/mercado";
-import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta } from "./apuesta";
+import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta, textoApuesta } from "./apuesta";
 import { ajustarMonto, esMensajeDinamico, faseDinamica, pagoSiAcierta, siguienteMercado, validarMonto } from "./dinamico";
 import { modoPrevisto, unidad } from "./modo";
 
@@ -118,7 +118,8 @@ describe("HU2-08 · logica", () => {
     expect(modoPrevisto(detalle(true, "cancelado"))).toBe("individual");
     expect(modoPrevisto(detalle(false, "activo"))).toBe("individual");
     expect(unidad("torneo")).toBe("fichas");
-    expect(unidad(null)).toBe("tokens o fichas");
+    expect(unidad("individual")).toBe("PoleCoins");
+    expect(unidad(null)).toBe("PoleCoins o fichas");
   });
 
   it("claveParaIntento: la misma clave mientras no cambie el intento", () => {
@@ -139,9 +140,25 @@ describe("HU2-08 · logica", () => {
   });
 
   it.each([
+    ["sin resultado", null, "individual", "Apuesta registrada en modo individual: 200 a «Sí». Si aciertas recibes 360 PoleCoins. Te quedan 800 PoleCoins."],
+    ["sin resultado, torneo", null, "torneo", "Si aciertas recibes 360 fichas. Te quedan 1140 fichas."],
+    ["gano", "Sí", "individual", "¡Acertaste! Recibes 360 PoleCoins."],
+    ["perdio", "No", "individual", "Perdiste 200 PoleCoins."],
+    ["perdio en torneo", "No", "torneo", "Perdiste 200 fichas."],
+  ] as const)("textoApuesta: %s", (_, ganadora, modo, texto) => {
+    const a = {
+      apuesta_id: "a", mercado_id: "m-1", opcion: "Sí", monto: 200, modo, multiplicador: 1.8,
+      pago_si_acierta: 360, saldo: modo === "individual" ? 800 : null, fichas: modo === "torneo" ? 1140 : null,
+    };
+    const r = textoApuesta(a, ganadora);
+    expect(r).toContain(texto);
+    if (ganadora === "No") expect(r).not.toMatch(/recib|pago| 0 /i);
+  });
+
+  it.each([
     [409, "mercado_cerrado", "El mercado ya cerró", true],
     [409, "ya_apostaste", "Ya apostaste", true],
-    [422, "saldo_insuficiente", "saldo de tokens", false],
+    [422, "saldo_insuficiente", "saldo de PoleCoins", false],
     [422, "fichas_insuficientes", "fichas del torneo", false],
     [422, "monto_invalido", "Monto no válido", false],
     [503, "servicio_no_disponible", "no se duplica", false],
@@ -243,7 +260,7 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     expect(botonConfirmar()).toBeDisabled(); // falta elegir opcion
 
     fireEvent.click(screen.getByRole("button", { name: /Sí\s*×/ }));
-    expect(screen.getByTestId("pago-dinamica")).toHaveTextContent("Si aciertas «Sí» recibes 10 × 3.5 = 35 tokens o fichas.");
+    expect(screen.getByTestId("pago-dinamica")).toHaveTextContent("Si aciertas «Sí» recibes 10 × 3.5 = 35 PoleCoins o fichas.");
     fireEvent.click(screen.getByRole("button", { name: "Sumar 10" }));
     expect(screen.getByTestId("pago-dinamica")).toHaveTextContent("20 × 3.5 = 70");
     fireEvent.change(screen.getByLabelText("Monto"), { target: { value: "1.5" } });
@@ -273,7 +290,7 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     expect(await screen.findByTestId("error-dinamica")).toHaveTextContent("no se duplica");
     fireEvent.click(botonConfirmar());
     expect(await screen.findByTestId("apuesta-dinamica")).toHaveTextContent(
-      "Apuesta registrada en modo individual: 10 a «Sí». Si aciertas recibes 35 tokens. Te quedan 990 tokens.",
+      "Apuesta registrada en modo individual: 10 a «Sí». Si aciertas recibes 35 PoleCoins. Te quedan 990 PoleCoins.",
     );
 
     const [[, primero], [, segundo]] = apuestas();
@@ -291,7 +308,7 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     enviarWs("mercado_dinamico", msg());
     fireEvent.click(screen.getByRole("button", { name: /Sí\s*×/ }));
     fireEvent.click(botonConfirmar());
-    expect(await screen.findByTestId("error-dinamica")).toHaveTextContent("No te alcanza el saldo de tokens");
+    expect(await screen.findByTestId("error-dinamica")).toHaveTextContent("No te alcanza el saldo de PoleCoins");
 
     fireEvent.click(screen.getByRole("button", { name: "Restar 10" }));
     fireEvent.click(botonConfirmar());
@@ -330,7 +347,8 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     enviarWs("mercado_dinamico", msg({ status: "cerrado", winning_option: "No" }));
     expect(screen.getByTestId("fase-dinamica")).toHaveTextContent("Resuelto");
     expect(screen.getByTestId("cuenta-dinamica")).toHaveTextContent("Ganó «No»");
-    expect(screen.getByTestId("apuesta-dinamica")).toHaveTextContent("Esta vez no acertaste.");
+    expect(screen.getByTestId("apuesta-dinamica")).toHaveTextContent("Perdiste 10 PoleCoins.");
+    expect(screen.getByTestId("apuesta-dinamica")).not.toHaveTextContent(/recibes|pago/i);
   });
 
   it("el reenvio del mismo mercado abierto (cada 5 s) no cambia nada", async () => {

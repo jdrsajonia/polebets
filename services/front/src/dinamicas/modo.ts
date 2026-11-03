@@ -14,15 +14,15 @@ export function modoPrevisto(detalle: DetalleEvento | null): ModoApuesta | null 
   return inscrito && !devuelta && detalle.evento.estado_torneo === "activo" ? "torneo" : "individual";
 }
 
-// Unidad del pago segun el modo.
+// Unidad del pago segun el modo: los tokens se muestran como PoleCoins.
 export function unidad(modo: ModoApuesta | null): string {
   if (modo === "torneo") return "fichas";
-  if (modo === "individual") return "tokens";
-  return "tokens o fichas";
+  if (modo === "individual") return "PoleCoins";
+  return "PoleCoins o fichas";
 }
 
 export const TEXTO_MODO: Record<ModoApuesta | "desconocido", string> = {
-  individual: "Modo individual: apuestas tokens",
+  individual: "Modo individual: apuestas PoleCoins",
   torneo: "Modo torneo: apuestas fichas del torneo",
   desconocido: "El modo se confirma al apostar",
 };
