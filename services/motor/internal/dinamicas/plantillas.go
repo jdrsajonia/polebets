@@ -185,14 +185,18 @@ func (brechaSeCierra) Evaluar(e *Estado, _ Evento) []Propuesta {
 	return res
 }
 
-// Gana Si si B esta delante de A, o detras de A con su ultimo intervalo < 1 s.
+// Gana Si si B esta delante de A, o si A sigue JUSTO delante de B y el ultimo
+// intervalo de B es < 1 s. Con otro auto en medio, el intervalo de B es a
+// ese auto y no a A: gana No.
 func (brechaSeCierra) Resolver(m Mercado, e *Estado, _ []Evento) string {
 	a, b := m.Pilotos[0], m.Pilotos[1]
 	if delante(e, b, a) {
 		return OpcionSi
 	}
+	orden := e.Orden()
+	ia, ib := indice(orden, a), indice(orden, b)
 	iv, ok := e.Intervalo(b)
-	return ganaSi(delante(e, a, b) && ok && iv >= 0 && iv < brechaMin)
+	return ganaSi(ia >= 0 && ib == ia+1 && ok && iv >= 0 && iv < brechaMin)
 }
 
 // 4. entrada_pits

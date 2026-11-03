@@ -120,7 +120,9 @@ func TestResolverPlantillas(t *testing.T) {
 		{"brecha si: lo paso", brechaSeCierra{}, par(PlantillaBrecha, 4, 16), con(parrilla(0), pos(5, 16, 2), pos(5, 4, 3)), nil, OpcionSi},
 		{"brecha si: a menos de 1 s", brechaSeCierra{}, par(PlantillaBrecha, 4, 16), con(parrilla(0), intv(5, 16, f(0.8))), nil, OpcionSi},
 		{"brecha no: sigue lejos", brechaSeCierra{}, par(PlantillaBrecha, 4, 16), con(parrilla(0), intv(5, 16, f(1.7))), nil, OpcionNo},
-		{"brecha no: intervalo null", brechaSeCierra{}, par(PlantillaBrecha, 4, 16), con(parrilla(0), intv(5, 16, nil)), nil, OpcionNo},
+		{"brecha no: otro auto entre A y B", brechaSeCierra{}, par(PlantillaBrecha, 1, 16), con(parrilla(0), intv(5, 16, f(0.8))), nil, OpcionNo},
+		{"brecha si: B pasa a A aunque no sean adyacentes", brechaSeCierra{}, par(PlantillaBrecha, 1, 16), con(parrilla(0), pos(5, 16, 1), pos(5, 1, 3)), nil, OpcionSi},
+		{"brecha no: intervalo null",brechaSeCierra{}, par(PlantillaBrecha, 4, 16), con(parrilla(0), intv(5, 16, nil)), nil, OpcionNo},
 
 		{"pits si", entradaPits{}, Mercado{OrdenCierre: []int{1, 4, 16}}, nil, []Evento{pitEv(5, 16)}, OpcionSi},
 		{"pits no: nadie entra", entradaPits{}, Mercado{OrdenCierre: []int{1, 4, 16}}, nil, []Evento{intv(5, 16, f(1))}, OpcionNo},
