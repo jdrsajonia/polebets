@@ -18,9 +18,9 @@ Motor: Gestor de mercados (internal/dinamicas)
                                                             └─▶ HU2-10 liquida
 ```
 
-Estado de la implementación: bloque 1 (dominio puro, este documento). Los
-adaptadores de Mongo y Pagos, el worker y el mensaje WebSocket vienen en los
-bloques siguientes.
+Estado de la implementación: bloque 1 (dominio puro) y bloque 2 (lector de
+Mongo y cliente de Pagos). El worker y el mensaje WebSocket vienen en el
+bloque 3.
 
 ## Qué cubre
 
@@ -145,6 +145,38 @@ rentabilidad.
   por evento y en lotes de tamaño variable con el reloj entre eventos— y
   comparan las acciones completas, incluidos los `market_id`.
 
+## Adaptadores
+
+### Lector de Mongo (solo lectura, RNF-18)
+
+- **Simulación actual:** la más reciente por `iniciada_en` con estado
+  `en_curso`, `finalizada` o `fallida` (las dos últimas sirven para saber que
+  terminó). Si aún no hay latido, `t_carrera_ms` queda en `MinInt64`.
+- **Carrera:** `total_vueltas` y `pilotos.{numero, codigo}` de `carreras`.
+- **Eventos:** `carrera_id`, `tipo` en los que usa el estado y
+  `cursor < t_carrera_ms ≤ reloj`, ordenados por `(t_carrera_ms, _id)`. La
+  proyección trae solo los campos de `datos.raw` que usa `Normalizar` (nunca
+  `lap_end` ni `pit_duration`). El `_id` (ObjectID) se pasa a hex, que
+  conserva el orden.
+
+### Cliente de Pagos
+
+| Respuesta | Significado | Qué hace el worker (bloque 3) |
+| --- | --- | --- |
+| 201 / 200 | Éxito (200 = reintento con los mismos datos o transición ya hecha) | Sigue |
+| 404 al crear | El evento aún no existe (HU2-07 no lo creó) | Reintenta en el próximo tick |
+| 5xx, 429 o red | Pagos no disponible | Reintenta en el próximo tick |
+| 409 | Pagos tiene otros datos para ese mercado | Log fuerte, no reintenta en bucle |
+| otro 4xx | Token, validación o mercado inexistente al abrir/cerrar/resolver | Log fuerte, no reintenta |
+
+**`opens_at` y `closes_at` deterministas.** Pagos compara `opens_at` y
+`closes_at` cuando llega otra vez el mismo `market_id`: si cambian, responde
+409. Por eso no se usa la hora real del momento, sino
+`iniciada_en + (t − t_inicio_ms)` (`Simulacion.HoraReal`), que es la misma
+fórmula del reloj del Ingestor: en vivo coincide con la hora real y al
+reprocesar da exactamente lo mismo. Van en UTC (con zona, como exige Pagos).
+`race_close_s` es `race_close` en segundos, redondeado hacia abajo.
+
 ## Código
 
 `services/motor/internal/dinamicas`:
@@ -156,5 +188,7 @@ rentabilidad.
 | `plantillas.go` | Las 6 plantillas: `Evaluar(estado, evento)` y `Resolver(mercado, estado, obs)` |
 | `gestor.go` | Máquina de estados: `Avanzar(eventos, reloj) → []Accion` y `Terminar()` |
 | `uuid.go` | UUIDv5 con la biblioteca estándar |
+| `mongo.go` | Lector de Mongo, solo lectura: simulación actual, datos de la carrera y eventos `(cursor, reloj]` |
+| `pagos.go` | Cliente de Pagos: crear, open, close y resolve con el token de servicio |
 
 Pruebas: `go test -race ./internal/dinamicas/` desde `services/motor`.
