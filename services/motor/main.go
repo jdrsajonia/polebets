@@ -241,6 +241,8 @@ func construirTorneo(ctx context.Context, cfg config.Config, hub *ws.Hub) (liqui
 		FichasIniciales: cfg.FichasIniciales,
 		MinWagerPct:     cfg.MinApostadoPct,
 	})
+	// El botin de cada evento (events.pot) lo da Pagos; el difusor lo guarda.
+	difusor.Pagos = fichas.NuevoPagosBotinHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)
 	return adaptadorTorneo{almacen: almacen, difusor: difusor}, func() { _ = rdb.Close() }
 }
 

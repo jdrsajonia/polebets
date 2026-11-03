@@ -3,6 +3,8 @@ package fichas
 import (
 	"context"
 	"log"
+	"slices"
+	"sync"
 	"time"
 
 	"github.com/arquisoft/motor/internal/ws"
@@ -14,25 +16,33 @@ type Notificador interface {
 	Difundir(ws.Mensaje) error
 }
 
-// ParametrosTorneo son los datos del evento que el ranking necesita y que no
-// viven en Redis sino en Pagos (events): fichas iniciales, el minimo a apostar
-// y el botin. Los entrega el flujo de largada (HU2-06) y se conservan mientras
-// el torneo este activo.
+// ParametrosTorneo son los datos del torneo que el ranking necesita y que no
+// viven en Redis: fichas iniciales y el minimo a apostar (configuracion del
+// motor). El botin es por evento y se pide a Pagos (Difusor.Pagos).
 type ParametrosTorneo struct {
 	FichasIniciales int64
 	MinWagerPct     float64
-	Botin           int64
 }
 
 // Difusor arma el ranking del torneo y lo difunde por WebSocket (RF-18). Sigue
 // el patron de posiciones.Difusor (HU-05): cada cambio recalcula la foto
 // completa y la envia a todos, marcando emitido_en para medir la latencia
 // (RNF-13, cambio en pantalla en < 1 s).
+//
+// El botin (events.pot) se pide a Pagos la primera vez por evento y se guarda
+// en memoria: despues de la largada no cambia. Si Pagos falla se difunde con
+// 0 y se vuelve a pedir en el siguiente envio; nunca bloquea el ranking.
 type Difusor struct {
 	almacen *Almacen
 	hub     Notificador
 	params  ParametrosTorneo
 	ahora   func() time.Time
+
+	// Pagos da el botin de cada evento. nil = botin 0.
+	Pagos PagosBotin
+
+	mu      sync.Mutex
+	botines map[string]int64 // evento_id -> pot ya leido de Pagos
 }
 
 func NuevoDifusor(almacen *Almacen, hub Notificador, params ParametrosTorneo) *Difusor {
@@ -50,12 +60,46 @@ func (d *Difusor) Difundir(ctx context.Context, eventoID string) {
 	}
 	ranking := ConstruirRanking(
 		eventoID, estados,
-		d.params.FichasIniciales, d.params.MinWagerPct, d.params.Botin,
+		d.params.FichasIniciales, d.params.MinWagerPct, d.botin(ctx, eventoID),
 		d.ahora(),
 	)
 	ranking.EmitidoEn = d.ahora().UTC()
 	if err := d.hub.Difundir(ws.Mensaje{Type: ws.TipoRankingTorneo, Payload: ranking}); err != nil {
 		log.Printf("HU2-11: no se pudo difundir el ranking del torneo %s: %v", eventoID, err)
+	}
+}
+
+// botin devuelve el pot guardado o lo pide a Pagos. El candado no se tiene
+// durante la llamada: dos envios a la vez pueden pedirlo los dos, sin dano.
+func (d *Difusor) botin(ctx context.Context, eventoID string) int64 {
+	d.mu.Lock()
+	b, ok := d.botines[eventoID]
+	d.mu.Unlock()
+	if ok || d.Pagos == nil {
+		return b
+	}
+	b, err := d.Pagos.Botin(ctx, eventoID)
+	if err != nil {
+		log.Printf("HU2-11: no se pudo leer el botin del torneo %s (se reintenta en el siguiente envio): %v", eventoID, err)
+		return 0
+	}
+	d.mu.Lock()
+	if d.botines == nil {
+		d.botines = map[string]int64{}
+	}
+	d.botines[eventoID] = b
+	d.mu.Unlock()
+	return b
+}
+
+// olvidarBotines borra los de eventos que ya no estan activos.
+func (d *Difusor) olvidarBotines(activos []string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for e := range d.botines {
+		if !slices.Contains(activos, e) {
+			delete(d.botines, e)
+		}
 	}
 }
 
@@ -73,6 +117,7 @@ func (d *Difusor) Reenviar(ctx context.Context) {
 		log.Printf("HU2-11: no se pudieron listar los torneos activos: %v", err)
 		return
 	}
+	d.olvidarBotines(eventos)
 	for _, e := range eventos {
 		d.Difundir(ctx, e)
 	}
