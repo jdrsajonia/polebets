@@ -44,8 +44,8 @@ En Git Bash de Windows, antepón `MSYS_NO_PATHCONV=1` para que no reescriba `/ap
 - **Por tramos** (HU2-16): `/position` e `/intervals` se piden por piloto; `/location`
   (el pesado, para el visor) por piloto y en ventanas de 10 min, desde la largada
   hasta el fin de la sesión + 30 min. OpenF1 sin token permite ~30 peticiones/min:
-  cuando responde 429 se espera lo que pide `Retry-After` (60 s). Una carrera tarda
-  ~15–20 min y una práctica ~9 min.
+  cuando responde 429 se espera lo que pide `Retry-After` (60 s). La carrera 9165
+  tardó ~13 min (528 mil eventos) y la práctica 9158 ~9 min.
 - Cada documento de `eventos_carrera` lleva `tipo` (`posicion, intervalo, vuelta, pit,
   stint, control, clima, ubicacion`), `t_carrera_ms` en la raíz (ms desde la largada,
   negativo antes) y el registro de OpenF1 tal cual en `datos.raw`.
