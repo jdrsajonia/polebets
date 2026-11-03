@@ -1,0 +1,81 @@
+/* Ranking del torneo (RF-18). */
+
+.cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.avance {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.avanceTexto {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.barra {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+
+.relleno {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.rellenoOk {
+  background: var(--ok);
+}
+
+.elegible {
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.tabla th {
+  padding: 6px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-align: left;
+}
+
+.tabla td {
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--row-border);
+}
+
+.puesto {
+  width: 28px;
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.tabla .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* El jugador actual */
+.yo td {
+  background: var(--accent-surface);
+  color: var(--accent-text);
+  font-weight: 700;
+}

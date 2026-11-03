@@ -10,6 +10,7 @@ import PanelResultado from "../mercados/PanelResultado";
 import AvisoConexion from "../posiciones/AvisoConexion";
 import PanelPosiciones from "../posiciones/PanelPosiciones";
 import { usePosiciones } from "../posiciones/usePosiciones";
+import PanelRanking from "../torneo/PanelRanking";
 import estilos from "./Carrera.module.css";
 
 export default function Carrera() {
@@ -46,9 +47,10 @@ export default function Carrera() {
       <AvisoConexion estado={estado} />
 
       <div className={estilos.columnas}>
-        {/* Columna izquierda: HU-05 */}
+        {/* Columna izquierda: HU-05 y, si esta inscrito, el ranking del torneo (RF-18) */}
         <aside className={estilos.lateral}>
           <PanelPosiciones posiciones={posiciones} />
+          <PanelRanking />
         </aside>
 
         {/* Columna central: apuesta dinamica (HU2-08), mercado del P1 (HU-11,
