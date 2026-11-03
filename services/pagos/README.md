@@ -94,6 +94,20 @@ Lo publica Admin (HU2-18, Iván) cuando exista; el contrato de colas lo define
 esta HU. Lógica en `app/services/rentabilidad.py` y `app/consumer.py`. Detalle en
 `documentation/hu2-21-rentabilidad.md`.
 
+## Escritura de mercados (HU2-07 y HU2-08, Motor → Pagos)
+
+| Endpoint | Entrada | Respuestas |
+| --- | --- | --- |
+| `POST /internal/markets` | `{market_id, event_id, kind, template, question, options: [{opcion, multiplicador}], status?, opens_at?, closes_at?, race_close_s?}` | 201 creado · 200 reintento con los mismos datos · 404 evento inexistente · 409 mismo `market_id` con otros datos · 422 menos de 2 opciones, nombres repetidos o multiplicador ≤ 0 |
+| `POST /internal/markets/{market_id}/open` | — | 200 `MarketOut` (programado → abierto; ya abierto no cambia) · 404 · 409 cerrado o liquidado |
+| `POST /internal/markets/{market_id}/close` | — | 200 `MarketOut` (programado/abierto → cerrado; ya cerrado o liquidado no cambia) · 404 |
+| `POST /internal/markets/{market_id}/resolve` | `{winning_option}` | 200 `MarketOut` (guarda el ganador; el mismo ganador otra vez no cambia) · 404 · 409 mercado no cerrado u otro ganador ya guardado · 422 opción que no es del mercado |
+
+- `market_id` lo genera quien llama y hace de clave de idempotencia. Al comparar
+  un reintento se ignora `status` (pudo avanzar con open/close).
+- Cada transición bloquea la fila con `FOR UPDATE`. `resolve` no cambia el
+  `status`: el liquidador (HU2-10) paga y luego llama a `/liquidated`.
+
 ## Cierre del evento y reparto del botín (HU2-12, Motor → Pagos)
 
 | Endpoint | Entrada | Respuestas |

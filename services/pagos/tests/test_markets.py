@@ -117,3 +117,227 @@ def test_marcar_liquidado_solo_cuando_no_quedan_pendientes(client, fabrica):
     assert client.post(url, headers=headers()).json()["nueva"] is False
     assert client.get(f"/internal/markets/{mercado.id}", headers=headers()).json()["status"] == "liquidado"
     assert client.post(f"/internal/markets/{uuid.uuid4()}/liquidated", headers=headers()).status_code == 404
+
+
+# --- Escritura de mercados (HU2-07 / HU2-08) ---
+
+
+def _cuerpo(event_id, **cambios):
+    cuerpo = {
+        "market_id": str(uuid.uuid4()),
+        "event_id": str(event_id),
+        "kind": "estatica",
+        "template": "ganador",
+        "question": "¿Quién gana la carrera?",
+        "options": [{"opcion": "VER", "multiplicador": 2.5}, {"opcion": "NOR", "multiplicador": 3}],
+    }
+    cuerpo.update(cambios)
+    return cuerpo
+
+
+def _crear(client, fabrica, **cambios):
+    cuerpo = _cuerpo(fabrica.evento().id, **cambios)
+    r = client.post("/internal/markets", headers=headers(), json=cuerpo)
+    assert r.status_code == 201, r.text
+    return cuerpo["market_id"]
+
+
+@requires_db
+def test_crear_mercado_devuelve_201(client, fabrica):
+    cuerpo = _cuerpo(fabrica.evento().id, race_close_s=120)
+
+    r = client.post("/internal/markets", headers=headers(), json=cuerpo)
+
+    assert r.status_code == 201, r.text
+    m = r.json()
+    assert (m["market_id"], m["status"], m["kind"], m["race_close_s"], m["winning_option"]) == (
+        cuerpo["market_id"], "programado", "estatica", 120, None
+    )
+    assert m["options"] == [{"opcion": "VER", "multiplicador": 2.5}, {"opcion": "NOR", "multiplicador": 3.0}]
+    assert r.headers["cache-control"] == "no-store"
+
+
+@requires_db
+def test_reintento_igual_devuelve_200_y_no_duplica(client, fabrica):
+    cuerpo = _cuerpo(fabrica.evento().id)
+    assert client.post("/internal/markets", headers=headers(), json=cuerpo).status_code == 201
+
+    r = client.post("/internal/markets", headers=headers(), json=cuerpo)
+
+    assert r.status_code == 200, r.text
+    assert r.json()["market_id"] == cuerpo["market_id"]
+
+
+@requires_db
+def test_reintento_tras_abrir_sigue_siendo_200(client, fabrica):
+    cuerpo = _cuerpo(fabrica.evento().id)
+    client.post("/internal/markets", headers=headers(), json=cuerpo)
+    client.post(f"/internal/markets/{cuerpo['market_id']}/open", headers=headers())
+
+    r = client.post("/internal/markets", headers=headers(), json=cuerpo)
+
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "abierto"  # el status no cuenta en la comparacion
+
+
+@requires_db
+def test_mismo_id_con_otros_datos_devuelve_409(client, fabrica):
+    cuerpo = _cuerpo(fabrica.evento().id)
+    client.post("/internal/markets", headers=headers(), json=cuerpo)
+
+    r = client.post("/internal/markets", headers=headers(), json={**cuerpo, "question": "Otra pregunta"})
+
+    assert r.status_code == 409, r.text
+
+
+@requires_db
+def test_crear_con_evento_inexistente_devuelve_404(client):
+    r = client.post("/internal/markets", headers=headers(), json=_cuerpo(uuid.uuid4()))
+
+    assert r.status_code == 404
+    assert r.json()["detail"] == "Evento inexistente"
+
+
+@requires_db
+def test_crear_valida_las_opciones(client, fabrica):
+    evento = fabrica.evento().id
+    repetidas = [{"opcion": "VER", "multiplicador": 2}, {"opcion": "VER", "multiplicador": 3}]
+    una_sola = [{"opcion": "VER", "multiplicador": 2}]
+    cero = [{"opcion": "VER", "multiplicador": 0}, {"opcion": "NOR", "multiplicador": 3}]
+
+    for opciones in (repetidas, una_sola, cero):
+        r = client.post("/internal/markets", headers=headers(), json=_cuerpo(evento, options=opciones))
+        assert r.status_code == 422, r.text
+
+
+@requires_db
+def test_escritura_de_mercados_exige_token(client, fabrica):
+    cuerpo = _cuerpo(fabrica.evento().id)
+    mid = uuid.uuid4()
+
+    assert client.post("/internal/markets", json=cuerpo).status_code == 401
+    assert client.post(f"/internal/markets/{mid}/open").status_code == 401
+    assert client.post(f"/internal/markets/{mid}/close").status_code == 401
+    assert client.post(f"/internal/markets/{mid}/resolve", json={"winning_option": "VER"}).status_code == 401
+
+
+@requires_db
+def test_abrir_y_cerrar(client, fabrica):
+    mid = _crear(client, fabrica)
+
+    abierto = client.post(f"/internal/markets/{mid}/open", headers=headers())
+    cerrado = client.post(f"/internal/markets/{mid}/close", headers=headers())
+
+    assert (abierto.status_code, abierto.json()["status"]) == (200, "abierto")
+    assert (cerrado.status_code, cerrado.json()["status"]) == (200, "cerrado")
+
+
+@requires_db
+def test_abrir_un_mercado_abierto_no_cambia_nada(client, fabrica):
+    mid = _crear(client, fabrica, status="abierto")
+
+    r = client.post(f"/internal/markets/{mid}/open", headers=headers())
+
+    assert (r.status_code, r.json()["status"]) == (200, "abierto")
+
+
+@requires_db
+def test_abrir_un_mercado_cerrado_devuelve_409(client, fabrica):
+    mid = _crear(client, fabrica)
+    client.post(f"/internal/markets/{mid}/close", headers=headers())
+
+    assert client.post(f"/internal/markets/{mid}/open", headers=headers()).status_code == 409
+
+
+@requires_db
+def test_cerrar_dos_veces_devuelve_200(client, fabrica):
+    mid = _crear(client, fabrica, status="abierto")
+    client.post(f"/internal/markets/{mid}/close", headers=headers())
+
+    r = client.post(f"/internal/markets/{mid}/close", headers=headers())
+
+    assert (r.status_code, r.json()["status"]) == (200, "cerrado")
+
+
+@requires_db
+def test_abrir_cerrar_y_resolver_mercado_inexistente_devuelve_404(client):
+    mid = uuid.uuid4()
+
+    assert client.post(f"/internal/markets/{mid}/open", headers=headers()).status_code == 404
+    assert client.post(f"/internal/markets/{mid}/close", headers=headers()).status_code == 404
+    assert client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "VER"}).status_code == 404
+
+
+@requires_db
+def test_resolver_guarda_el_ganador_y_repetirlo_es_200(client, fabrica):
+    mid = _crear(client, fabrica, status="abierto")
+    client.post(f"/internal/markets/{mid}/close", headers=headers())
+
+    r = client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "NOR"})
+    repetido = client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "NOR"})
+
+    assert r.status_code == 200, r.text
+    assert (r.json()["winning_option"], r.json()["status"]) == ("NOR", "cerrado")
+    assert repetido.status_code == 200
+
+
+@requires_db
+def test_resolver_con_otra_opcion_devuelve_409(client, fabrica):
+    mid = _crear(client, fabrica)
+    client.post(f"/internal/markets/{mid}/close", headers=headers())
+    client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "NOR"})
+
+    r = client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "VER"})
+
+    assert r.status_code == 409
+
+
+@requires_db
+def test_resolver_opcion_inexistente_devuelve_422(client, fabrica):
+    mid = _crear(client, fabrica)
+    client.post(f"/internal/markets/{mid}/close", headers=headers())
+
+    r = client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "HAM"})
+
+    assert r.status_code == 422
+
+
+@requires_db
+def test_resolver_un_mercado_no_cerrado_devuelve_409(client, fabrica):
+    abierto = _crear(client, fabrica, status="abierto")
+    programado = _crear(client, fabrica)
+
+    for mid in (abierto, programado):
+        r = client.post(f"/internal/markets/{mid}/resolve", headers=headers(), json={"winning_option": "VER"})
+        assert r.status_code == 409, r.text
+        assert r.json()["detail"] == "El mercado no está cerrado"
+
+
+@requires_db
+def test_flujo_completo_deja_el_mercado_listo_para_liquidar(client, fabrica):
+    mid = _crear(client, fabrica)
+
+    for paso, cuerpo in (("open", None), ("close", None), ("resolve", {"winning_option": "VER"})):
+        r = client.post(f"/internal/markets/{mid}/{paso}", headers=headers(), json=cuerpo)
+        assert r.status_code == 200, r.text
+
+    r = client.get("/internal/markets?status=cerrado&resuelto=true&limit=200", headers=headers())
+
+    listo = next(m for m in r.json() if m["market_id"] == mid)
+    assert (listo["status"], listo["winning_option"]) == ("cerrado", "VER")
+
+
+@requires_db
+def test_fechas_sin_zona_horaria_devuelven_422_y_con_zona_son_idempotentes(client, fabrica):
+    cuerpo = _cuerpo(fabrica.evento().id)
+
+    sin_zona = client.post("/internal/markets", headers=headers(), json={**cuerpo, "closes_at": "2030-01-01T10:00:00"})
+    sin_zona_abre = client.post("/internal/markets", headers=headers(), json={**cuerpo, "opens_at": "2030-01-01T09:00:00"})
+    con_zona = {**cuerpo, "closes_at": "2030-01-01T10:00:00Z"}
+    primero = client.post("/internal/markets", headers=headers(), json=con_zona)
+    reintento = client.post("/internal/markets", headers=headers(), json=con_zona)
+
+    assert sin_zona.status_code == 422, sin_zona.text
+    assert sin_zona_abre.status_code == 422, sin_zona_abre.text
+    assert primero.status_code == 201, primero.text
+    assert reintento.status_code == 200, reintento.text
