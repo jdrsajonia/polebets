@@ -47,6 +47,13 @@ func (d *Difusor) Actualizar(numero, posicion int) {
 	}
 }
 
+// Aplicar actualiza varias posiciones y difunde una sola foto (HU2-14).
+func (d *Difusor) Aplicar(cambios map[int]int) {
+	if foto, ok := d.tablero.ActualizarVarias(cambios); ok {
+		d.difundir(foto)
+	}
+}
+
 // difundir marca emitido_en (para medir la latencia, RNF-04) y envia. Si
 // falla solo se registra: la reproduccion sigue.
 func (d *Difusor) difundir(foto FotoPosiciones) {

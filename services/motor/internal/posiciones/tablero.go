@@ -79,6 +79,21 @@ func (t *Tablero) Actualizar(numero, posicion int) (FotoPosiciones, bool) {
 	return t.foto, true
 }
 
+// ActualizarVarias aplica varios eventos de posicion (numero -> posicion) y
+// arma una sola foto (HU2-14: el lector trae los cambios por tramos).
+func (t *Tablero) ActualizarVarias(cambios map[int]int) (FotoPosiciones, bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.iniciado {
+		return FotoPosiciones{}, false
+	}
+	for numero, posicion := range cambios {
+		t.posiciones[numero] = posicion
+	}
+	t.foto = t.armar()
+	return t.foto, true
+}
+
 // Foto devuelve la ultima foto; false si no hay carrera.
 func (t *Tablero) Foto() (FotoPosiciones, bool) {
 	t.mu.Lock()
