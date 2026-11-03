@@ -24,6 +24,7 @@ import (
 	"github.com/arquisoft/motor/internal/apostar"
 	"github.com/arquisoft/motor/internal/apuestas"
 	"github.com/arquisoft/motor/internal/auth"
+	"github.com/arquisoft/motor/internal/carrera"
 	"github.com/arquisoft/motor/internal/config"
 	"github.com/arquisoft/motor/internal/fichas"
 	"github.com/arquisoft/motor/internal/health"
@@ -109,6 +110,13 @@ func main() {
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
 	tablero := posiciones.NuevoTablero()
 	posiciones.Register(mux, tablero, autenticador.ExigirSesion) // HU-05
+	// HU2-14: lee de Mongo la carrera que reproduce el Ingestor y alimenta el
+	// tablero; cada cambio sale por WebSocket ("posiciones").
+	go carrera.NuevoLector(
+		carrera.NuevaMongoFuente(db.DB),
+		tableroEnVivo{posiciones.NuevoDifusor(tablero, hub)},
+		500*time.Millisecond,
+	).Run(ctx)
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.HTTPPort,
@@ -225,6 +233,24 @@ func (a adaptadorTorneo) Liquidar(ctx context.Context, eventoID, apuestaID strin
 
 func (a adaptadorTorneo) Difundir(ctx context.Context, eventoID string) {
 	a.difusor.Difundir(ctx, eventoID)
+}
+
+// tableroEnVivo adapta el Difusor de HU-05 a carrera.Tablero (HU2-14). El
+// paquete carrera no importa posiciones ni ws para poder probarse sin ellos.
+type tableroEnVivo struct {
+	difusor *posiciones.Difusor
+}
+
+func (t tableroEnVivo) Iniciar(carreraID string, pilotos []carrera.Piloto) {
+	datos := make([]posiciones.PilotoCarrera, 0, len(pilotos))
+	for _, p := range pilotos {
+		datos = append(datos, posiciones.PilotoCarrera{Numero: p.Numero, Nombre: p.Nombre, Codigo: p.Codigo, Equipo: p.Equipo, Color: p.Color})
+	}
+	t.difusor.Iniciar(carreraID, datos, map[int]int{})
+}
+
+func (t tableroEnVivo) Aplicar(cambios map[int]int, vuelta carrera.Vuelta) {
+	t.difusor.Aplicar(cambios, vuelta.Actual, vuelta.Total)
 }
 
 // avisoWS adapta el Hub del WebSocket a liquidar.Avisador (HU2-10). El

@@ -41,7 +41,8 @@ export interface Piloto {
 // "posiciones" y tambien la respuesta de GET /posiciones.
 export interface FotoPosiciones {
   carrera_id: string;
-  vuelta?: number; // el motor aun no la manda (OpenF1 /position no la trae)
+  vuelta?: number; // vuelta actual (HU2-14, de simulaciones.vuelta_actual)
+  total_vueltas?: number; // total de vueltas de la carrera (HU2-14)
   actualizado_en: string; // ISO: cuando cambio el dato en la carrera
   emitido_en?: string; // ISO: cuando el motor envio el mensaje (latencia, RNF-04)
   pilotos: Piloto[];
