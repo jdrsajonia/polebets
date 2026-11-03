@@ -33,6 +33,7 @@ import (
 	"github.com/arquisoft/orquestador/internal/interno"
 	"github.com/arquisoft/orquestador/internal/miapuesta"
 	"github.com/arquisoft/orquestador/internal/pagina"
+	"github.com/arquisoft/orquestador/internal/posiciones"
 	"github.com/arquisoft/orquestador/internal/registro"
 	"github.com/arquisoft/orquestador/internal/traza"
 )
@@ -58,6 +59,7 @@ func main() {
 	registro.Register(mux, pagos, usuarios)                                                // HU2-01: POST /registro (publica)
 	pagina.Register(mux, pagina.Servicios{Usuarios: usuarios, Pagos: pagos, Motor: motor}) // HU2-03: GET /pagina-usuario
 	apuesta.Register(mux, motor)                                                           // HU2-09: POST /apuestas
+	posiciones.Register(mux, motor)                                                        // foto inicial: GET /posiciones
 	miapuesta.Register(mux, pagos)                                                         // HU2-13: GET /mercados/{mercado_id}/mi-apuesta
 
 	srv := &http.Server{
