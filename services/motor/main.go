@@ -265,6 +265,10 @@ func (t tableroEnVivo) Aplicar(cambios map[int]int, vuelta carrera.Vuelta) {
 	t.difusor.Aplicar(cambios, vuelta.Actual, vuelta.Total)
 }
 
+func (t tableroEnVivo) Reenviar() {
+	t.difusor.Reenviar()
+}
+
 // avisoWS adapta el Hub del WebSocket a liquidar.Avisador (HU2-10). El
 // paquete liquidar no importa ws para poder probarse sin dependencias.
 type avisoWS struct {

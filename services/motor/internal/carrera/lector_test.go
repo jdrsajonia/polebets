@@ -6,6 +6,7 @@ import (
 	"math"
 	"reflect"
 	"testing"
+	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
@@ -48,7 +49,10 @@ type tableroFalso struct {
 	posiciones map[int]int
 	vuelta     Vuelta
 	fotos      int // difusiones por Aplicar
+	reenvios   int // difusiones por Reenviar
 }
+
+func (t *tableroFalso) Reenviar() { t.reenvios++ }
 
 func (t *tableroFalso) Iniciar(carreraID string, pilotos []Piloto) {
 	t.inicios = append(t.inicios, carreraID)
@@ -254,5 +258,51 @@ func TestSigueLaSimulacionMasRecienteAunqueHayaFallado(t *testing.T) {
 	paso(t, l)
 	if len(tb.inicios) != 2 || tb.inicios[1] != "9999" || !igual(tb.posiciones, map[int]int{44: 1}) {
 		t.Errorf("inicios %v posiciones %v", tb.inicios, tb.posiciones)
+	}
+}
+
+func TestReenviaLaFotoCada5sMientrasEstaEnCurso(t *testing.T) {
+	f, tb, l := nueva()
+	ahora := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
+	l.Ahora = func() time.Time { return ahora }
+	tick := func(seg int) {
+		ahora = time.Date(2026, 11, 2, 20, 0, seg, 0, time.UTC)
+		paso(t, l)
+	}
+
+	f.sim.TCarreraMs = 1000
+	tick(0) // Iniciar + primera foto
+	for s := 1; s <= 11; s++ {
+		tick(s) // el reloj de carrera no avanza: sin cambios
+	}
+	if tb.reenvios != 2 { // en 5 s y en 10 s
+		t.Fatalf("reenvios = %d", tb.reenvios)
+	}
+
+	// Un cambio de posicion en 12 s ya es una foto: el reenvio cuenta desde ahi.
+	f.sim.TCarreraMs = 5000
+	tick(12)
+	f.sim.TCarreraMs = 5000
+	for s := 13; s <= 17; s++ {
+		tick(s)
+	}
+	if tb.reenvios != 3 { // solo en 17 s
+		t.Fatalf("reenvios = %d", tb.reenvios)
+	}
+}
+
+func TestNoReenviaSiLaSimulacionNoEstaEnCurso(t *testing.T) {
+	for _, estado := range []string{"finalizada", "fallida"} {
+		f, tb, l := nueva()
+		f.sim.Estado, f.sim.TCarreraMs = estado, 1000
+		ahora := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
+		l.Ahora = func() time.Time { return ahora }
+		for s := 0; s <= 20; s++ {
+			ahora = ahora.Add(time.Second)
+			paso(t, l)
+		}
+		if tb.reenvios != 0 {
+			t.Fatalf("%s: reenvios = %d", estado, tb.reenvios)
+		}
 	}
 }

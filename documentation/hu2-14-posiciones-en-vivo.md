@@ -28,6 +28,10 @@ eventos de ese tramo. El Motor lee los eventos con `t_carrera_ms` en
    foto por paso, con la vuelta actual. Si solo cambió la vuelta, también se difunde.
 4. Si el Motor se reinicia a mitad de carrera, la primera lectura trae todo hasta el instante
    actual: el tablero queda al día.
+5. Mientras la simulación esté `en_curso`, si en 5 s de hora real no salió ninguna foto, se
+   reenvía la actual aunque no haya cambios. Así quien entra o recarga la página ve la tabla sin
+   esperar al siguiente cambio de posición: el front pide `GET /api/motor/posiciones` al cargar,
+   pero el Gateway manda `/api/` al Orquestador (404). La hora real solo decide cuándo reenviar.
 
 ## Pendiente
 - Diferencias de tiempo (`intervalo`): los datos ya están en Mongo; el tablero hoy muestra
