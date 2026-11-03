@@ -46,6 +46,14 @@ class EventOut(BaseModel):
     ended_at: datetime | None
 
 
+class EventPendientesOut(BaseModel):
+    """Lo que falta para cerrar el torneo (HU2-12): el Motor cierra solo con los dos en 0."""
+
+    event_id: uuid.UUID
+    mercados_sin_liquidar: int  # mercados del evento con status distinto de liquidado
+    apuestas_torneo_pending: int  # bets mode=torneo status=pending del evento
+
+
 class RegistrationIn(_Entrada):
     user_id: uuid.UUID
 

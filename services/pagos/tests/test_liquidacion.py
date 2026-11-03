@@ -163,6 +163,20 @@ def test_reenvio_del_debito_no_cobra_dos_veces(client, fabrica):
 
 
 @requires_db
+def test_reenvio_del_debito_con_otra_vuelta_es_200_y_conserva_la_primera(client, fabrica):
+    user_id = fabrica.billetera(balance=100)
+    mercado = fabrica.mercado()
+
+    primera, bet_id = _debitar(client, user_id, mercado, 30, lap=3)
+    reenvio, _ = _debitar(client, user_id, mercado, 30, bet_id=bet_id, lap=5)
+
+    assert (primera.status_code, reenvio.status_code) == (201, 200)
+    assert _saldo(user_id) == 70
+    with SessionLocal() as db:
+        assert db.get(Bet, bet_id).lap == 3
+
+
+@requires_db
 def test_una_sola_apuesta_por_usuario_y_mercado(client, fabrica):
     user_id = fabrica.billetera(balance=100)
     mercado = fabrica.mercado()

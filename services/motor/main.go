@@ -26,6 +26,7 @@ import (
 	"github.com/arquisoft/motor/internal/apuestas"
 	"github.com/arquisoft/motor/internal/auth"
 	"github.com/arquisoft/motor/internal/carrera"
+	"github.com/arquisoft/motor/internal/cierre"
 	"github.com/arquisoft/motor/internal/config"
 	"github.com/arquisoft/motor/internal/dinamicas"
 	"github.com/arquisoft/motor/internal/fichas"
@@ -84,20 +85,37 @@ func main() {
 	health.Register(mux, db)
 	ws.Register(mux, hub, autenticador, origenes.Permite)
 	pagos := registrarApuestas(mux, db, cfg, autenticador) // HU-06 (P1; la reemplaza HU2-09)
+	// HU2-14 lee la carrera del Ingestor en Mongo; HU2-09 usa la misma fuente
+	// para guardar la vuelta de cada apuesta (bets.lap).
+	fuenteCarrera := carrera.NuevaMongoFuente(db.DB)
 	// HU2-09: POST /internal/apuestas, la llama el Orquestador. Con Redis, las
 	// dinamicas de un inscrito van en fichas del torneo (almacen de HU2-11).
 	svcApostar := apostar.NuevoServicio(apostar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken), cfg.MaxApuestaIndividual)
 	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
 		svcApostar.Fichas = fichasApuesta{almacen: t.almacen}
 	}
+	svcApostar.Carrera = vueltaCarrera{fuente: fuenteCarrera}
 	apostar.Register(mux, svcApostar, cfg.InternalAPIToken)
-	// HU2-10: liquida en tokens las apuestas individuales de los mercados del
-	// P2 (Pagos) que ya tienen opcion ganadora. Las de torneo son de HU2-11.
-	go liquidar.NuevoWorker(
+	// HU2-10: liquida los mercados del P2 (Pagos) que ya tienen opcion
+	// ganadora: las individuales en tokens y, con Redis, las de torneo en
+	// fichas (almacen de HU2-11). Sin Redis las de torneo esperan.
+	workerP2 := liquidar.NuevoWorker(
 		liquidar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
 		avisoWS{hub: hub},
 		5*time.Second,
-	).Run(ctx)
+	)
+	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
+		workerP2.Fichas = t
+		// HU2-12: con la carrera finalizada y nada pendiente en Pagos, reparte
+		// el botin y limpia Redis. Sin Redis no hay torneo que cerrar.
+		go cierre.NuevoWorker(
+			cierreTorneo{adaptadorTorneo: t, pagos: fichas.NuevoPagosCierreHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)},
+			cierre.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+			simulacionCarrera{fuente: fuenteCarrera},
+			5*time.Second,
+		).Run(ctx)
+	}
+	go workerP2.Run(ctx)
 	// HU2-08: el Gestor de mercados dinamicos lee la carrera que reproduce el
 	// Ingestor (solo lectura, RNF-18) y guarda los mercados en Pagos. Todo se
 	// decide con el tiempo de carrera (RNF-19); event_id = _id de la simulacion.
@@ -125,7 +143,7 @@ func main() {
 	// HU2-14: lee de Mongo la carrera que reproduce el Ingestor y alimenta el
 	// tablero; cada cambio sale por WebSocket ("posiciones").
 	go carrera.NuevoLector(
-		carrera.NuevaMongoFuente(db.DB),
+		fuenteCarrera,
 		tableroEnVivo{posiciones.NuevoDifusor(tablero, hub)},
 		500*time.Millisecond,
 	).Run(ctx)
@@ -243,8 +261,51 @@ func (a adaptadorTorneo) Liquidar(ctx context.Context, eventoID, apuestaID strin
 	}, nil
 }
 
+// LiquidarApuesta cumple liquidar.Fichas (HU2-10 con los mercados del P2).
+// Solo la reserva inexistente (Redis respondio) es ErrSinReserva; el resto
+// son fallos de conexion que el worker reintenta.
+func (a adaptadorTorneo) LiquidarApuesta(ctx context.Context, eventoID, apuestaID string, gano bool, multiplicador float64) (liquidar.FichasTorneo, error) {
+	res, err := a.almacen.LiquidarYUbicar(ctx, eventoID, apuestaID, gano, multiplicador)
+	if errors.Is(err, fichas.ErrJugadorNoInscrito) {
+		return liquidar.FichasTorneo{}, liquidar.ErrSinReserva
+	}
+	if err != nil {
+		return liquidar.FichasTorneo{}, err
+	}
+	return liquidar.FichasTorneo{Ganadas: res.FichasGanadas, Total: res.FichasTotal, Puesto: res.Puesto}, nil
+}
+
 func (a adaptadorTorneo) Difundir(ctx context.Context, eventoID string) {
 	a.difusor.Difundir(ctx, eventoID)
+}
+
+// cierreTorneo cumple cierre.Torneos sobre el almacen de fichas (HU2-12).
+type cierreTorneo struct {
+	adaptadorTorneo
+	pagos fichas.PagosCierre
+}
+
+func (c cierreTorneo) EventosActivos(ctx context.Context) ([]string, error) {
+	return c.almacen.EventosActivos(ctx)
+}
+
+func (c cierreTorneo) DifundirRanking(ctx context.Context, eventoID string) {
+	c.difusor.Difundir(ctx, eventoID)
+}
+
+func (c cierreTorneo) Cerrar(ctx context.Context, eventoID string) error {
+	_, err := c.almacen.CerrarTorneo(ctx, eventoID, c.pagos)
+	return err
+}
+
+// simulacionCarrera cumple cierre.Carrera con la fuente de HU2-14.
+type simulacionCarrera struct {
+	fuente *carrera.MongoFuente
+}
+
+func (s simulacionCarrera) EstadoSimulacion(ctx context.Context, carreraID string) (string, bool, error) {
+	sim, ok, err := s.fuente.SimulacionDe(ctx, carreraID)
+	return sim.Estado, ok, err
 }
 
 // tableroEnVivo adapta el Difusor de HU-05 a carrera.Tablero (HU2-14). El
@@ -277,6 +338,25 @@ type avisoWS struct {
 
 func (a avisoWS) EnviarA(userID, tipo string, payload any) error {
 	return a.hub.EnviarA(userID, ws.Mensaje{Type: tipo, Payload: payload})
+}
+
+// vueltaCarrera cumple apostar.Carrera con la fuente de HU2-14: la vuelta de
+// la simulacion en curso (simulaciones.vuelta_actual). Antes de la largada o
+// con la carrera terminada no hay vuelta y bets.lap queda nula.
+//
+// No compara la carrera de la simulacion con la del evento del mercado: RF-22
+// solo permite una simulacion a la vez, asi que la que esta en curso es la
+// del evento.
+type vueltaCarrera struct {
+	fuente *carrera.MongoFuente
+}
+
+func (v vueltaCarrera) VueltaActual(ctx context.Context) (int, bool, error) {
+	sim, ok, err := v.fuente.SimulacionActual(ctx)
+	if err != nil || !ok || sim.Estado != "en_curso" || sim.Vuelta.Actual <= 0 {
+		return 0, false, err
+	}
+	return sim.Vuelta.Actual, true, nil
 }
 
 // difusionWS adapta el Hub a dinamicas.Difusor (HU2-08), por la misma razon

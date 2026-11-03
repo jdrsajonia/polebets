@@ -69,8 +69,12 @@ func (p *PagosHTTP) Debitar(ctx context.Context, d Debito) (ResultadoDebito, err
 		}
 		return ResultadoDebito{Saldo: r.Saldo, Nueva: r.Nueva}, nil
 	case http.StatusConflict:
-		// Pagos usa 409 para dos casos; los distingue el detalle.
-		if strings.Contains(detalle(cuerpo), "apost") {
+		// Pagos usa 409 para tres casos; los distingue el detalle.
+		codigo, texto := detalle(cuerpo)
+		switch {
+		case codigo == "mercado_cerrado":
+			return ResultadoDebito{}, ErrMercadoCerrado
+		case strings.Contains(texto, "apost"):
 			return ResultadoDebito{}, ErrYaApostaste
 		}
 		return ResultadoDebito{}, ErrClaveReutilizada
@@ -78,6 +82,36 @@ func (p *PagosHTTP) Debitar(ctx context.Context, d Debito) (ResultadoDebito, err
 		return ResultadoDebito{}, ErrSaldoInsuficiente
 	default:
 		return ResultadoDebito{}, fmt.Errorf("%w: debito respondio %d: %s", ErrPagosNoDisponible, estado, cuerpo)
+	}
+}
+
+// RegistrarTorneo llama a POST /internal/bets/torneo: guarda la apuesta en
+// bets sin mover tokens. Idempotente por bet_id.
+//
+//	201/200 -> registrada (200 = ya estaba con los mismos datos)
+//	409     -> mercado_cerrado, o ya_apostaste/datos_distintos: el bet_id de
+//	           torneo sale de (usuario, mercado), asi que otro monto u opcion
+//	           en el mismo mercado llega como datos_distintos. Las dos son
+//	           "ya apostaste".
+//	404     -> el mercado no existe
+//	otro    -> Pagos no esta disponible
+func (p *PagosHTTP) RegistrarTorneo(ctx context.Context, a ApuestaTorneo) (bool, error) {
+	estado, cuerpo, err := p.pedir(ctx, http.MethodPost, "/internal/bets/torneo", a, "")
+	if err != nil {
+		return false, err
+	}
+	switch estado {
+	case http.StatusCreated, http.StatusOK:
+		return estado == http.StatusCreated, nil
+	case http.StatusConflict:
+		if codigo, _ := detalle(cuerpo); codigo == "mercado_cerrado" {
+			return false, ErrMercadoCerrado
+		}
+		return false, ErrYaApostaste
+	case http.StatusNotFound:
+		return false, ErrMercadoNoExiste
+	default:
+		return false, fmt.Errorf("%w: registro de torneo respondio %d: %s", ErrPagosNoDisponible, estado, cuerpo)
 	}
 }
 
@@ -110,10 +144,23 @@ func (p *PagosHTTP) pedir(ctx context.Context, metodo, ruta string, cuerpo any, 
 	return resp.StatusCode, b, nil
 }
 
-func detalle(cuerpo []byte) string {
+// detalle lee el "detail" de un error de Pagos. Puede ser texto o un objeto
+// {"codigo", "mensaje"}; devuelve el codigo (vacio si es texto) y el texto en
+// minusculas.
+func detalle(cuerpo []byte) (codigo, texto string) {
 	var r struct {
-		Detail string `json:"detail"`
+		Detail json.RawMessage `json:"detail"`
 	}
-	_ = json.Unmarshal(cuerpo, &r)
-	return strings.ToLower(r.Detail)
+	if json.Unmarshal(cuerpo, &r) != nil {
+		return "", ""
+	}
+	var obj struct {
+		Codigo  string `json:"codigo"`
+		Mensaje string `json:"mensaje"`
+	}
+	if json.Unmarshal(r.Detail, &obj) == nil {
+		return obj.Codigo, strings.ToLower(obj.Mensaje)
+	}
+	_ = json.Unmarshal(r.Detail, &texto)
+	return "", strings.ToLower(texto)
 }

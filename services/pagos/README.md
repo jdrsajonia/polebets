@@ -70,7 +70,37 @@ aquí: lo valida el Orquestador con `X-User-Rol`.
 - La liquidación paga monto × multiplicador si acertó (incluye lo apostado,
   RF-14), truncado a tokens enteros, y escribe `settle`. Si falló escribe
   `settle` con 0 tokens: la clave única impide liquidar dos veces.
-- Las apuestas de torneo no pasan por aquí: se pagan en fichas (Redis).
+- El mercado tiene que estar `abierto` (RNF-19). Se lee con `FOR SHARE` en la
+  misma transacción del débito, así que un `/close` simultáneo espera. Si no
+  está abierto: 409 con `detail = {"codigo": "mercado_cerrado", "mensaje"}`.
+  Un reenvío idéntico de una apuesta ya hecha sigue siendo 200 aunque el
+  mercado ya haya cerrado.
+- Las apuestas de torneo no pasan por aquí: se pagan en fichas (Redis). Ver abajo.
+
+## Apuestas de torneo (HU2-09, HU2-10, Motor → Pagos)
+
+| Endpoint | Entrada | Respuestas |
+| --- | --- | --- |
+| `POST /internal/bets/torneo` | `{bet_id, user_id, market_id, option, amount, multiplier, lap}` | 201 `{bet_id, event_id, status, payout, nueva}` · 200 reenvío con los mismos datos · 404 mercado inexistente · 409 `mercado_cerrado`, `ya_apostaste` o `datos_distintos` |
+| `POST /internal/bets/torneo/{bet_id}/settlement` | `{result: "won"\|"lost"}` | 201 · 200 ya estaba con el mismo resultado · 404 apuesta inexistente · 409 `datos_distintos` (otro resultado) · 422 apuesta individual |
+
+- `lap` no cuenta para la idempotencia (ni aquí ni en el débito): un reintento
+  puede llegar en otra vuelta y se conserva la del primer intento.
+- Ruta aparte y no un `mode` en `/internal/debit`: el débito y `/settlements`
+  mueven tokens y su idempotencia es la clave del ledger. Las fichas viven en
+  Redis (HU2-11): aquí solo queda la fila de `bets` (RNF-20), sin tocar
+  `wallets` ni `ledger_entries`. La clave de idempotencia es el `bet_id`.
+- Errores 409 con `detail = {"codigo", "mensaje"}`.
+- Misma regla de mercado `abierto` y de una apuesta por usuario y mercado
+  (en cualquier modo, `uq_bets_user_market`) que el débito.
+- La liquidación guarda `payout` en fichas (monto × multiplicador truncado; 0
+  si perdió). Las fichas se acreditan en Redis desde el Motor.
+- `POST /internal/markets/{id}/liquidated` responde 409 mientras quede
+  cualquier apuesta `pending`, individual o de torneo.
+- `GET /internal/events/{id}/pendientes` → `{event_id, mercados_sin_liquidar,
+  apuestas_torneo_pending}` (404 si el evento no existe). Cuenta los mercados
+  del evento con `status` distinto de `liquidado` y las apuestas `torneo`
+  `pending`. El Motor cierra el torneo (HU2-12) solo con los dos en 0.
 
 ## Consultas del administrador por el Broker (HU2-20, HU2-21, HU2-22)
 

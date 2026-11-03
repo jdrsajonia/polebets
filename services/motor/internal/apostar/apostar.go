@@ -9,19 +9,20 @@
 //   - Modo individual (estaticas siempre; dinamicas si el jugador no tiene
 //     fichas): tope de MaxIndividual tokens; Pagos debita y registra la
 //     apuesta en una sola transaccion (POST /internal/debit).
-//   - Modo torneo (dinamicas de un inscrito con torneo activo): descuenta
-//     fichas en Redis con el almacen de HU2-11 (fichas.ReservarApuesta). Sin
-//     tope de tokens: el limite son las fichas. Si Fichas es nil (Motor sin
-//     Redis) todas las apuestas son individuales.
+//   - Modo torneo (dinamicas de un inscrito con torneo activo): registra la
+//     apuesta en Pagos sin tokens (POST /internal/bets/torneo, RF-12/RNF-20)
+//     y despues descuenta fichas en Redis con el almacen de HU2-11
+//     (fichas.ReservarApuesta). Sin tope de tokens: el limite son las
+//     fichas. Si Fichas es nil (Motor sin Redis) todas son individuales.
+//
+// En los dos modos la apuesta guarda la vuelta actual (bets.lap, RF-27), que
+// se lee de la simulacion del Ingestor (Carrera). Sin carrera en curso queda
+// nula.
 //
 // Una apuesta por mercado. Individual: el id se deriva de (usuario,
 // Idempotency-Key) y Pagos lo hace cumplir (bets.uq_bets_user_market).
 // Torneo: el id se deriva de (usuario, mercado), asi que cualquier reintento
 // cae en la misma reserva y no descuenta dos veces.
-//
-// PENDIENTE (HU2-10 con HU2-11): la liquidacion de las apuestas de torneo. El
-// worker de liquidacion todavia lee los mercados del P1 (Mongo); los del P2
-// estan en Pagos (markets).
 //
 // Este paquete reemplaza la ruta del P1 (POST /apuestas con JWT, paquete
 // apuestas). Ese paquete sigue vivo porque lo usa la liquidacion del P1.
@@ -33,6 +34,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -98,6 +100,18 @@ type Debito struct {
 	IdempotencyKey string      `json:"idempotency_key"`
 }
 
+// ApuestaTorneo es el cuerpo de POST /internal/bets/torneo de Pagos. No mueve
+// tokens: las fichas viven en Redis.
+type ApuestaTorneo struct {
+	BetID      string      `json:"bet_id"`
+	UserID     string      `json:"user_id"`
+	MarketID   string      `json:"market_id"`
+	Option     string      `json:"option"`
+	Amount     int64       `json:"amount"`
+	Multiplier json.Number `json:"multiplier"`
+	Lap        *int        `json:"lap"`
+}
+
 // ResultadoDebito es lo que importa de la respuesta de Pagos.
 type ResultadoDebito struct {
 	Saldo int64
@@ -122,6 +136,17 @@ type Apuesta struct {
 type Pagos interface {
 	Mercado(ctx context.Context, id string) (Mercado, error)
 	Debitar(ctx context.Context, d Debito) (ResultadoDebito, error)
+	// RegistrarTorneo guarda la apuesta de torneo (idempotente por bet_id).
+	// Devuelve nueva=false si ya estaba. Errores: ErrMercadoCerrado,
+	// ErrYaApostaste, ErrMercadoNoExiste, ErrPagosNoDisponible.
+	RegistrarTorneo(ctx context.Context, a ApuestaTorneo) (bool, error)
+}
+
+// Carrera da la vuelta actual de la carrera en curso (bets.lap, RF-27). El
+// adaptador real lee simulaciones.vuelta_actual con el lector de HU2-14
+// (main.go). ok=false si no hay carrera en curso. nil = sin lectura de vuelta.
+type Carrera interface {
+	VueltaActual(ctx context.Context) (vuelta int, ok bool, err error)
 }
 
 // EstadoFichas es el saldo de un jugador en el torneo de un evento.
@@ -155,6 +180,7 @@ type Fichas interface {
 type Servicio struct {
 	Pagos         Pagos
 	Fichas        Fichas
+	Carrera       Carrera
 	MaxIndividual int64            // tope por apuesta individual en tokens [500]
 	Ahora         func() time.Time // reloj del servidor; reemplazable en pruebas
 }
@@ -201,8 +227,9 @@ func (s *Servicio) Apostar(ctx context.Context, p Peticion, clave string) (Apues
 	if err != nil {
 		return Apuesta{}, err
 	}
+	lap := s.vuelta(ctx)
 	if torneo {
-		return s.apostarTorneo(ctx, p, m, multiplicador, centesimas, estado)
+		return s.apostarTorneo(ctx, p, m, multiplicador, centesimas, estado, lap)
 	}
 
 	if p.Monto > s.MaxIndividual {
@@ -216,6 +243,7 @@ func (s *Servicio) Apostar(ctx context.Context, p Peticion, clave string) (Apues
 		Option:         p.Opcion,
 		Amount:         p.Monto,
 		Multiplier:     multiplicador,
+		Lap:            lap,
 		IdempotencyKey: "bet-debit:" + betID,
 	})
 	if err != nil {
@@ -235,16 +263,44 @@ func (s *Servicio) Apostar(ctx context.Context, p Peticion, clave string) (Apues
 	}, nil
 }
 
-// apostarTorneo descuenta fichas del torneo del evento del mercado.
-func (s *Servicio) apostarTorneo(ctx context.Context, p Peticion, m Mercado, multiplicador json.Number, centesimas int64, antes EstadoFichas) (Apuesta, error) {
+// apostarTorneo registra la apuesta en Pagos y despues descuenta las fichas
+// en Redis. Los dos pasos son idempotentes por apuestaID, que sale de
+// (usuario, mercado): un reintento del front repite los dos y completa lo que
+// haya quedado a medias.
+//
+// Si Redis falla DESPUES de Pagos, la apuesta queda en bets como pending sin
+// reserva de fichas y el jugador recibe 503. Al reintentar (misma u otra
+// Idempotency-Key, mismo mercado), Pagos responde 200 y la reserva se hace
+// entonces. Si nunca reintenta, queda una apuesta pending sin fichas
+// descontadas; el liquidador (HU2-10) la encuentra sin reserva.
+func (s *Servicio) apostarTorneo(ctx context.Context, p Peticion, m Mercado, multiplicador json.Number, centesimas int64, antes EstadoFichas, lap *int) (Apuesta, error) {
 	apuestaID := idDeterminista(p.UserID, "torneo|"+m.ID)
-	despues, err := s.Fichas.Reservar(ctx, m.EventoID, ReservaFichas{
+	reserva := ReservaFichas{
 		ApuestaID:     apuestaID,
 		UserID:        p.UserID,
 		Opcion:        p.Opcion,
 		Monto:         p.Monto,
 		Multiplicador: float64(centesimas) / 100,
-	})
+	}
+
+	// Si el monto supera las fichas solo puede ser el reintento de una apuesta
+	// ya reservada (sus fichas ya se descontaron): se salta Pagos y Reservar
+	// lo confirma sin escribir. Si no existe, Reservar devuelve fichas
+	// insuficientes y Pagos no se toco: no queda una apuesta sin fichas.
+	if p.Monto <= antes.Fichas {
+		if _, err := s.Pagos.RegistrarTorneo(ctx, ApuestaTorneo{
+			BetID:      apuestaID,
+			UserID:     p.UserID,
+			MarketID:   m.ID,
+			Option:     p.Opcion,
+			Amount:     p.Monto,
+			Multiplier: multiplicador,
+			Lap:        lap,
+		}); err != nil {
+			return Apuesta{}, err
+		}
+	}
+	despues, err := s.Fichas.Reservar(ctx, m.EventoID, reserva)
 	if err != nil {
 		return Apuesta{}, err
 	}
@@ -261,6 +317,23 @@ func (s *Servicio) apostarTorneo(ctx context.Context, p Peticion, m Mercado, mul
 		// Si lo apostado no subio, la reserva ya existia (reintento).
 		Nueva: despues.Apostado > antes.Apostado,
 	}, nil
+}
+
+// vuelta devuelve la vuelta actual para bets.lap, o nil si no hay carrera en
+// curso. Un fallo al leerla no impide apostar: lap es informativa (RF-27).
+func (s *Servicio) vuelta(ctx context.Context) *int {
+	if s.Carrera == nil {
+		return nil
+	}
+	v, ok, err := s.Carrera.VueltaActual(ctx)
+	if err != nil {
+		log.Printf("HU2-09: no se pudo leer la vuelta actual, la apuesta queda sin lap: %v", err)
+		return nil
+	}
+	if !ok {
+		return nil
+	}
+	return &v
 }
 
 // modo: las estaticas siempre son individuales; las dinamicas son torneo si

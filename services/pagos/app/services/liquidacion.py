@@ -1,7 +1,10 @@
-"""Debito y liquidacion de apuestas individuales; saldo, apuesta y ledger son atomicos.
+"""Registro y liquidacion de apuestas (RF-12, RF-14, RNF-20).
 
-Solo apuestas individuales: son las que mueven tokens (RF-12, RF-14). Las de
-torneo se pagan en fichas, que viven en Redis y no pasan por el ledger.
+Individuales: mueven tokens. Saldo, apuesta y ledger son atomicos.
+Torneo: se pagan en fichas, que viven en Redis (HU2-11). Aqui solo queda la
+fila de bets (para el historial y los reportes); no tocan wallets ni el ledger.
+
+Las dos exigen el mercado "abierto" dentro de la misma transaccion (RNF-19).
 """
 import uuid
 from dataclasses import dataclass
@@ -15,10 +18,12 @@ from app.models import (
     BET_INDIVIDUAL,
     BET_LOST,
     BET_PENDING,
+    BET_TORNEO,
     BET_WON,
     LEDGER_COMPLETED,
     LEDGER_DEBIT,
     LEDGER_SETTLE,
+    MARKET_ABIERTO,
     Bet,
     LedgerEntry,
     Market,
@@ -46,8 +51,12 @@ class MercadoNoExiste(Exception):
     """No se encontró el mercado de la apuesta."""
 
 
+class MercadoCerrado(Exception):
+    """El mercado no está abierto: ya no recibe apuestas (RNF-19)."""
+
+
 class ModoNoSoportado(Exception):
-    """La apuesta es de torneo: no se liquida en tokens."""
+    """La apuesta es del otro modo (individual en tokens, torneo en fichas)."""
 
 
 class ResultadoInvalido(Exception):
@@ -71,6 +80,12 @@ class BetDebitData:
 
 
 @dataclass(frozen=True)
+class ResultadoTorneo:
+    apuesta: Bet
+    nueva: bool
+
+
+@dataclass(frozen=True)
 class ResultadoDebito:
     apuesta: Bet
     saldo: int
@@ -88,7 +103,21 @@ def _saldo(db: Session, user_id: uuid.UUID) -> int:
     return db.scalar(select(Wallet.balance).where(Wallet.user_id == user_id))
 
 
+def _mercado_abierto(db: Session, market_id: uuid.UUID) -> Market:
+    """Lee el mercado con FOR SHARE: /close (FOR UPDATE) espera a que esta transaccion termine."""
+    mercado = db.scalar(select(Market).where(Market.id == market_id).with_for_update(read=True))
+    if mercado is None:
+        db.rollback()
+        raise MercadoNoExiste()
+    if mercado.status != MARKET_ABIERTO:
+        db.rollback()
+        raise MercadoCerrado()
+    return mercado
+
+
 def _debito_existente(db: Session, movimiento: LedgerEntry, datos: BetDebitData) -> ResultadoDebito:
+    # lap no cuenta: el Motor la lee en cada intento y un reintento puede caer
+    # en otra vuelta. Se conserva la del primer intento.
     apuesta = db.get(Bet, datos.bet_id)
     if (
         movimiento.type != LEDGER_DEBIT
@@ -102,7 +131,6 @@ def _debito_existente(db: Session, movimiento: LedgerEntry, datos: BetDebitData)
         or apuesta.option != datos.option
         or apuesta.amount != datos.amount
         or apuesta.multiplier != datos.multiplier
-        or apuesta.lap != datos.lap
     ):
         raise ClaveReutilizada()
     return ResultadoDebito(apuesta=apuesta, saldo=_saldo(db, datos.user_id), nueva=False)
@@ -114,9 +142,7 @@ def debitar_apuesta(db: Session, datos: BetDebitData) -> ResultadoDebito:
     if previo is not None:
         return _debito_existente(db, previo, datos)
 
-    mercado = db.get(Market, datos.market_id)
-    if mercado is None:
-        raise MercadoNoExiste()
+    mercado = _mercado_abierto(db, datos.market_id)
 
     # UPDATE atomico: dos apuestas simultaneas no gastan el mismo saldo.
     saldo = db.execute(
@@ -232,3 +258,89 @@ def liquidar_apuesta(db: Session, bet_id: uuid.UUID, resultado: str, idempotency
     db.commit()
     db.refresh(apuesta)
     return ResultadoLiquidacion(apuesta, _saldo(db, apuesta.user_id), nueva=True)
+
+
+def _misma_apuesta_torneo(apuesta: Bet, datos: BetDebitData) -> bool:
+    """Sin lap, igual que el debito: un reintento puede llegar en otra vuelta."""
+    return (
+        apuesta.mode == BET_TORNEO
+        and apuesta.user_id == datos.user_id
+        and apuesta.market_id == datos.market_id
+        and apuesta.option == datos.option
+        and apuesta.amount == datos.amount
+        and apuesta.multiplier == datos.multiplier
+    )
+
+
+def _torneo_existente(db: Session, datos: BetDebitData) -> ResultadoTorneo | None:
+    previa = db.get(Bet, datos.bet_id)
+    if previa is None:
+        return None
+    if not _misma_apuesta_torneo(previa, datos):
+        raise ClaveReutilizada()
+    return ResultadoTorneo(previa, nueva=False)
+
+
+def registrar_apuesta_torneo(db: Session, datos: BetDebitData) -> ResultadoTorneo:
+    """Guarda la apuesta de torneo en bets (RF-12, RNF-20). No mueve tokens ni escribe en el ledger.
+
+    bet_id es la clave de idempotencia: el mismo bet_id con los mismos datos
+    devuelve la apuesta guardada, aunque el mercado ya haya cerrado.
+    """
+    previa = _torneo_existente(db, datos)
+    if previa is not None:
+        return previa
+
+    mercado = _mercado_abierto(db, datos.market_id)
+    apuesta = Bet(
+        id=datos.bet_id,
+        user_id=datos.user_id,
+        market_id=datos.market_id,
+        event_id=mercado.event_id,
+        mode=BET_TORNEO,
+        option=datos.option,
+        amount=datos.amount,
+        multiplier=datos.multiplier,
+        lap=datos.lap,
+        status=BET_PENDING,
+    )
+    db.add(apuesta)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        previa = _torneo_existente(db, datos)
+        if previa is not None:
+            return previa
+        if db.scalar(select(Bet.id).where(Bet.user_id == datos.user_id, Bet.market_id == datos.market_id)):
+            raise ApuestaDuplicada() from None
+        raise
+    db.refresh(apuesta)
+    return ResultadoTorneo(apuesta, nueva=True)
+
+
+def liquidar_apuesta_torneo(db: Session, bet_id: uuid.UUID, resultado: str) -> ResultadoTorneo:
+    """Marca won/lost y el pago en fichas (monto × multiplicador, truncado). Sin ledger.
+
+    Las fichas se acreditan en Redis (HU2-11); esto solo deja el registro.
+    Repetir con el mismo resultado no cambia nada; con otro resultado, ClaveReutilizada.
+    """
+    if resultado not in (BET_WON, BET_LOST):
+        raise ResultadoInvalido()
+    apuesta = db.scalar(select(Bet).where(Bet.id == bet_id).with_for_update())
+    if apuesta is None:
+        raise ApuestaNoExiste()
+    if apuesta.mode != BET_TORNEO:
+        raise ModoNoSoportado()
+    if apuesta.status != BET_PENDING:
+        previo = apuesta.status
+        db.rollback()  # suelta el FOR UPDATE
+        if previo != resultado:
+            raise ClaveReutilizada()
+        return ResultadoTorneo(apuesta, nueva=False)
+
+    apuesta.status = resultado
+    apuesta.payout = pago_por_apuesta(apuesta.amount, apuesta.multiplier) if resultado == BET_WON else 0
+    db.commit()
+    db.refresh(apuesta)
+    return ResultadoTorneo(apuesta, nueva=True)

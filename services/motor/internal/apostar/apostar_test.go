@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +21,9 @@ const (
 )
 
 // pagosFalso simula Pagos: sirve el mercado y responde el debito con el
-// estado configurado. Guarda el ultimo debito recibido.
+// estado configurado. Guarda el ultimo debito recibido. El registro de torneo
+// imita al real: idempotente por bet_id (sin contar lap) y 409 si cambia el
+// contenido; torneoEstado/torneoCuerpo fuerzan otra respuesta.
 type pagosFalso struct {
 	mu            sync.Mutex
 	mercadoEstado int
@@ -30,6 +33,39 @@ type pagosFalso struct {
 	debito        Debito
 	clave         string
 	debitos       int
+	torneoEstado  int
+	torneoCuerpo  string
+	torneo        map[string]ApuestaTorneo
+	registros     int
+	orden         *[]string
+}
+
+func (f *pagosFalso) registrarTorneo(w http.ResponseWriter, r *http.Request) {
+	f.registros++
+	if f.orden != nil {
+		*f.orden = append(*f.orden, "pagos")
+	}
+	if f.torneoEstado != 0 {
+		w.WriteHeader(f.torneoEstado)
+		_, _ = w.Write([]byte(f.torneoCuerpo))
+		return
+	}
+	var a ApuestaTorneo
+	b, _ := io.ReadAll(r.Body)
+	_ = json.Unmarshal(b, &a)
+	if previa, ok := f.torneo[a.BetID]; ok {
+		if previa.Amount != a.Amount || previa.Option != a.Option || previa.Multiplier != a.Multiplier {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"detail":{"codigo":"datos_distintos","mensaje":"La apuesta ya existe con otros datos"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"nueva":false}`))
+		return
+	}
+	f.torneo[a.BetID] = a
+	w.WriteHeader(http.StatusCreated)
+	_, _ = w.Write([]byte(`{"nueva":true}`))
 }
 
 func (f *pagosFalso) servidor(t *testing.T) *httptest.Server {
@@ -52,6 +88,8 @@ func (f *pagosFalso) servidor(t *testing.T) *httptest.Server {
 			f.clave = r.Header.Get("Idempotency-Key")
 			w.WriteHeader(f.debitoEstado)
 			_, _ = w.Write([]byte(f.debitoCuerpo))
+		case "POST /internal/bets/torneo":
+			f.registrarTorneo(w, r)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -76,6 +114,7 @@ func nuevoFalso() *pagosFalso {
 		mercado:       mercadoJSON(TipoEstatica, EstadoAbierto, nil),
 		debitoEstado:  http.StatusCreated,
 		debitoCuerpo:  `{"saldo":300,"nueva":true}`,
+		torneo:        map[string]ApuestaTorneo{},
 	}
 }
 
@@ -163,6 +202,9 @@ func TestErroresDeLaApuesta(t *testing.T) {
 		{"mercado inexistente", func(f *pagosFalso) { f.mercadoEstado = 404 }, cuerpo(10, "VER"), 404, "mercado_no_existe"},
 		{"ya aposto", func(f *pagosFalso) { f.debitoEstado, f.debitoCuerpo = 409, `{"detail":"Ya apostó en este mercado"}` }, cuerpo(10, "VER"), 409, "ya_apostaste"},
 		{"clave reutilizada", func(f *pagosFalso) { f.debitoEstado, f.debitoCuerpo = 409, `{"detail":"Clave reutilizada"}` }, cuerpo(10, "VER"), 409, "clave_reutilizada"},
+		{"pagos ve el mercado cerrado", func(f *pagosFalso) {
+			f.debitoEstado, f.debitoCuerpo = 409, `{"detail":{"codigo":"mercado_cerrado","mensaje":"El mercado no está abierto"}}`
+		}, cuerpo(10, "VER"), 409, "mercado_cerrado"},
 		{"saldo insuficiente", func(f *pagosFalso) { f.debitoEstado, f.debitoCuerpo = 422, `{"detail":"Saldo insuficiente"}` }, cuerpo(10, "VER"), 422, "saldo_insuficiente"},
 		{"pagos caido", func(f *pagosFalso) { f.debitoEstado = 500 }, cuerpo(10, "VER"), 503, "servicio_no_disponible"},
 		{"cuerpo con campos de mas", nil, `{"user_id":"` + jugador + `","mercado_id":"` + mercado + `","opcion":"VER","monto":1,"x":1}`, 400, "cuerpo_invalido"},
@@ -213,9 +255,19 @@ func TestDinamicaSinFichasEsIndividualYConFichasEsTorneo(t *testing.T) {
 // apostarTorneo arma el servicio con Pagos falso (mercado dinamico) y fichas.
 func apostarTorneo(t *testing.T, f *pagosFalso, fx *fichasFalsas, cuerpo, clave string) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
+	return apostarCon(t, f, fx, nil, cuerpo, clave)
+}
+
+// apostarCon arma el servicio con Pagos falso, fichas y carrera (nil = sin
+// almacen de fichas o sin lectura de vuelta).
+func apostarCon(t *testing.T, f *pagosFalso, fx *fichasFalsas, c Carrera, cuerpo, clave string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
 	srv := f.servidor(t)
 	svc := NuevoServicio(NuevoPagosHTTP(srv.URL, token), 500)
-	svc.Fichas = fx
+	if fx != nil {
+		svc.Fichas = fx
+	}
+	svc.Carrera = c
 	mux := http.NewServeMux()
 	Register(mux, svc, token)
 	req := httptest.NewRequest(http.MethodPost, "/internal/apuestas", bytes.NewBufferString(cuerpo))
@@ -228,7 +280,7 @@ func apostarTorneo(t *testing.T, f *pagosFalso, fx *fichasFalsas, cuerpo, clave 
 	return rec, out
 }
 
-func TestApuestaTorneoDescuentaFichasYNoTocaPagos(t *testing.T) {
+func TestApuestaTorneoDescuentaFichasYNoDebitaTokens(t *testing.T) {
 	f := nuevoFalso()
 	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
 	fx := nuevasFichas(jugador, 1000)
@@ -242,8 +294,12 @@ func TestApuestaTorneoDescuentaFichasYNoTocaPagos(t *testing.T) {
 	if out["modo"] != "torneo" || out["fichas"] != 200.0 || out["saldo"] != nil || out["pago_si_acierta"] != 2000.0 || out["nueva"] != true {
 		t.Errorf("respuesta = %v", out)
 	}
-	if f.debitos != 0 {
-		t.Errorf("en torneo no debe debitar tokens; debitos = %d", f.debitos)
+	if f.debitos != 0 || f.registros != 1 {
+		t.Errorf("en torneo se registra sin debitar tokens; debitos = %d, registros = %d", f.debitos, f.registros)
+	}
+	reg := f.torneo[out["apuesta_id"].(string)]
+	if reg.UserID != jugador || reg.MarketID != mercado || reg.Amount != 800 || reg.Option != "VER" || reg.Multiplier != "2.5" || reg.Lap != nil {
+		t.Errorf("registro en Pagos = %+v", reg)
 	}
 	r := fx.reservas[out["apuesta_id"].(string)]
 	if r.UserID != jugador || r.Monto != 800 || r.Opcion != "VER" || r.Multiplicador != 2.5 || fx.evento != evento {
@@ -279,8 +335,8 @@ func TestApuestaTorneoSinFichasSuficientes(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity || out["codigo"] != "fichas_insuficientes" {
 		t.Errorf("estado = %d %v", rec.Code, out)
 	}
-	if len(fx.reservas) != 0 || f.debitos != 0 {
-		t.Errorf("no debia reservar ni debitar")
+	if len(fx.reservas) != 0 || f.debitos != 0 || f.registros != 0 {
+		t.Errorf("no debia reservar, debitar ni registrar en Pagos")
 	}
 }
 
@@ -303,6 +359,8 @@ type fichasFalsas struct {
 	inicial  int64
 	evento   string
 	reservas map[string]ReservaFichas
+	falla    error // != nil: Reservar falla (Redis caido)
+	orden    *[]string
 }
 
 func nuevasFichas(inscrito string, inicial int64) *fichasFalsas {
@@ -325,6 +383,12 @@ func (f *fichasFalsas) Jugador(_ context.Context, eventoID, userID string) (Esta
 }
 
 func (f *fichasFalsas) Reservar(_ context.Context, eventoID string, r ReservaFichas) (EstadoFichas, error) {
+	if f.orden != nil {
+		*f.orden = append(*f.orden, "redis")
+	}
+	if f.falla != nil {
+		return EstadoFichas{}, f.falla
+	}
 	f.evento = eventoID
 	if previa, ok := f.reservas[r.ApuestaID]; ok {
 		if previa.Monto != r.Monto || previa.Opcion != r.Opcion {
@@ -337,4 +401,126 @@ func (f *fichasFalsas) Reservar(_ context.Context, eventoID string, r ReservaFic
 	}
 	f.reservas[r.ApuestaID] = r
 	return f.estado(), nil
+}
+
+// carreraFalsa da una vuelta fija, ninguna (sin carrera en curso) o un error.
+type carreraFalsa struct {
+	vuelta int
+	ok     bool
+	err    error
+}
+
+func (c carreraFalsa) VueltaActual(context.Context) (int, bool, error) { return c.vuelta, c.ok, c.err }
+
+func TestApuestaTorneoRegistraEnPagosAntesDeReservar(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas(jugador, 1000)
+	var orden []string
+	f.orden, fx.orden = &orden, &orden
+
+	rec, _ := apostarTorneo(t, f, fx, cuerpo(300, "VER"), "k")
+
+	if rec.Code != http.StatusCreated || len(orden) != 2 || orden[0] != "pagos" || orden[1] != "redis" {
+		t.Fatalf("estado %d, orden %v", rec.Code, orden)
+	}
+}
+
+func TestApuestaTorneoRechazadaEnPagosNoReservaFichas(t *testing.T) {
+	casos := []struct {
+		nombre, cuerpo string
+		estadoPagos    int
+		estado         int
+		codigo         string
+	}{
+		{"mercado cerrado", `{"detail":{"codigo":"mercado_cerrado","mensaje":"x"}}`, 409, 409, "mercado_cerrado"},
+		{"ya aposto", `{"detail":{"codigo":"ya_apostaste","mensaje":"x"}}`, 409, 409, "ya_apostaste"},
+		// bet_id sale de (usuario, mercado): otro monto en el mismo mercado es datos_distintos.
+		{"datos distintos", `{"detail":{"codigo":"datos_distintos","mensaje":"x"}}`, 409, 409, "ya_apostaste"},
+		{"mercado borrado", `{"detail":"Mercado inexistente"}`, 404, 404, "mercado_no_existe"},
+		{"pagos caido", ``, 500, 503, "servicio_no_disponible"},
+	}
+	for _, c := range casos {
+		f := nuevoFalso()
+		f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+		f.torneoEstado, f.torneoCuerpo = c.estadoPagos, c.cuerpo
+		fx := nuevasFichas(jugador, 1000)
+
+		rec, out := apostarTorneo(t, f, fx, cuerpo(100, "VER"), "k")
+
+		if rec.Code != c.estado || out["codigo"] != c.codigo || len(fx.reservas) != 0 {
+			t.Errorf("%s: %d %v, reservas %d", c.nombre, rec.Code, out["codigo"], len(fx.reservas))
+		}
+	}
+}
+
+func TestApuestaTorneoReintentoTrasFalloDeRedisLaCompleta(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas(jugador, 1000)
+
+	// Mapeo del adaptador real: Redis caido -> servicio no disponible.
+	fx.falla = ErrPagosNoDisponible
+	rec, _ := apostarTorneo(t, f, fx, cuerpo(300, "VER"), "clave-1")
+	if rec.Code != http.StatusServiceUnavailable || len(f.torneo) != 1 || len(fx.reservas) != 0 {
+		t.Fatalf("primer intento: %d, registros %d, reservas %d", rec.Code, len(f.torneo), len(fx.reservas))
+	}
+
+	// El front reintenta con la misma Idempotency-Key: Pagos responde 200 y
+	// la reserva se hace ahora.
+	fx.falla = nil
+	rec, out := apostarTorneo(t, f, fx, cuerpo(300, "VER"), "clave-1")
+	if rec.Code != http.StatusCreated || out["nueva"] != true || out["fichas"] != 700.0 {
+		t.Fatalf("reintento: %d %v", rec.Code, out)
+	}
+	if f.registros != 2 || len(f.torneo) != 1 || len(fx.reservas) != 1 {
+		t.Errorf("registros %d (distintos %d), reservas %d", f.registros, len(f.torneo), len(fx.reservas))
+	}
+}
+
+func TestApuestaTorneoReintentoQueYaNoCabeEnLasFichasNoFalla(t *testing.T) {
+	f := nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	fx := nuevasFichas(jugador, 1000)
+
+	_, a := apostarTorneo(t, f, fx, cuerpo(800, "VER"), "clave-1")
+	// Quedan 200 fichas: el reintento de 800 no cabe, pero ya esta reservado.
+	rec, b := apostarTorneo(t, f, fx, cuerpo(800, "VER"), "clave-1")
+
+	if rec.Code != http.StatusOK || b["nueva"] != false || b["apuesta_id"] != a["apuesta_id"] || b["fichas"] != 200.0 {
+		t.Errorf("reintento = %d %v", rec.Code, b)
+	}
+	if f.registros != 1 {
+		t.Errorf("el reintento sin fichas no necesita Pagos; registros = %d", f.registros)
+	}
+}
+
+func TestLapEsLaVueltaActualEnLosDosModos(t *testing.T) {
+	enCurso := carreraFalsa{vuelta: 12, ok: true}
+
+	f := nuevoFalso()
+	if rec, _ := apostarCon(t, f, nil, enCurso, cuerpo(10, "VER"), "k"); rec.Code != http.StatusCreated || f.debito.Lap == nil || *f.debito.Lap != 12 {
+		t.Errorf("individual: %d lap %v", rec.Code, f.debito.Lap)
+	}
+
+	f = nuevoFalso()
+	f.mercado = mercadoJSON("dinamica", EstadoAbierto, nil)
+	rec, out := apostarCon(t, f, nuevasFichas(jugador, 1000), enCurso, cuerpo(10, "VER"), "k")
+	if lap := f.torneo[out["apuesta_id"].(string)].Lap; rec.Code != http.StatusCreated || lap == nil || *lap != 12 {
+		t.Errorf("torneo: %d lap %v", rec.Code, lap)
+	}
+}
+
+func TestLapNulaSinCarreraEnCursoOSiFallaLaLectura(t *testing.T) {
+	for nombre, c := range map[string]Carrera{
+		"sin lector":        nil,
+		"antes de largar":   carreraFalsa{},
+		"mongo no responde": carreraFalsa{err: errors.New("mongo caido")},
+	} {
+		f := nuevoFalso()
+		rec, _ := apostarCon(t, f, nil, c, cuerpo(10, "VER"), "k")
+		if rec.Code != http.StatusCreated || f.debito.Lap != nil {
+			t.Errorf("%s: %d lap %v", nombre, rec.Code, f.debito.Lap)
+		}
+	}
 }
