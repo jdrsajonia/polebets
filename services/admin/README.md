@@ -28,9 +28,12 @@ curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
   -d '{"query":"rentabilidad","params":{"tipo_apuesta":"estatica","top_n":5}}'
 curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
   -d '{"query":"resumen_financiero","params":{"modo":"torneo"}}'
+curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
+  -d '{"query":"participacion","params":{}}'
 ```
 
-Consultas (`query`): `rentabilidad` (HU2-21) y `resumen_financiero` (HU2-20).
+Consultas (`query`): `rentabilidad` (HU2-21), `resumen_financiero` (HU2-20),
+`horarios` y `participacion` (HU2-22).
 
 ## Filtros (HU2-23, RF-29)
 
@@ -53,6 +56,6 @@ y vuelven en `filtros_no_aplicados`:
 | Consulta | Filtros que aplica |
 | --- | --- |
 | `rentabilidad` | todos menos `modo` |
-| `resumen_financiero` | `evento_id`, `fecha_inicio`, `fecha_fin`, `tipo_apuesta`, `modo` |
+| `resumen_financiero`, `horarios`, `participacion` | `evento_id`, `fecha_inicio`, `fecha_fin`, `tipo_apuesta`, `modo` |
 
 Pendiente: el login de admin contra Usuarios (RF-21) va con la CLI (HU2-17).

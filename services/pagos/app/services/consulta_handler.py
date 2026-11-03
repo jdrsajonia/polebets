@@ -1,4 +1,4 @@
-"""HU2-21 y HU2-20: procesar una consulta del administrador (sin RabbitMQ).
+"""HU2-20, HU2-21 y HU2-22: procesar una consulta del administrador (sin RabbitMQ).
 
 Separar esto del bucle AMQP (app/consumer.py) permite probar la lógica con un
 mensaje de bytes y una sesión de base, sin levantar un broker.
@@ -15,15 +15,26 @@ from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.schemas.consultas import (
+    TIPO_HORARIOS,
+    TIPO_PARTICIPACION,
     TIPO_RENTABILIDAD,
     TIPO_RESUMEN_FINANCIERO,
+    ConsultaHorarios,
+    ConsultaParticipacion,
     ConsultaRentabilidad,
     ConsultaResumenFinanciero,
+    DatosHorarios,
+    DatosParticipacion,
     DatosRentabilidad,
     DatosResumenFinanciero,
+    FilaEventoOut,
+    FilaHoraOut,
     FilaPlantillaOut,
+    FilaVueltaOut,
     RespuestaConsulta,
 )
+from app.services.horarios import calcular_horarios
+from app.services.participacion import calcular_participacion
 from app.services.rentabilidad import (
     FiltrosRentabilidad,
     KindInvalido,
@@ -64,7 +75,11 @@ def procesar_consulta(db: Session, cuerpo: bytes) -> bytes:
     if tipo == TIPO_RENTABILIDAD:
         return _rentabilidad(db, crudo)
     if tipo == TIPO_RESUMEN_FINANCIERO:
-        return _resumen_financiero(db, crudo)
+        return _con_filtros_resumen(db, crudo, ConsultaResumenFinanciero, TIPO_RESUMEN_FINANCIERO, _datos_resumen)
+    if tipo == TIPO_HORARIOS:
+        return _con_filtros_resumen(db, crudo, ConsultaHorarios, TIPO_HORARIOS, _datos_horarios)
+    if tipo == TIPO_PARTICIPACION:
+        return _con_filtros_resumen(db, crudo, ConsultaParticipacion, TIPO_PARTICIPACION, _datos_participacion)
     return _respuesta(RespuestaConsulta(tipo=str(tipo), ok=False, error="tipo_no_soportado"))
 
 
@@ -103,19 +118,35 @@ def _rentabilidad(db: Session, crudo: dict) -> bytes:
     return _respuesta(RespuestaConsulta(tipo=TIPO_RENTABILIDAD, ok=True, datos=datos))
 
 
-def _resumen_financiero(db: Session, crudo: dict) -> bytes:
+def _datos_resumen(db: Session, filtros: FiltrosResumen) -> DatosResumenFinanciero:
+    return DatosResumenFinanciero(**vars(calcular_resumen(db, filtros)))
+
+
+def _datos_horarios(db: Session, filtros: FiltrosResumen) -> DatosHorarios:
+    h = calcular_horarios(db, filtros)
+    return DatosHorarios(
+        por_hora=[FilaHoraOut(hora=x.clave, volumen=x.volumen, ganancia=x.ganancia) for x in h.por_hora],
+        por_vuelta=[FilaVueltaOut(vuelta=x.clave, volumen=x.volumen, ganancia=x.ganancia) for x in h.por_vuelta],
+    )
+
+
+def _datos_participacion(db: Session, filtros: FiltrosResumen) -> DatosParticipacion:
+    return DatosParticipacion(eventos=[FilaEventoOut(**vars(x)) for x in calcular_participacion(db, filtros)])
+
+
+def _con_filtros_resumen(db: Session, crudo: dict, modelo, tipo: str, calcular) -> bytes:
+    """Consultas de HU2-20 y HU2-22: mismos filtros (evento, fechas, kind, modo)."""
     try:
-        consulta = ConsultaResumenFinanciero.model_validate(crudo)
+        consulta = modelo.model_validate(crudo)
     except ValidationError:
-        return _respuesta(RespuestaConsulta(tipo=TIPO_RESUMEN_FINANCIERO, ok=False, error="filtros_invalidos"))
+        return _respuesta(RespuestaConsulta(tipo=tipo, ok=False, error="filtros_invalidos"))
 
     f = consulta.filtros
     filtros = FiltrosResumen(event_id=f.event_id, desde=f.desde, hasta=f.hasta, kind=f.kind, modo=f.modo)
     try:
-        resumen = calcular_resumen(db, filtros)
+        datos = calcular(db, filtros)
     except Exception:  # noqa: BLE001 - el consumidor nunca debe caerse por una consulta
-        log.exception("error al calcular el resumen financiero")
-        return _respuesta(RespuestaConsulta(tipo=TIPO_RESUMEN_FINANCIERO, ok=False, error="error_interno"))
+        log.exception("error al calcular la consulta %s", tipo)
+        return _respuesta(RespuestaConsulta(tipo=tipo, ok=False, error="error_interno"))
 
-    datos = DatosResumenFinanciero(**vars(resumen))
-    return _respuesta(RespuestaConsulta(tipo=TIPO_RESUMEN_FINANCIERO, ok=True, datos=datos))
+    return _respuesta(RespuestaConsulta(tipo=tipo, ok=True, datos=datos))
