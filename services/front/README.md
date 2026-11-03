@@ -204,6 +204,10 @@ con el mercado del P1 (`mercado_abierto/cerrado/liquidado`), que no cambia.
 
 - **Fases:** abierto (se apuesta), cerrado (observación) y resuelto
   (`winning_option`). El cierre de un mercado que no se vio abierto se ignora.
+- **Quien entra con un mercado ya abierto:** no hay ruta REST del mercado
+  dinámico actual, pero el motor reenvía el abierto cada 5 s; quien entra o
+  recarga la página lo ve en a lo sumo 5 s. Recibir el mismo mercado abierto
+  varias veces no cambia nada (opción elegida, monto ni apuesta hecha).
 - **Cuenta regresiva** con `closes_at`: solo informativa; el motor cierra con el
   tiempo de carrera (RNF-19) y rechaza lo que llegue tarde.
 - **Antes de confirmar (RF-09):** «si aciertas recibes monto × multiplicador»

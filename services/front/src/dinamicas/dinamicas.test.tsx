@@ -76,6 +76,7 @@ describe("HU2-08 · logica", () => {
     ["el resultado de otro mercado se ignora", msg(), msg({ market_id: "m-0", status: "cerrado", winning_option: "Sí" }), "m-1 abierto"],
     ["uno nuevo abierto reemplaza al anterior", msg({ status: "cerrado" }), msg({ market_id: "m-2" }), "m-2 abierto"],
     ["un abierto viejo no reabre el cerrado", msg({ status: "cerrado" }), msg(), "m-1 cerrado"],
+    ["el mismo abierto repetido lo deja abierto", msg(), msg(), "m-1 abierto"],
     ["un cerrado viejo no borra el resultado", msg({ status: "cerrado", winning_option: "Sí" }), msg({ status: "cerrado" }), "m-1 resuelto"],
   ])("siguienteMercado: %s", (_, actual, llega, esperado) => {
     const r = siguienteMercado(actual, llega);
@@ -330,6 +331,29 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     expect(screen.getByTestId("fase-dinamica")).toHaveTextContent("Resuelto");
     expect(screen.getByTestId("cuenta-dinamica")).toHaveTextContent("Ganó «No»");
     expect(screen.getByTestId("apuesta-dinamica")).toHaveTextContent("Esta vez no acertaste.");
+  });
+
+  it("el reenvio del mismo mercado abierto (cada 5 s) no cambia nada", async () => {
+    rutas["POST /api/apuestas"] = { status: 201, body: respuesta({ opcion: "No", monto: 30, multiplicador: 1.25, pago_si_acierta: 37 }) };
+    abrirCarrera();
+    const abierto = msg();
+    enviarWs("mercado_dinamico", abierto);
+    fireEvent.click(screen.getByRole("button", { name: /No\s*×/ }));
+    fireEvent.change(screen.getByLabelText("Monto"), { target: { value: "30" } });
+    const pago = screen.getByTestId("pago-dinamica").textContent;
+
+    for (let i = 0; i < 3; i++) enviarWs("mercado_dinamico", abierto);
+    expect(screen.getByRole("button", { name: /No\s*×/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Monto")).toHaveValue("30");
+    expect(screen.getByTestId("pago-dinamica").textContent).toBe(pago);
+    expect(fetchMock.mock.calls.filter(([url]) => url === `/api/eventos/${EVENTO}`)).toHaveLength(1); // el modo no se vuelve a pedir
+
+    fireEvent.click(botonConfirmar());
+    const hecha = (await screen.findByTestId("apuesta-dinamica")).textContent;
+    for (let i = 0; i < 3; i++) enviarWs("mercado_dinamico", abierto);
+    expect(screen.getByTestId("apuesta-dinamica").textContent).toBe(hecha);
+    expect(screen.queryByRole("button", { name: /Confirmar apuesta/ })).not.toBeInTheDocument();
+    expect(apuestas()).toHaveLength(1);
   });
 
   it("al abrir otro mercado el formulario arranca limpio", async () => {
