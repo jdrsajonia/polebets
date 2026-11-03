@@ -27,6 +27,7 @@ import (
 	"github.com/arquisoft/orquestador/internal/apuesta"
 	"github.com/arquisoft/orquestador/internal/billetera"
 	"github.com/arquisoft/orquestador/internal/config"
+	"github.com/arquisoft/orquestador/internal/eventos"
 	"github.com/arquisoft/orquestador/internal/health"
 	"github.com/arquisoft/orquestador/internal/inscripcion"
 	"github.com/arquisoft/orquestador/internal/interno"
@@ -53,6 +54,7 @@ func main() {
 	health.Register(mux)
 	billetera.Register(mux, pagos)                                                         // HU2-04: GET /billetera, POST /billetera/compras
 	inscripcion.Register(mux, pagos)                                                       // HU2-06: POST /eventos/{evento_id}/inscripcion
+	eventos.Register(mux, pagos)                                                           // HU2-05: GET /eventos, GET /eventos/{evento_id}
 	registro.Register(mux, pagos, usuarios)                                                // HU2-01: POST /registro (publica)
 	pagina.Register(mux, pagina.Servicios{Usuarios: usuarios, Pagos: pagos, Motor: motor}) // HU2-03: GET /pagina-usuario
 	apuesta.Register(mux, motor)                                                           // HU2-09: POST /apuestas
