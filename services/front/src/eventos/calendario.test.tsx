@@ -61,7 +61,7 @@ describe("Calendario (HU2-05)", () => {
 
     expect(await screen.findByText("2024_monza")).toBeInTheDocument();
     expect(screen.getByText(/3 inscritos/)).toBeInTheDocument();
-    expect(screen.getByText(/Bot[ií]n 300 PBT/)).toBeInTheDocument();
+    expect(screen.getByText(/Bot[ií]n 300 PoleCoins/)).toBeInTheDocument();
   });
 
   it("al abrir un evento muestra sus mercados estáticos con multiplicadores", async () => {

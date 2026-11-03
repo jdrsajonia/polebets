@@ -87,7 +87,7 @@ export default function Calendario() {
                 <div className={estilos.metaEvento}>
                   <CuentaRegresiva largada={e.largada} />
                   <span>· {numero.format(e.inscritos)} inscritos</span>
-                  <span>· Botín {numero.format(e.botin)} PBT</span>
+                  <span>· Botín {numero.format(e.botin)} PoleCoins</span>
                 </div>
               </button>
             </li>
@@ -162,7 +162,7 @@ function Detalle({ eventoID, onVolver }: DetalleProps) {
             <div className={estilos.metaEvento}>
               <CuentaRegresiva largada={datos.evento.largada} />
               <span>· {numero.format(datos.evento.inscritos)} inscritos</span>
-              <span>· Botín {numero.format(datos.evento.botin)} PBT</span>
+              <span>· Botín {numero.format(datos.evento.botin)} PoleCoins</span>
             </div>
             {/* HU2-06: inscripcion al torneo, o si ya esta inscrito o se cancelo */}
             <InscripcionTorneo detalle={datos} onInscrito={refrescar} />

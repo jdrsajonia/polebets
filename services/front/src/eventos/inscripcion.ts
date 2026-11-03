@@ -1,7 +1,7 @@
 // Logica de la inscripcion al torneo (front de HU2-06, RF-07), sin React.
 
 import { ErrorHttp } from "../api/http";
-import type { DetalleEvento } from "./api";
+import type { DetalleEvento, Evento } from "./api";
 
 const numero = new Intl.NumberFormat("es-CO");
 
@@ -29,8 +29,11 @@ export function textoConfirmacion(costo: number, fichas: number): string {
   return `Se descuentan ${numero.format(costo)} PoleCoins de tu saldo y recibirás ${numero.format(fichas)} fichas en la largada. Si al largar hay menos de 4 inscritos, el torneo se cancela y te devolvemos la inscripción.`;
 }
 
-export function textoInscrito(fichas: number): string {
-  return `Inscrito · recibirás ${numero.format(fichas)} fichas en la largada`;
+// Antes de la largada: cuantas fichas recibira. Ya largado (no programado) y
+// con el torneo activo: ya esta jugando.
+export function textoInscrito(evento: Pick<Evento, "estado" | "estado_torneo" | "fichas_iniciales">): string {
+  if (evento.estado !== "programado" && evento.estado_torneo === "activo") return "Inscrito · torneo en curso";
+  return `Inscrito · recibirás ${numero.format(evento.fichas_iniciales)} fichas en la largada`;
 }
 
 export const TEXTO_DEVUELTA = "Torneo cancelado: te devolvimos la inscripción";

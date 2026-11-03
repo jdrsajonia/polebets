@@ -10,7 +10,7 @@ import App from "../App";
 import { AuthProvider } from "../auth/AuthContext";
 import { USUARIOS_SIMULADOS } from "../auth/usuariosPrueba";
 import type { DetalleEvento, Evento } from "./api";
-import { bloqueaInscripcion, mensajeErrorInscripcion, vistaInscripcion } from "./inscripcion";
+import { bloqueaInscripcion, mensajeErrorInscripcion, textoInscrito, vistaInscripcion } from "./inscripcion";
 
 // ---------------------------------------------------------------------------
 // Datos
@@ -52,6 +52,14 @@ describe("HU2-06 · logica de la inscripcion", () => {
     ["torneo activo (ya largo)", detalle({ estado_torneo: "activo" }), "cerrada"],
   ] as const)("vistaInscripcion: %s", (_, d, vista) => {
     expect(vistaInscripcion(d)).toBe(vista);
+  });
+
+  it("textoInscrito: antes de largar, las fichas; ya largado con torneo activo, en curso", () => {
+    expect(textoInscrito(evento())).toBe("Inscrito · recibirás 1.000 fichas en la largada");
+    expect(textoInscrito(evento({ estado: "en_curso", estado_torneo: "activo" }))).toBe("Inscrito · torneo en curso");
+    expect(textoInscrito(evento({ estado: "finalizado", estado_torneo: "activo" }))).toBe("Inscrito · torneo en curso");
+    // Programado con torneo abierto (aun no largo): fichas en la largada.
+    expect(textoInscrito(evento({ estado_torneo: "abierto" }))).toContain("en la largada");
   });
 
   it.each([
@@ -189,6 +197,7 @@ describe("HU2-06 · inscripcion en el detalle del evento", () => {
 
   it.each([
     ["inscrito", detalle({}, true), "Inscrito · recibirás 1.000 fichas en la largada"],
+    ["inscrito con el torneo en curso", detalle({ estado: "en_curso", estado_torneo: "activo" }, true), "Inscrito · torneo en curso"],
     ["torneo cancelado con la inscripcion devuelta", detalle({ estado_torneo: "cancelado" }, true, true), "Torneo cancelado: te devolvimos la inscripción"],
     ["torneo cancelado sin inscribir", detalle({ estado_torneo: "cancelado" }), "Torneo cancelado"],
   ])("%s: muestra el estado y no el boton", async (_, d, texto) => {

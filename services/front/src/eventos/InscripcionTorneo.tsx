@@ -62,7 +62,7 @@ export default function InscripcionTorneo({ detalle, onInscrito }: Props) {
   if (vista === "inscrito") {
     contenido = (
       <p className={estilos.ok} role="status" data-testid="inscripcion-estado">
-        {textoInscrito(evento.fichas_iniciales)}
+        {textoInscrito(evento)}
       </p>
     );
   } else if (vista === "devuelta" || vista === "cancelado") {
