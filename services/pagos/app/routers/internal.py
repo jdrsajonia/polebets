@@ -1,4 +1,4 @@
-"""Endpoints REST internos de apuestas individuales (Motor → Pagos)."""
+"""Endpoints REST internos de apuestas individuales (Motor → Pagos). Las de torneo: routers/torneo.py."""
 import uuid
 from typing import Annotated
 
@@ -11,12 +11,14 @@ from app.schemas.internal import (
     BetSettlementIn,
     BetSettlementOut,
 )
+from app.routers.torneo import MERCADO_CERRADO
 from app.services.liquidacion import (
     ApuestaDuplicada,
     ApuestaNoExiste,
     BetDebitData,
     BilleteraNoExiste,
     ClaveReutilizada,
+    MercadoCerrado,
     MercadoNoExiste,
     ModoNoSoportado,
     ResultadoInvalido,
@@ -43,7 +45,7 @@ def _validar_clave(header: str | None, cuerpo: str, prefijo: str, bet_id: uuid.U
         400: {"description": "Clave de idempotencia inválida"},
         401: {"description": "Token de servicio ausente o inválido"},
         404: {"description": "Billetera o mercado inexistente"},
-        409: {"description": "ID o clave reutilizados con otro contenido, o ya apostó en ese mercado"},
+        409: {"description": "ID o clave reutilizados con otro contenido, ya apostó en ese mercado, o mercado_cerrado"},
         422: {"description": "Saldo insuficiente o cuerpo inválido"},
     },
 )
@@ -72,6 +74,8 @@ def debitar(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Billetera inexistente") from None
     except MercadoNoExiste:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mercado inexistente") from None
+    except MercadoCerrado:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=MERCADO_CERRADO) from None
     except SaldoInsuficiente:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Saldo insuficiente") from None
     except ClaveReutilizada:

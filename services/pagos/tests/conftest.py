@@ -91,7 +91,8 @@ class Fabrica:
             self.eventos.append(evento.id)
             return evento
 
-    def mercado(self, event_id=None):
+    def mercado(self, event_id=None, status="abierto"):
+        """Por defecto abierto: es el unico estado que acepta apuestas (RNF-19)."""
         from app.db import SessionLocal
         from app.models import MARKET_ESTATICA, Market
 
@@ -103,6 +104,7 @@ class Fabrica:
                 template="ganador",
                 question="¿Quién gana la carrera?",
                 options=[{"opcion": "VER", "multiplicador": 2.5}, {"opcion": "NOR", "multiplicador": 3}],
+                status=status,
             )
             db.add(mercado)
             db.commit()

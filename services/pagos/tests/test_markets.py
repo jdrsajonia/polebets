@@ -6,7 +6,7 @@ from tests.conftest import headers, requires_db
 
 @requires_db
 def test_el_motor_lee_el_mercado_con_sus_opciones_y_multiplicadores(client, fabrica):
-    mercado = fabrica.mercado()
+    mercado = fabrica.mercado(status="programado")
 
     r = client.get(f"/internal/markets/{mercado.id}", headers=headers())
 
