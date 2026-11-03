@@ -7,7 +7,7 @@ exclusiva, la pasa en `reply_to` y espera la respuesta con su `correlation_id`
 hasta [10 s] (RF-30). Así dos consultas a la vez nunca se cruzan.
 
 Colas (contrato «Colas y mensajes del Broker»):
-  - admin.consultas     → Pagos   {"tipo": "rentabilidad" | "resumen_financiero", "filtros": {...}}
+  - admin.consultas     → Pagos   {"tipo": "rentabilidad" | "resumen_financiero" | "horarios" | "participacion", "filtros": {...}}
   - ingestor.commands   → Ingestor {"action": "start_simulation", "race_id", "minutos_anticipacion"}
   - ingestor.consultas  → Ingestor {"action": "list_races"}
 """
@@ -70,7 +70,7 @@ class FiltrosConsulta(BaseModel):
 class ConsultaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: Literal["rentabilidad", "resumen_financiero"] = "rentabilidad"
+    query: Literal["rentabilidad", "resumen_financiero", "horarios", "participacion"] = "rentabilidad"
     params: FiltrosConsulta = Field(default_factory=FiltrosConsulta)
 
 
@@ -87,10 +87,13 @@ _MAPA_FILTROS = {
 
 # Filtros que aplica cada consulta. Los demás no se mandan a Pagos y vuelven en
 # filtros_no_aplicados: la rentabilidad aún no filtra por modo, y plantilla y
-# top_n no tienen sentido en el resumen financiero (HU2-20).
+# top_n no tienen sentido en el resumen financiero (HU2-20) ni en horarios y
+# participacion (HU2-22).
 _FILTROS_POR_CONSULTA = {
     "rentabilidad": {"evento_id", "fecha_inicio", "fecha_fin", "tipo_apuesta", "plantilla", "top_n"},
     "resumen_financiero": {"evento_id", "fecha_inicio", "fecha_fin", "tipo_apuesta", "modo"},
+    "horarios": {"evento_id", "fecha_inicio", "fecha_fin", "tipo_apuesta", "modo"},
+    "participacion": {"evento_id", "fecha_inicio", "fecha_fin", "tipo_apuesta", "modo"},
 }
 
 

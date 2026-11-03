@@ -72,7 +72,7 @@ aquí: lo valida el Orquestador con `X-User-Rol`.
   `settle` con 0 tokens: la clave única impide liquidar dos veces.
 - Las apuestas de torneo no pasan por aquí: se pagan en fichas (Redis).
 
-## Consultas del administrador por el Broker (HU2-20, HU2-21)
+## Consultas del administrador por el Broker (HU2-20, HU2-21, HU2-22)
 
 Pagos corre un **consumidor AMQP aparte** (contenedor `pagos-consumer`,
 `python -m app.consumer`) que responde las consultas del administrador. No es
@@ -84,6 +84,7 @@ una ruta HTTP: llega por RabbitMQ.
 | Respuesta | a la cola `reply_to` del mensaje, con el mismo `correlation_id` |
 | Consulta | `{"tipo":"rentabilidad","filtros":{event_id?,desde?,hasta?,kind?,template?,top_n?}}` |
 | Consulta | `{"tipo":"resumen_financiero","filtros":{event_id?,desde?,hasta?,kind?,modo?}}` |
+| Consulta | `{"tipo":"horarios"\|"participacion","filtros":{event_id?,desde?,hasta?,kind?,modo?}}` |
 | Respuesta | `{"tipo":…,"ok":true,"datos":{…}}` o `{"ok":false,"error":"…"}` |
 
 Calcula, por `kind` (estatica/dinamica) y `template`: apuestas, % de acierto,
@@ -96,6 +97,12 @@ apostado y pagado en individual, inscripciones cobradas y devueltas, premios y
 ganancia neta, más lo que sigue en juego (botín y apuestas sin resolver). Sale
 del ledger. Lógica en `app/services/resumen_financiero.py`; detalle en
 `documentation/hu2-20-resumen-financiero.md`.
+
+**Horarios y participación (HU2-22):** ganancia y volumen apostado por franja
+horaria (hora de Colombia) y por vuelta; y, por evento, inscritos, jugadores
+solo individuales, botín y ganancia de cada modo. Lógica en
+`app/services/horarios.py` y `app/services/participacion.py`; detalle en
+`documentation/hu2-22-horarios-participacion.md`.
 
 Lo publica Admin (HU2-18). Lógica del consumidor en `app/consumer.py` y
 `app/services/consulta_handler.py`. Detalle de la rentabilidad en

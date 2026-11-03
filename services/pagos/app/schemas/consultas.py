@@ -1,4 +1,4 @@
-"""HU2-21 y HU2-20: contrato de las consultas del administrador por el Broker.
+"""HU2-20, HU2-21 y HU2-22: contrato de las consultas del administrador por el Broker.
 
 Lo define esta HU (el consumidor de Pagos) porque HU2-18 (Admin/Broker, Iván)
 aún no existe. Cuando exista, Admin publica mensajes con esta forma y lee las
@@ -30,10 +30,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Tipos de consulta que entiende el consumidor. HU2-21 implementa "rentabilidad"
-# y HU2-20 "resumen_financiero"; HU2-22 añadirá los suyos aquí.
+# Tipos de consulta que entiende el consumidor: "rentabilidad" (HU2-21),
+# "resumen_financiero" (HU2-20), "horarios" y "participacion" (HU2-22).
 TIPO_RENTABILIDAD = "rentabilidad"
 TIPO_RESUMEN_FINANCIERO = "resumen_financiero"
+TIPO_HORARIOS = "horarios"
+TIPO_PARTICIPACION = "participacion"
 
 
 class FiltrosConsulta(BaseModel):
@@ -82,7 +84,8 @@ class DatosRentabilidad(BaseModel):
 
 
 class FiltrosResumen(BaseModel):
-    """Filtros del resumen financiero (HU2-20). Todos opcionales.
+    """Filtros del resumen financiero (HU2-20); los usan tambien horarios y
+    participacion (HU2-22). Todos opcionales.
 
     RF-29 pide filtrar todas las consultas por evento, fechas, tipo de apuesta
     y modo. Plantilla y top_n son propios de la rentabilidad: si llegan, se
@@ -120,10 +123,62 @@ class DatosResumenFinanciero(BaseModel):
     apostado_pendiente: int
 
 
+class ConsultaHorarios(BaseModel):
+    """Cuerpo del mensaje de consulta de horarios (HU2-22, RF-27)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tipo: Literal["horarios"] = TIPO_HORARIOS
+    filtros: FiltrosResumen = Field(default_factory=FiltrosResumen)
+
+
+class FilaHoraOut(BaseModel):
+    hora: int  # 0-23, hora de Colombia
+    volumen: int  # tokens apostados en individual
+    ganancia: int
+
+
+class FilaVueltaOut(BaseModel):
+    vuelta: int | None  # None = apuestas sin vuelta
+    volumen: int
+    ganancia: int
+
+
+class DatosHorarios(BaseModel):
+    por_hora: list[FilaHoraOut]
+    por_vuelta: list[FilaVueltaOut]
+
+
+class ConsultaParticipacion(BaseModel):
+    """Cuerpo del mensaje de consulta de participacion (HU2-22, RF-28)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tipo: Literal["participacion"] = TIPO_PARTICIPACION
+    filtros: FiltrosResumen = Field(default_factory=FiltrosResumen)
+
+
+class FilaEventoOut(BaseModel):
+    event_id: uuid.UUID
+    race_key: str
+    starts_at: datetime
+    tournament_status: str
+    inscritos: int
+    solo_individuales: int
+    botin: int
+    ganancia_torneo: int
+    ganancia_individual: int
+    apostado_pendiente: int
+
+
+class DatosParticipacion(BaseModel):
+    eventos: list[FilaEventoOut]
+
+
 class RespuestaConsulta(BaseModel):
     """Lo que Pagos publica en la cola de respuesta."""
 
     tipo: str
     ok: bool
-    datos: DatosRentabilidad | DatosResumenFinanciero | None = None
+    datos: DatosRentabilidad | DatosResumenFinanciero | DatosHorarios | DatosParticipacion | None = None
     error: str | None = None
