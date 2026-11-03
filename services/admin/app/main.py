@@ -7,7 +7,7 @@ exclusiva, la pasa en `reply_to` y espera la respuesta con su `correlation_id`
 hasta [10 s] (RF-30). Así dos consultas a la vez nunca se cruzan.
 
 Colas (contrato «Colas y mensajes del Broker»):
-  - admin.consultas     → Pagos   {"tipo": "rentabilidad", "filtros": {...}}
+  - admin.consultas     → Pagos   {"tipo": "rentabilidad" | "resumen_financiero", "filtros": {...}}
   - ingestor.commands   → Ingestor {"action": "start_simulation", "race_id", "minutos_anticipacion"}
   - ingestor.consultas  → Ingestor {"action": "list_races"}
 """
@@ -64,15 +64,13 @@ class FiltrosConsulta(BaseModel):
     tipo_apuesta: Optional[Literal["estatica", "dinamica"]] = None
     plantilla: Optional[str] = Field(None, max_length=100)
     top_n: Optional[int] = Field(None, ge=1, le=100)
-    # Aún no existe en Pagos (pregunta abierta del doc): se acepta para no
-    # romper la CLI, pero no se manda y se informa como no aplicado.
     modo: Optional[Literal["torneo", "individual"]] = None
 
 
 class ConsultaRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    query: Literal["rentabilidad"] = "rentabilidad"
+    query: Literal["rentabilidad", "resumen_financiero"] = "rentabilidad"
     params: FiltrosConsulta = Field(default_factory=FiltrosConsulta)
 
 
@@ -84,12 +82,21 @@ _MAPA_FILTROS = {
     "tipo_apuesta": "kind",
     "plantilla": "template",
     "top_n": "top_n",
+    "modo": "modo",
+}
+
+# Filtros que aplica cada consulta. Los demás no se mandan a Pagos y vuelven en
+# filtros_no_aplicados: la rentabilidad aún no filtra por modo, y plantilla y
+# top_n no tienen sentido en el resumen financiero (HU2-20).
+_FILTROS_POR_CONSULTA = {
+    "rentabilidad": {"evento_id", "fecha_inicio", "fecha_fin", "tipo_apuesta", "plantilla", "top_n"},
+    "resumen_financiero": {"evento_id", "fecha_inicio", "fecha_fin", "tipo_apuesta", "modo"},
 }
 
 
-def filtros_para_pagos(f: FiltrosConsulta) -> dict[str, Any]:
+def filtros_para_pagos(query: str, f: FiltrosConsulta) -> dict[str, Any]:
     datos = f.model_dump(mode="json", exclude_none=True)
-    return {_MAPA_FILTROS[k]: v for k, v in datos.items() if k in _MAPA_FILTROS}
+    return {_MAPA_FILTROS[k]: v for k, v in datos.items() if k in _FILTROS_POR_CONSULTA[query]}
 
 
 # --- Petición-respuesta por el Broker ---
@@ -193,16 +200,17 @@ def iniciar_simulacion(req: SimulacionRequest):
 # --- HU2-18 y HU2-23: consultas a Pagos con filtros ---
 @app.post("/consultas")
 def ejecutar_consulta(req: ConsultaRequest):
-    filtros = filtros_para_pagos(req.params)
+    filtros = filtros_para_pagos(req.query, req.params)
     resp = _pedir(COLA_CONSULTAS_PAGOS, {"tipo": req.query, "filtros": filtros}, "Pagos")
     if not resp.get("ok"):
         raise HTTPException(status_code=502, detail=f"Error en Pagos: {resp.get('error')}")
     # HU2-23: la CLI muestra qué filtros quedaron activos.
-    no_aplicados = ["modo"] if req.params.modo else []
+    pedidos = req.params.model_dump(mode="json", exclude_none=True)
+    aplica = _FILTROS_POR_CONSULTA[req.query]
     return {
         "status": "ok",
         "tipo": resp.get("tipo"),
-        "filtros_aplicados": req.params.model_dump(mode="json", exclude_none=True, exclude={"modo"}),
-        "filtros_no_aplicados": no_aplicados,
+        "filtros_aplicados": {k: v for k, v in pedidos.items() if k in aplica},
+        "filtros_no_aplicados": [k for k in pedidos if k not in aplica],
         "data": resp.get("datos"),
     }

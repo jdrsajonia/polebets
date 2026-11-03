@@ -26,7 +26,11 @@ curl -X POST localhost:8003/simulacion -H 'Content-Type: application/json' \
   -d '{"race_id":"9165","minutos_anticipacion":10}'
 curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
   -d '{"query":"rentabilidad","params":{"tipo_apuesta":"estatica","top_n":5}}'
+curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
+  -d '{"query":"resumen_financiero","params":{"modo":"torneo"}}'
 ```
+
+Consultas (`query`): `rentabilidad` (HU2-21) y `resumen_financiero` (HU2-20).
 
 ## Filtros (HU2-23, RF-29)
 
@@ -41,6 +45,14 @@ campos extra):
 | `tipo_apuesta` (`estatica` \| `dinamica`) | `kind` |
 | `plantilla` | `template` |
 | `top_n` (1–100) | `top_n` |
-| `modo` (`torneo` \| `individual`) | — aún no existe en Pagos: se acepta, no se manda y vuelve en `filtros_no_aplicados` |
+| `modo` (`torneo` \| `individual`) | `modo` |
+
+Cada consulta usa solo los filtros que le aplican; los demás no se mandan a Pagos
+y vuelven en `filtros_no_aplicados`:
+
+| Consulta | Filtros que aplica |
+| --- | --- |
+| `rentabilidad` | todos menos `modo` |
+| `resumen_financiero` | `evento_id`, `fecha_inicio`, `fecha_fin`, `tipo_apuesta`, `modo` |
 
 Pendiente: el login de admin contra Usuarios (RF-21) va con la CLI (HU2-17).

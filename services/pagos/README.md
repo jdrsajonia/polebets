@@ -72,26 +72,33 @@ aquí: lo valida el Orquestador con `X-User-Rol`.
   `settle` con 0 tokens: la clave única impide liquidar dos veces.
 - Las apuestas de torneo no pasan por aquí: se pagan en fichas (Redis).
 
-## Consultas del administrador por el Broker (HU2-21)
+## Consultas del administrador por el Broker (HU2-20, HU2-21)
 
 Pagos corre un **consumidor AMQP aparte** (contenedor `pagos-consumer`,
-`python -m app.consumer`) que responde las consultas de rentabilidad del
-administrador. No es una ruta HTTP: llega por RabbitMQ.
+`python -m app.consumer`) que responde las consultas del administrador. No es
+una ruta HTTP: llega por RabbitMQ.
 
 | Elemento | Valor |
 | --- | --- |
 | Cola de consultas | `admin.consultas` (durable), `prefetch = 1` (RF-30) |
 | Respuesta | a la cola `reply_to` del mensaje, con el mismo `correlation_id` |
 | Consulta | `{"tipo":"rentabilidad","filtros":{event_id?,desde?,hasta?,kind?,template?,top_n?}}` |
-| Respuesta | `{"tipo":"rentabilidad","ok":true,"datos":{…}}` o `{"ok":false,"error":"…"}` |
+| Consulta | `{"tipo":"resumen_financiero","filtros":{event_id?,desde?,hasta?,kind?,modo?}}` |
+| Respuesta | `{"tipo":…,"ok":true,"datos":{…}}` o `{"ok":false,"error":"…"}` |
 
 Calcula, por `kind` (estatica/dinamica) y `template`: apuestas, % de acierto,
 apostado, pagado, ganancia neta, multiplicador promedio y mercados generados, más
 el ranking de plantillas con más y menos ganancia. La ganancia se mide sobre las
 apuestas **individuales** (tokens); las de torneo mueven fichas y no cuentan.
 
-Lo publica Admin (HU2-18, Iván) cuando exista; el contrato de colas lo define
-esta HU. Lógica en `app/services/rentabilidad.py` y `app/consumer.py`. Detalle en
+**Resumen financiero (HU2-20):** tokens comprados (y su equivalente en COP),
+apostado y pagado en individual, inscripciones cobradas y devueltas, premios y
+ganancia neta, más lo que sigue en juego (botín y apuestas sin resolver). Sale
+del ledger. Lógica en `app/services/resumen_financiero.py`; detalle en
+`documentation/hu2-20-resumen-financiero.md`.
+
+Lo publica Admin (HU2-18). Lógica del consumidor en `app/consumer.py` y
+`app/services/consulta_handler.py`. Detalle de la rentabilidad en
 `documentation/hu2-21-rentabilidad.md`.
 
 ## Escritura de mercados (HU2-07 y HU2-08, Motor → Pagos)

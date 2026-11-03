@@ -1,4 +1,4 @@
-"""HU2-21: procesar una consulta del administrador (sin RabbitMQ).
+"""HU2-21 y HU2-20: procesar una consulta del administrador (sin RabbitMQ).
 
 Separar esto del bucle AMQP (app/consumer.py) permite probar la lógica con un
 mensaje de bytes y una sesión de base, sin levantar un broker.
@@ -16,8 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.schemas.consultas import (
     TIPO_RENTABILIDAD,
+    TIPO_RESUMEN_FINANCIERO,
     ConsultaRentabilidad,
+    ConsultaResumenFinanciero,
     DatosRentabilidad,
+    DatosResumenFinanciero,
     FilaPlantillaOut,
     RespuestaConsulta,
 )
@@ -26,6 +29,7 @@ from app.services.rentabilidad import (
     KindInvalido,
     calcular_rentabilidad,
 )
+from app.services.resumen_financiero import FiltrosResumen, calcular_resumen
 
 log = logging.getLogger("pagos.consulta")
 
@@ -57,9 +61,14 @@ def procesar_consulta(db: Session, cuerpo: bytes) -> bytes:
         return _respuesta(RespuestaConsulta(tipo="desconocido", ok=False, error="json_invalido"))
 
     tipo = crudo.get("tipo") if isinstance(crudo, dict) else None
-    if tipo != TIPO_RENTABILIDAD:
-        return _respuesta(RespuestaConsulta(tipo=str(tipo), ok=False, error="tipo_no_soportado"))
+    if tipo == TIPO_RENTABILIDAD:
+        return _rentabilidad(db, crudo)
+    if tipo == TIPO_RESUMEN_FINANCIERO:
+        return _resumen_financiero(db, crudo)
+    return _respuesta(RespuestaConsulta(tipo=str(tipo), ok=False, error="tipo_no_soportado"))
 
+
+def _rentabilidad(db: Session, crudo: dict) -> bytes:
     try:
         consulta = ConsultaRentabilidad.model_validate(crudo)
     except ValidationError:
@@ -92,3 +101,21 @@ def procesar_consulta(db: Session, cuerpo: bytes) -> bytes:
         ganancia_neta=resumen.ganancia_neta,
     )
     return _respuesta(RespuestaConsulta(tipo=TIPO_RENTABILIDAD, ok=True, datos=datos))
+
+
+def _resumen_financiero(db: Session, crudo: dict) -> bytes:
+    try:
+        consulta = ConsultaResumenFinanciero.model_validate(crudo)
+    except ValidationError:
+        return _respuesta(RespuestaConsulta(tipo=TIPO_RESUMEN_FINANCIERO, ok=False, error="filtros_invalidos"))
+
+    f = consulta.filtros
+    filtros = FiltrosResumen(event_id=f.event_id, desde=f.desde, hasta=f.hasta, kind=f.kind, modo=f.modo)
+    try:
+        resumen = calcular_resumen(db, filtros)
+    except Exception:  # noqa: BLE001 - el consumidor nunca debe caerse por una consulta
+        log.exception("error al calcular el resumen financiero")
+        return _respuesta(RespuestaConsulta(tipo=TIPO_RESUMEN_FINANCIERO, ok=False, error="error_interno"))
+
+    datos = DatosResumenFinanciero(**vars(resumen))
+    return _respuesta(RespuestaConsulta(tipo=TIPO_RESUMEN_FINANCIERO, ok=True, datos=datos))

@@ -1,4 +1,4 @@
-"""HU2-21: contrato de las consultas del administrador por el Broker.
+"""HU2-21 y HU2-20: contrato de las consultas del administrador por el Broker.
 
 Lo define esta HU (el consumidor de Pagos) porque HU2-18 (Admin/Broker, Iván)
 aún no existe. Cuando exista, Admin publica mensajes con esta forma y lee las
@@ -30,9 +30,10 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Tipos de consulta que entiende el consumidor. HU2-21 implementa "rentabilidad";
-# el resto de consultas del admin (HU2-20, HU2-22) añadirán sus tipos aquí.
+# Tipos de consulta que entiende el consumidor. HU2-21 implementa "rentabilidad"
+# y HU2-20 "resumen_financiero"; HU2-22 añadirá los suyos aquí.
 TIPO_RENTABILIDAD = "rentabilidad"
+TIPO_RESUMEN_FINANCIERO = "resumen_financiero"
 
 
 class FiltrosConsulta(BaseModel):
@@ -80,10 +81,49 @@ class DatosRentabilidad(BaseModel):
     ganancia_neta: int
 
 
+class FiltrosResumen(BaseModel):
+    """Filtros del resumen financiero (HU2-20). Todos opcionales.
+
+    RF-29 pide filtrar todas las consultas por evento, fechas, tipo de apuesta
+    y modo. Plantilla y top_n son propios de la rentabilidad: si llegan, se
+    rechazan como cualquier campo desconocido.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: uuid.UUID | None = None
+    desde: datetime | None = None
+    hasta: datetime | None = None
+    kind: Literal["estatica", "dinamica"] | None = None
+    modo: Literal["individual", "torneo"] | None = None
+
+
+class ConsultaResumenFinanciero(BaseModel):
+    """Cuerpo del mensaje de consulta del resumen financiero (HU2-20)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tipo: Literal["resumen_financiero"] = TIPO_RESUMEN_FINANCIERO
+    filtros: FiltrosResumen = Field(default_factory=FiltrosResumen)
+
+
+class DatosResumenFinanciero(BaseModel):
+    tokens_comprados: int
+    cop_comprados: int
+    apostado_individual: int  # incluye las apuestas aun sin resolver
+    pagado_individual: int
+    inscripciones_cobradas: int
+    inscripciones_devueltas: int
+    premios_pagados: int
+    ganancia_neta: int
+    botin_en_juego: int
+    apostado_pendiente: int
+
+
 class RespuestaConsulta(BaseModel):
     """Lo que Pagos publica en la cola de respuesta."""
 
     tipo: str
     ok: bool
-    datos: DatosRentabilidad | None = None
+    datos: DatosRentabilidad | DatosResumenFinanciero | None = None
     error: str | None = None
