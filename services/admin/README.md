@@ -1,4 +1,4 @@
-# Admin (Python / FastAPI) — HU2-18, HU2-19 y HU2-23
+# Admin (Python / FastAPI) — HU2-17 (login), HU2-18, HU2-19 y HU2-23
 
 Servicio que atiende a la CLI del administrador. Es el **único servicio de lógica
 publicado al host** (puerto **8003**). No toca dinero ni apuestas: habla con Pagos y
@@ -10,25 +10,56 @@ llega, responde **504** «la consulta tardó demasiado». El mensaje expira a lo
 una orden vieja no se procesa después de que la CLI recibió el aviso. Si el Broker no
 está, responde **503**.
 
-`RABBITMQ_URL` es obligatoria: sin ella Admin no arranca.
+`RABBITMQ_URL` y `USUARIOS_BASE_URL` son obligatorias: sin ellas Admin no arranca.
+
+## Sesión del administrador (HU2-17, RF-21)
+
+Solo entra el rol `admin`. Admin no guarda usuarios ni conoce el `JWT_SECRET`: todo lo
+pregunta a Usuarios por la red interna (`app/sesion.py`).
+
+1. `POST /login {email, password}` → Admin llama a `POST /auth/login` de Usuarios. Si el
+   rol no es `admin` responde **403** y no entrega el token; si lo es, responde
+   `{status, token, usuario}`.
+2. La CLI manda ese token en `Authorization: Bearer <token>` en las demás rutas. Admin lo
+   valida en cada petición con `GET /internal/auth` de Usuarios (la misma subpetición del
+   Gateway): el rol sale de la base, no del token.
+
+| Caso | Respuesta |
+| --- | --- |
+| Sin `Authorization`, token mal formado o sesión vencida | **401** (la CLI vuelve a pedir credenciales) |
+| Credenciales incorrectas en `/login` | **401** «Correo o contraseña incorrectos» |
+| Rol `player` | **403** «Solo los administradores pueden usar la CLI» |
+| Usuarios no responde | **503** |
+
+El token dura lo que el JWT de Usuarios (`JWT_EXPIRE_MINUTES`, 120 por defecto). No hay
+logout en Admin: la CLI simplemente descarta el token.
 
 ## Rutas
 
+Todas menos `/health` y `/login` exigen `Authorization: Bearer <token>` de un admin.
+
 | Ruta | Cola | Respuestas |
 | --- | --- | --- |
+| `POST /login` | — (Usuarios por REST) | 200 `{token, usuario}`, 401, 403 o 503 (ver arriba) |
 | `GET /carreras` | `ingestor.consultas` (`list_races`) | 200 con las carreras ya descargadas en MongoDB |
 | `POST /simulacion` | `ingestor.commands` (`start_simulation`) | 200 `{simulacion_id, hora_largada}`, 409 si ya hay una programada o en curso, 404 si la carrera no está descargada |
 | `POST /consultas` | `admin.consultas` (consumidor de Pagos) | 200 con `data`, `filtros_aplicados` y `filtros_no_aplicados` |
 
 ```bash
-curl localhost:8003/carreras
-curl -X POST localhost:8003/simulacion -H 'Content-Type: application/json' \
+# Login con el admin inicial del .env (ADMIN_EMAIL / ADMIN_PASSWORD)
+TOKEN=$(curl -s -X POST localhost:8003/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}' \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+AUTH="Authorization: Bearer $TOKEN"
+
+curl localhost:8003/carreras -H "$AUTH"
+curl -X POST localhost:8003/simulacion -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"race_id":"9165","minutos_anticipacion":10}'
-curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
+curl -X POST localhost:8003/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"rentabilidad","params":{"tipo_apuesta":"estatica","top_n":5}}'
-curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
+curl -X POST localhost:8003/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"resumen_financiero","params":{"modo":"torneo"}}'
-curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
+curl -X POST localhost:8003/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"participacion","params":{}}'
 ```
 
@@ -58,4 +89,19 @@ y vuelven en `filtros_no_aplicados`:
 | `rentabilidad` | todos menos `modo` |
 | `resumen_financiero`, `horarios`, `participacion` | `evento_id`, `fecha_inicio`, `fecha_fin`, `tipo_apuesta`, `modo` |
 
-Pendiente: el login de admin contra Usuarios (RF-21) va con la CLI (HU2-17).
+## Pruebas
+
+No necesitan el stack: Usuarios y el Broker se reemplazan por falsos (`tests/conftest.py`).
+
+```bash
+cd services/admin
+pip install -r requirements-dev.txt
+pytest
+```
+
+Sin Python instalado:
+
+```bash
+docker run --rm -v "$PWD":/app -w /app python:3.12-slim \
+  sh -c "pip install -q -r requirements-dev.txt && pytest"
+```

@@ -90,9 +90,12 @@ a uno y se confirman (ack) después de responder.
 
 ## Probar con Admin (puerto 8003)
 
+Admin exige el token de un administrador (HU2-17); cómo obtenerlo en `$AUTH` está en
+[`../admin/README.md`](../admin/README.md#rutas).
+
 ```bash
-curl localhost:8003/carreras
-curl -X POST localhost:8003/simulacion -H 'Content-Type: application/json' \
+curl localhost:8003/carreras -H "$AUTH"
+curl -X POST localhost:8003/simulacion -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"race_id":"9165","minutos_anticipacion":1}'      # 200; otra vez → 409; carrera no descargada → 404
 ```
 
