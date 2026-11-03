@@ -374,6 +374,23 @@ describe("HU2-08 · panel de la apuesta dinamica", () => {
     expect(apuestas()).toHaveLength(1);
   });
 
+  it("resultado_apuesta (payload de internal/liquidar) recarga la billetera del header", async () => {
+    rutas["GET /api/billetera"] = [
+      { status: 200, body: { saldo: 990, cop_por_token: 100 } },
+      { status: 200, body: { saldo: 997, cop_por_token: 100 } },
+    ];
+    abrirCarrera();
+    expect(await screen.findByRole("link", { name: "Saldo: 990 PBT" })).toBeInTheDocument();
+
+    // HU2-10: el worker de liquidar avisa al jugador con este payload.
+    enviarWs("resultado_apuesta", {
+      mercado_id: "m-1", apuesta_id: "a-1", pregunta: "¿?", opcion: "No", opcion_ganadora: "No", gano: true,
+      modo: "individual", monto: 10, multiplicador: 1.25, pago: 12, saldo: 997,
+    });
+    expect(await screen.findByRole("link", { name: "Saldo: 997 PBT" })).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/billetera")).toHaveLength(2);
+  });
+
   it("al abrir otro mercado el formulario arranca limpio", async () => {
     abrirCarrera();
     enviarWs("mercado_dinamico", msg());
