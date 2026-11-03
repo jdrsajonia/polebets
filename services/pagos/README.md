@@ -84,6 +84,8 @@ aquí: lo valida el Orquestador con `X-User-Rol`.
 | `POST /internal/bets/torneo` | `{bet_id, user_id, market_id, option, amount, multiplier, lap}` | 201 `{bet_id, event_id, status, payout, nueva}` · 200 reenvío con los mismos datos · 404 mercado inexistente · 409 `mercado_cerrado`, `ya_apostaste` o `datos_distintos` |
 | `POST /internal/bets/torneo/{bet_id}/settlement` | `{result: "won"\|"lost"}` | 201 · 200 ya estaba con el mismo resultado · 404 apuesta inexistente · 409 `datos_distintos` (otro resultado) · 422 apuesta individual |
 
+- `lap` no cuenta para la idempotencia (ni aquí ni en el débito): un reintento
+  puede llegar en otra vuelta y se conserva la del primer intento.
 - Ruta aparte y no un `mode` en `/internal/debit`: el débito y `/settlements`
   mueven tokens y su idempotencia es la clave del ledger. Las fichas viven en
   Redis (HU2-11): aquí solo queda la fila de `bets` (RNF-20), sin tocar

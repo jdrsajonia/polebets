@@ -116,6 +116,8 @@ def _mercado_abierto(db: Session, market_id: uuid.UUID) -> Market:
 
 
 def _debito_existente(db: Session, movimiento: LedgerEntry, datos: BetDebitData) -> ResultadoDebito:
+    # lap no cuenta: el Motor la lee en cada intento y un reintento puede caer
+    # en otra vuelta. Se conserva la del primer intento.
     apuesta = db.get(Bet, datos.bet_id)
     if (
         movimiento.type != LEDGER_DEBIT
@@ -129,7 +131,6 @@ def _debito_existente(db: Session, movimiento: LedgerEntry, datos: BetDebitData)
         or apuesta.option != datos.option
         or apuesta.amount != datos.amount
         or apuesta.multiplier != datos.multiplier
-        or apuesta.lap != datos.lap
     ):
         raise ClaveReutilizada()
     return ResultadoDebito(apuesta=apuesta, saldo=_saldo(db, datos.user_id), nueva=False)
@@ -260,6 +261,7 @@ def liquidar_apuesta(db: Session, bet_id: uuid.UUID, resultado: str, idempotency
 
 
 def _misma_apuesta_torneo(apuesta: Bet, datos: BetDebitData) -> bool:
+    """Sin lap, igual que el debito: un reintento puede llegar en otra vuelta."""
     return (
         apuesta.mode == BET_TORNEO
         and apuesta.user_id == datos.user_id
@@ -267,7 +269,6 @@ def _misma_apuesta_torneo(apuesta: Bet, datos: BetDebitData) -> bool:
         and apuesta.option == datos.option
         and apuesta.amount == datos.amount
         and apuesta.multiplier == datos.multiplier
-        and apuesta.lap == datos.lap
     )
 
 

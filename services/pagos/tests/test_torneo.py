@@ -105,12 +105,25 @@ def test_registrar_es_idempotente_por_bet_id(client, fabrica):
 
 
 @requires_db
+def test_reenvio_con_otra_vuelta_es_200_y_conserva_la_primera(client, fabrica):
+    user_id = fabrica.billetera()
+    mercado = fabrica.mercado()
+    _, bet_id = _registrar(client, user_id, mercado, lap=3)
+
+    r, _ = _registrar(client, user_id, mercado, lap=5, bet_id=bet_id)
+
+    assert (r.status_code, r.json()["nueva"]) == (200, False)
+    with SessionLocal() as db:
+        assert db.get(Bet, bet_id).lap == 3
+
+
+@requires_db
 def test_registrar_con_datos_distintos_devuelve_409(client, fabrica):
     user_id = fabrica.billetera()
     mercado = fabrica.mercado()
     _, bet_id = _registrar(client, user_id, mercado, amount=100, lap=3)
 
-    for cambio in ({"amount": 101}, {"option": "NOR"}, {"multiplier": "3"}, {"lap": 4}):
+    for cambio in ({"amount": 101}, {"option": "NOR"}, {"multiplier": "3"}):
         r, _ = _registrar(client, user_id, mercado, **{"amount": 100, "lap": 3, **cambio}, bet_id=bet_id)
         assert r.status_code == 409, cambio
         assert r.json()["detail"]["codigo"] == "datos_distintos"
