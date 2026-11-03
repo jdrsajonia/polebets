@@ -54,6 +54,14 @@ func (d *Difusor) Aplicar(cambios map[int]int, vuelta, total int) {
 	}
 }
 
+// Reenviar difunde otra vez la foto actual, sin cambios (HU2-14: para quien
+// entra o recarga la pagina). No hace nada si la carrera no arranco.
+func (d *Difusor) Reenviar() {
+	if foto, ok := d.tablero.Foto(); ok {
+		d.difundir(foto)
+	}
+}
+
 // difundir marca emitido_en (para medir la latencia, RNF-04) y envia. Si
 // falla solo se registra: la reproduccion sigue.
 func (d *Difusor) difundir(foto FotoPosiciones) {

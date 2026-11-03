@@ -8,6 +8,7 @@
 //   - GET /ws     : WebSocket para datos en vivo (exige la cookie de sesion)
 //   - POST /mercados, GET /mercados/actual : ciclo del mercado (HU-11)
 //   - GET /posiciones : tabla de posiciones en vivo (HU-05)
+//   - worker HU2-08: abre, cierra y resuelve las dinamicas en Pagos
 package main
 
 import (
@@ -27,6 +28,7 @@ import (
 	"github.com/arquisoft/motor/internal/carrera"
 	"github.com/arquisoft/motor/internal/cierre"
 	"github.com/arquisoft/motor/internal/config"
+	"github.com/arquisoft/motor/internal/dinamicas"
 	"github.com/arquisoft/motor/internal/fichas"
 	"github.com/arquisoft/motor/internal/health"
 	"github.com/arquisoft/motor/internal/httpx"
@@ -114,6 +116,16 @@ func main() {
 		).Run(ctx)
 	}
 	go workerP2.Run(ctx)
+	// HU2-08: el Gestor de mercados dinamicos lee la carrera que reproduce el
+	// Ingestor (solo lectura, RNF-18) y guarda los mercados en Pagos. Todo se
+	// decide con el tiempo de carrera (RNF-19); event_id = _id de la simulacion.
+	go dinamicas.NuevoWorker(
+		dinamicas.NuevoLectorMongo(db.DB),
+		dinamicas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		difusionWS{hub: hub},
+		cfg.VentanaApuestas,
+		cfg.VentanaObservacion,
+	).Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
 	// HU2-11: si hay almacen de fichas, el worker tambien liquida las apuestas
@@ -314,6 +326,10 @@ func (t tableroEnVivo) Aplicar(cambios map[int]int, vuelta carrera.Vuelta) {
 	t.difusor.Aplicar(cambios, vuelta.Actual, vuelta.Total)
 }
 
+func (t tableroEnVivo) Reenviar() {
+	t.difusor.Reenviar()
+}
+
 // avisoWS adapta el Hub del WebSocket a liquidar.Avisador (HU2-10). El
 // paquete liquidar no importa ws para poder probarse sin dependencias.
 type avisoWS struct {
@@ -341,6 +357,16 @@ func (v vueltaCarrera) VueltaActual(ctx context.Context) (int, bool, error) {
 		return 0, false, err
 	}
 	return sim.Vuelta.Actual, true, nil
+}
+
+// difusionWS adapta el Hub a dinamicas.Difusor (HU2-08), por la misma razon
+// que avisoWS.
+type difusionWS struct {
+	hub *ws.Hub
+}
+
+func (d difusionWS) Difundir(tipo string, payload any) error {
+	return d.hub.Difundir(ws.Mensaje{Type: tipo, Payload: payload})
 }
 
 // fichasApuesta cumple apostar.Fichas sobre el almacen de fichas (HU2-09 con

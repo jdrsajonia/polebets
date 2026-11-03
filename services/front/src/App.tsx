@@ -12,6 +12,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import RutaProtegida from "./auth/RutaProtegida";
 import { BilleteraProvider } from "./billetera/BilleteraContexto";
+import RecargaPorResultado from "./billetera/RecargaPorResultado";
 import Layout from "./componentes/Layout";
 import Admin from "./paginas/Admin";
 import Billetera from "./paginas/Billetera";
@@ -34,6 +35,8 @@ export default function App() {
   // /billetera; asi cualquier montaje de <App /> lo trae, tambien en las pruebas.
   return (
     <BilleteraProvider>
+      {/* El saldo se recarga con cada resultado_apuesta, en cualquier pantalla */}
+      <RecargaPorResultado />
       <Routes>
         <Route element={<Layout />}>
           <Route index element={<Inicio />} />

@@ -4,6 +4,7 @@
 
 import { MOSTRAR_LATENCIA } from "../api/config";
 import { useWs } from "../api/WsContexto";
+import PanelDinamico from "../dinamicas/PanelDinamico";
 import MercadoJugador from "../mercados/MercadoJugador";
 import PanelResultado from "../mercados/PanelResultado";
 import AvisoConexion from "../posiciones/AvisoConexion";
@@ -50,9 +51,10 @@ export default function Carrera() {
           <PanelPosiciones posiciones={posiciones} />
         </aside>
 
-        {/* Columna central: mercado activo (HU-11, con el formulario de HU-06)
-            y el resultado de la apuesta (HU-08) */}
+        {/* Columna central: apuesta dinamica (HU2-08), mercado del P1 (HU-11,
+            con el formulario de HU-06) y el resultado de la apuesta (HU-08) */}
         <div className={estilos.centro}>
+          <PanelDinamico />
           <MercadoJugador />
           <PanelResultado />
         </div>

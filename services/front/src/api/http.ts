@@ -2,8 +2,8 @@
 //
 //   - Siempre envia la cookie de sesion (credentials: "include").
 //   - Antepone la URL base del servicio.
-//   - Convierte cualquier fallo en un ErrorHttp { status, message } con el
-//     mensaje en español.
+//   - Convierte cualquier fallo en un ErrorHttp { status, message, codigo? }
+//     con el mensaje en español (codigo viene del Orquestador).
 //   - Ante un 401 avisa para limpiar la sesion; ante un 403 avisa para mostrar
 //     "acceso denegado". Quien reacciona es el AuthContext (configurarHttp).
 
@@ -24,11 +24,13 @@ const MENSAJES = {
 // Error normalizado que lanza `pedir`.
 export class ErrorHttp extends Error implements ErrorApi {
   status: number;
+  codigo?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, codigo?: string) {
     super(message);
     this.name = "ErrorHttp";
     this.status = status;
+    this.codigo = codigo;
   }
 }
 
@@ -61,6 +63,13 @@ function mensajeDelCuerpo(cuerpo: unknown): string | null {
   if (typeof error === "string" && error !== "") return error;
   if (typeof detail === "string" && detail !== "") return detail;
   return null;
+}
+
+// El Orquestador agrega { codigo } para decidir sin comparar textos.
+function codigoDelCuerpo(cuerpo: unknown): string | undefined {
+  if (typeof cuerpo !== "object" || cuerpo === null) return undefined;
+  const { codigo } = cuerpo as { codigo?: unknown };
+  return typeof codigo === "string" && codigo !== "" ? codigo : undefined;
 }
 
 // Hace la peticion y devuelve el cuerpo JSON ya tipado. Si algo falla lanza
@@ -103,7 +112,7 @@ export async function pedir<T>(servicio: Servicio, ruta: string, opciones: Opcio
     manejadores.accesoDenegado?.(MENSAJES.permiso);
     throw new ErrorHttp(403, MENSAJES.permiso);
   }
-  throw new ErrorHttp(resp.status, mensajeDelCuerpo(cuerpo) ?? MENSAJES.generico);
+  throw new ErrorHttp(resp.status, mensajeDelCuerpo(cuerpo) ?? MENSAJES.generico, codigoDelCuerpo(cuerpo));
 }
 
 // Atajos para los dos metodos mas usados.
