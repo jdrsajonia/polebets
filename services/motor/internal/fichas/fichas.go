@@ -104,6 +104,9 @@ type Store interface {
 	Estados(ctx context.Context, eventoID string) ([]Estado, error)
 	// Limpiar borra todas las claves del evento (lo usa HU2-12 al cerrar).
 	Limpiar(ctx context.Context, eventoID string) error
+	// Eventos lista los eventos con torneo inicializado (los que largaron y
+	// aun no se limpiaron). Lo usa el cierre del evento (HU2-12).
+	Eventos(ctx context.Context) ([]string, error)
 }
 
 // Almacen es la logica de fichas de HU2-11. No conoce Redis: depende de Store.
@@ -247,6 +250,13 @@ func (a *Almacen) Estados(ctx context.Context, eventoID string) ([]Estado, error
 		return nil, ErrPeticionInvalida
 	}
 	return a.store.Estados(ctx, eventoID)
+}
+
+// EventosActivos devuelve los eventos con torneo en Redis: largaron con
+// inscritos y aun no se cerraron. Un torneo cancelado nunca aparece (no se le
+// crean fichas).
+func (a *Almacen) EventosActivos(ctx context.Context) ([]string, error) {
+	return a.store.Eventos(ctx)
 }
 
 // Limpiar borra el estado del torneo en Redis. Lo llama HU2-12 cuando ya

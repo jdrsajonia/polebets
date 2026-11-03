@@ -335,7 +335,28 @@ Detalle completo, claves de Redis y decisiones en
 fichas finales de Redis, las envía a Pagos (`POST /internal/events/{id}/close`,
 cliente `fichas.PagosCierreHTTP`) y solo si Pagos confirma el reparto borra las
 claves del torneo. Si Pagos falla, Redis queda intacto y el cierre se puede
-repetir (Pagos es idempotente). Lo invoca el flujo de fin de carrera (HU2-07).
+repetir (Pagos es idempotente).
+
+Lo llama el worker de `internal/cierre` (cada 5 s, solo con Redis). Por cada
+torneo con fichas en Redis (`Almacen.EventosActivos`):
+
+1. lee el evento en Pagos (`race_key`, `tournament_status`); cancelado → nada;
+2. la última simulación de esa carrera en Mongo tiene que estar `finalizada`
+   (misma fuente que HU2-14);
+3. `GET /internal/events/{id}/pendientes` de Pagos tiene que dar
+   `mercados_sin_liquidar = 0` y `apuestas_torneo_pending = 0`;
+4. difunde el `ranking_torneo` final y llama a `CerrarTorneo` una vez.
+
+Si falta algo espera a la siguiente vuelta; nunca cierra antes. Los eventos ya
+cerrados quedan en memoria para no volver a llamar a Pagos; tras un reinicio
+Redis ya está limpio y el evento no reaparece. Un torneo cancelado (<4
+inscritos) o un Motor sin Redis no tienen fichas: el worker no hace nada.
+
+**Dependencias.** El cierre espera a que **todos** los mercados del evento estén
+`liquidado`, y los estáticos los liquida HU2-07 (en curso): mientras eso no
+exista, el torneo no se cierra solo. Igual con la largada: la llamada a
+`POST /internal/events/{id}/start` y `InicializarTorneo` también son de
+HU2-07; sin ellas no hay torneo en Redis que cerrar.
 Ver [`../../documentation/hu2-12-reparto-botin.md`](../../documentation/hu2-12-reparto-botin.md).
 
 ## Correr y probar

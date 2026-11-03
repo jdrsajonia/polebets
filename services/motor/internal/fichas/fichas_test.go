@@ -105,6 +105,14 @@ func (s *storeMemoria) Limpiar(_ context.Context, e string) error {
 	return nil
 }
 
+func (s *storeMemoria) Eventos(context.Context) ([]string, error) {
+	eventos := make([]string, 0, len(s.inicial))
+	for e := range s.inicial {
+		eventos = append(eventos, e)
+	}
+	return eventos, nil
+}
+
 func nuevoAlmacenDePrueba() (*Almacen, *storeMemoria) {
 	st := nuevoStoreMemoria()
 	a := NuevoAlmacen(st)
@@ -273,5 +281,21 @@ func TestLiquidarYUbicarPagaEnCentesimas(t *testing.T) {
 	}
 	if res, _ = a.LiquidarYUbicar(ctx, evt, "b1", true, 1.13); res.FichasTotal != 1013 {
 		t.Fatalf("repetir cambio las fichas: %d", res.FichasTotal)
+	}
+}
+
+func TestEventosActivosSoloLosTorneosLargadosSinCerrar(t *testing.T) {
+	a, _ := nuevoAlmacenDePrueba()
+	ctx := context.Background()
+	_ = a.InicializarTorneo(ctx, evt, []string{"u1"}, 1000)
+	_ = a.InicializarTorneo(ctx, "cancelado", nil, 1000) // <4 inscritos: sin jugadores no hay fichas
+
+	es, err := a.EventosActivos(ctx)
+	if err != nil || len(es) != 1 || es[0] != evt {
+		t.Fatalf("activos = %v (%v)", es, err)
+	}
+	_ = a.Limpiar(ctx, evt)
+	if es, _ = a.EventosActivos(ctx); len(es) != 0 {
+		t.Fatalf("tras limpiar = %v", es)
 	}
 }

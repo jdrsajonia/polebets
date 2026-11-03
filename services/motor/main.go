@@ -25,6 +25,7 @@ import (
 	"github.com/arquisoft/motor/internal/apuestas"
 	"github.com/arquisoft/motor/internal/auth"
 	"github.com/arquisoft/motor/internal/carrera"
+	"github.com/arquisoft/motor/internal/cierre"
 	"github.com/arquisoft/motor/internal/config"
 	"github.com/arquisoft/motor/internal/fichas"
 	"github.com/arquisoft/motor/internal/health"
@@ -103,6 +104,14 @@ func main() {
 	)
 	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
 		workerP2.Fichas = t
+		// HU2-12: con la carrera finalizada y nada pendiente en Pagos, reparte
+		// el botin y limpia Redis. Sin Redis no hay torneo que cerrar.
+		go cierre.NuevoWorker(
+			cierreTorneo{adaptadorTorneo: t, pagos: fichas.NuevoPagosCierreHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)},
+			cierre.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+			simulacionCarrera{fuente: fuenteCarrera},
+			5*time.Second,
+		).Run(ctx)
 	}
 	go workerP2.Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
@@ -243,8 +252,8 @@ func (a adaptadorTorneo) Liquidar(ctx context.Context, eventoID, apuestaID strin
 // LiquidarApuesta cumple liquidar.Fichas (HU2-10 con los mercados del P2).
 // Solo la reserva inexistente (Redis respondio) es ErrSinReserva; el resto
 // son fallos de conexion que el worker reintenta.
-func (a adaptadorTorneo) LiquidarApuesta(ctx context.Context, eventoID, apuestaID string, gano bool) (liquidar.FichasTorneo, error) {
-	res, err := a.almacen.LiquidarYUbicar(ctx, eventoID, apuestaID, gano, 0)
+func (a adaptadorTorneo) LiquidarApuesta(ctx context.Context, eventoID, apuestaID string, gano bool, multiplicador float64) (liquidar.FichasTorneo, error) {
+	res, err := a.almacen.LiquidarYUbicar(ctx, eventoID, apuestaID, gano, multiplicador)
 	if errors.Is(err, fichas.ErrJugadorNoInscrito) {
 		return liquidar.FichasTorneo{}, liquidar.ErrSinReserva
 	}
@@ -256,6 +265,35 @@ func (a adaptadorTorneo) LiquidarApuesta(ctx context.Context, eventoID, apuestaI
 
 func (a adaptadorTorneo) Difundir(ctx context.Context, eventoID string) {
 	a.difusor.Difundir(ctx, eventoID)
+}
+
+// cierreTorneo cumple cierre.Torneos sobre el almacen de fichas (HU2-12).
+type cierreTorneo struct {
+	adaptadorTorneo
+	pagos fichas.PagosCierre
+}
+
+func (c cierreTorneo) EventosActivos(ctx context.Context) ([]string, error) {
+	return c.almacen.EventosActivos(ctx)
+}
+
+func (c cierreTorneo) DifundirRanking(ctx context.Context, eventoID string) {
+	c.difusor.Difundir(ctx, eventoID)
+}
+
+func (c cierreTorneo) Cerrar(ctx context.Context, eventoID string) error {
+	_, err := c.almacen.CerrarTorneo(ctx, eventoID, c.pagos)
+	return err
+}
+
+// simulacionCarrera cumple cierre.Carrera con la fuente de HU2-14.
+type simulacionCarrera struct {
+	fuente *carrera.MongoFuente
+}
+
+func (s simulacionCarrera) EstadoSimulacion(ctx context.Context, carreraID string) (string, bool, error) {
+	sim, ok, err := s.fuente.SimulacionDe(ctx, carreraID)
+	return sim.Estado, ok, err
 }
 
 // tableroEnVivo adapta el Difusor de HU-05 a carrera.Tablero (HU2-14). El

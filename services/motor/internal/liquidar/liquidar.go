@@ -142,7 +142,7 @@ type Fichas interface {
 	// LiquidarApuesta escribe el resultado en Redis (idempotente: repetir no
 	// cambia las fichas). ErrSinReserva si la reserva no existe; cualquier
 	// otro error es de conexion y se reintenta.
-	LiquidarApuesta(ctx context.Context, eventoID, apuestaID string, gano bool) (FichasTorneo, error)
+	LiquidarApuesta(ctx context.Context, eventoID, apuestaID string, gano bool, multiplicador float64) (FichasTorneo, error)
 	// Difundir envia "ranking_torneo" a todos.
 	Difundir(ctx context.Context, eventoID string)
 }
@@ -265,7 +265,7 @@ func (w *Worker) liquidarTorneo(ctx context.Context, m Mercado, ganadora string)
 	var fallo error
 	for _, a := range apuestas {
 		gano := a.Opcion == ganadora
-		f, err := w.Fichas.LiquidarApuesta(ctx, m.EventoID, a.ID, gano)
+		f, err := w.Fichas.LiquidarApuesta(ctx, m.EventoID, a.ID, gano, a.Multiplicador)
 		sinReserva := errors.Is(err, ErrSinReserva)
 		switch {
 		case sinReserva:

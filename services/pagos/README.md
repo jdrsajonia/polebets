@@ -97,6 +97,10 @@ aquí: lo valida el Orquestador con `X-User-Rol`.
   si perdió). Las fichas se acreditan en Redis desde el Motor.
 - `POST /internal/markets/{id}/liquidated` responde 409 mientras quede
   cualquier apuesta `pending`, individual o de torneo.
+- `GET /internal/events/{id}/pendientes` → `{event_id, mercados_sin_liquidar,
+  apuestas_torneo_pending}` (404 si el evento no existe). Cuenta los mercados
+  del evento con `status` distinto de `liquidado` y las apuestas `torneo`
+  `pending`. El Motor cierra el torneo (HU2-12) solo con los dos en 0.
 
 ## Consultas del administrador por el Broker (HU2-20, HU2-21, HU2-22)
 

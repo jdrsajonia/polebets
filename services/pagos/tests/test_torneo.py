@@ -338,3 +338,37 @@ def test_pago_en_fichas_cuadra_con_el_motor(client, fabrica):
     for monto, multiplicador, esperado in ((10, "2.30", 23), (100, "1.13", 113), (50, "1.14", 57)):
         _, bet_id = _registrar(client, user_id, fabrica.mercado(), amount=monto, multiplier=multiplicador)
         assert _liquidar(client, bet_id, "won").json()["payout"] == esperado, (monto, multiplicador)
+
+
+# ---------------------------------------------------------------------------
+# Pendientes del evento antes del cierre (HU2-12)
+# ---------------------------------------------------------------------------
+@requires_db
+def test_pendientes_del_evento_cuenta_mercados_sin_liquidar_y_torneo_pending(client, fabrica):
+    evento = fabrica.evento()
+    torneo, individual = fabrica.mercado(evento.id), fabrica.mercado(evento.id)
+    fabrica.mercado(evento.id, status="liquidado")
+    fabrica.mercado()  # de otro evento: no cuenta
+    _, bet_tor = _registrar(client, fabrica.billetera(), torneo, amount=50)
+    _debitar(client, fabrica.billetera(balance=100), individual)  # individual: no cuenta como torneo
+    url = f"/internal/events/{evento.id}/pendientes"
+
+    r = client.get(url, headers=headers())
+    assert r.status_code == 200, r.text
+    assert r.json() == {"event_id": str(evento.id), "mercados_sin_liquidar": 2, "apuestas_torneo_pending": 1}
+
+    assert _liquidar(client, bet_tor, "lost").status_code == 201
+    with SessionLocal() as db:
+        for m in (torneo, individual):
+            db.get(Market, m.id).status = "liquidado"
+        db.commit()
+    assert client.get(url, headers=headers()).json() == {
+        "event_id": str(evento.id), "mercados_sin_liquidar": 0, "apuestas_torneo_pending": 0,
+    }
+
+
+@requires_db
+def test_pendientes_de_evento_inexistente_o_sin_token(client):
+    url = f"/internal/events/{uuid.uuid4()}/pendientes"
+    assert client.get(url, headers=headers()).status_code == 404
+    assert client.get(url).status_code == 401

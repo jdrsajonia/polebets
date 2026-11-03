@@ -306,7 +306,7 @@ func (f *fichasFalsas) total(userID string) int64 {
 	return t
 }
 
-func (f *fichasFalsas) LiquidarApuesta(_ context.Context, eventoID, apuestaID string, gano bool) (FichasTorneo, error) {
+func (f *fichasFalsas) LiquidarApuesta(_ context.Context, eventoID, apuestaID string, gano bool, _ float64) (FichasTorneo, error) {
 	if f.falla != nil {
 		return FichasTorneo{}, f.falla
 	}
@@ -378,7 +378,7 @@ func TestLiquidacionDeTorneoRepetidaNoCambiaLasFichas(t *testing.T) {
 	// Otra vuelta del worker y una liquidacion repetida a mano (p. ej. tras un
 	// reinicio a mitad de mercado): Redis no paga dos veces.
 	_ = w.Procesar(context.Background())
-	if _, err := fx.LiquidarApuesta(context.Background(), "e1", "t-gana", true); err != nil {
+	if _, err := fx.LiquidarApuesta(context.Background(), "e1", "t-gana", true, 2.5); err != nil {
 		t.Fatal(err)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -263,6 +264,27 @@ func (s *RedisStore) Estados(ctx context.Context, eventoID string) ([]Estado, er
 		estados = append(estados, Estado{UsuarioID: u, Fichas: f, Apostado: a})
 	}
 	return estados, nil
+}
+
+func (s *RedisStore) Eventos(ctx context.Context) ([]string, error) {
+	// SCAN y no KEYS, igual que Limpiar. La clave "inicial" existe una vez
+	// por torneo inicializado: torneo:{evento}:inicial.
+	var eventos []string
+	var cursor uint64
+	for {
+		claves, nuevoCursor, err := s.rdb.Scan(ctx, cursor, "torneo:*:inicial", 200).Result()
+		if err != nil {
+			return nil, fmt.Errorf("listar torneos: %w", err)
+		}
+		for _, c := range claves {
+			eventos = append(eventos, strings.TrimSuffix(strings.TrimPrefix(c, "torneo:"), ":inicial"))
+		}
+		cursor = nuevoCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return eventos, nil
 }
 
 func (s *RedisStore) Limpiar(ctx context.Context, eventoID string) error {
