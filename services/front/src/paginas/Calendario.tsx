@@ -9,14 +9,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ErrorHttp } from "../api/http";
+import ApuestaEstatica from "../eventos/ApuestaEstatica";
 import CuentaRegresiva from "../eventos/CuentaRegresiva";
 import InscripcionTorneo from "../eventos/InscripcionTorneo";
 import { listarEventos, obtenerEvento, type DetalleEvento, type Evento } from "../eventos/api";
 import estilos from "./Calendario.module.css";
 
 const numero = new Intl.NumberFormat("es-CO");
-
-const mult = new Intl.NumberFormat("es-CO", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 
 const ETIQUETA_ESTADO: Record<Evento["estado"], string> = {
   programado: "Programado",
@@ -181,14 +180,8 @@ function Detalle({ eventoID, onVolver }: DetalleProps) {
                       {m.estado}
                     </span>
                   </div>
-                  <ul className={estilos.opciones}>
-                    {m.opciones.map((o) => (
-                      <li key={o.opcion} className={estilos.opcion}>
-                        <span>{o.opcion}</span>
-                        <b>×{mult.format(o.multiplicador)}</b>
-                      </li>
-                    ))}
-                  </ul>
+                  {/* HU2-09: las opciones con su multiplicador son tambien la apuesta */}
+                  <ApuestaEstatica mercado={m} />
                 </li>
               ))}
             </ul>
