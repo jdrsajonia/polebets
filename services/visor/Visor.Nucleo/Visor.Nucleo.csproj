@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Lógica del visor sin Blazor ni red: mensajes, proyección, reloj e
+       interpolación. Se prueba con Visor.Pruebas. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Visor.Nucleo</RootNamespace>
+  </PropertyGroup>
+
+</Project>

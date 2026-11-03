@@ -18,4 +18,6 @@ const (
 	TipoResultadoApuesta = "resultado_apuesta" // a un usuario (HU-08)
 	TipoRankingTorneo    = "ranking_torneo"    // difusion (HU2-11)
 	TipoMercadoDinamico  = "mercado_dinamico"  // difusion (HU2-08): abre, cierra y resuelve
+	TipoPista            = "pista"             // difusion (HU2-15): trazado del circuito para el visor
+	TipoCoordenadas      = "coordenadas"       // difusion (HU2-15): x/y de los autos del ultimo tramo
 )

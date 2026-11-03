@@ -6,9 +6,11 @@ import type { EstadoPosiciones } from "./usePosiciones";
 
 interface Props {
   posiciones: EstadoPosiciones;
+  seguido?: number | null; // HU2-15: piloto que sigue el visor
+  alSeguir?: (numero: number) => void;
 }
 
-export default function PanelPosiciones({ posiciones }: Props) {
+export default function PanelPosiciones({ posiciones, seguido, alSeguir }: Props) {
   const { fase, foto, cambios, error, reintentar } = posiciones;
 
   return (
@@ -34,7 +36,9 @@ export default function PanelPosiciones({ posiciones }: Props) {
         </div>
       )}
 
-      {fase === "lista" && foto && <TablaPosiciones pilotos={foto.pilotos} cambios={cambios} />}
+      {fase === "lista" && foto && (
+        <TablaPosiciones pilotos={foto.pilotos} cambios={cambios} seguido={seguido} alSeguir={alSeguir} />
+      )}
     </section>
   );
 }

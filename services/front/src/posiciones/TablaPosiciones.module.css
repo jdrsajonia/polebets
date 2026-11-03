@@ -65,6 +65,29 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* HU2-15: el piloto como boton para seguirlo en el visor */
+.botonSeguir {
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.botonSeguir:hover b,
+.botonSeguir:focus-visible b {
+  text-decoration: underline;
+}
+
+/* Fila del piloto que sigue el visor (mockup 07) */
+.seguido td {
+  background: var(--accent-surface);
+  box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent);
+}
+
 /* Resaltado breve de la fila que cambio de puesto. La animacion dura lo
    mismo que DURACION_RESALTADO_MS en usePosiciones.ts. */
 .sube td,

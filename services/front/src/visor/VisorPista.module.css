@@ -1,0 +1,50 @@
+/* Tarjeta del visor: sin relleno para que la pista ocupe todo el ancho */
+.tarjeta {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.botonCodigos[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+
+/* El elemento <visor-pista> fija su propio alto segun la forma de la pista */
+.lienzo {
+  min-height: 200px;
+  background: #0f0f13;
+}
+
+.lienzo visor-pista {
+  display: block;
+}
+
+.aviso {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 0;
+  padding: 24px 20px;
+}
+
+.pie {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}

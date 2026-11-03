@@ -7,6 +7,10 @@
 //   GET /health      healthcheck del contenedor.
 //   resto            la SPA (dist/): archivos estaticos y, para rutas de React
 //                    Router (/carrera, /login...), index.html.
+//   /_framework/, /_content/
+//                    el visor de pista (HU2-15, Blazor WebAssembly) que el
+//                    Dockerfile copia a dist/. Si el navegador acepta Brotli
+//                    se manda la version .br que ya genera dotnet publish.
 //
 // Variables de entorno:
 //   PORT         puerto de escucha (3000, como en la vista de despliegue)
@@ -56,7 +60,17 @@ const TIPOS = {
   ".ico": "image/x-icon",
   ".woff2": "font/woff2",
   ".txt": "text/plain; charset=utf-8",
+  // Visor de pista (Blazor): sin application/wasm el navegador no puede
+  // compilar el .wasm mientras lo descarga.
+  ".wasm": "application/wasm",
+  ".dat": "application/octet-stream",
+  ".mjs": "text/javascript; charset=utf-8",
 };
+
+// Carpetas de archivos que nunca caen a index.html: si no existe, 404.
+const SIN_CAIDA_A_SPA = ["/assets/", "/_framework/", "/_content/"];
+// Carpetas del visor que traen su version .br precomprimida.
+const CON_BROTLI = ["/_framework/", "/_content/"];
 
 function responderHtml(res, estado, html) {
   res.writeHead(estado, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
@@ -113,18 +127,36 @@ async function estatico(req, res) {
     const info = await stat(archivo);
     if (info.isFile()) {
       const cache = ruta.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "no-cache";
-      res.writeHead(200, { "Content-Type": TIPOS[extname(archivo)] ?? "application/octet-stream", "Cache-Control": cache });
+      const cabeceras = { "Content-Type": TIPOS[extname(archivo)] ?? "application/octet-stream", "Cache-Control": cache };
+      const comprimido = await versionBrotli(req, ruta, archivo);
+      if (comprimido) {
+        res.writeHead(200, { ...cabeceras, "Content-Encoding": "br", Vary: "Accept-Encoding" });
+        return createReadStream(comprimido).pipe(res);
+      }
+      res.writeHead(200, cabeceras);
       return createReadStream(archivo).pipe(res);
     }
   } catch {
     /* no existe: es una ruta de la SPA */
   }
-  if (ruta.startsWith("/assets/")) {
+  if (SIN_CAIDA_A_SPA.some((prefijo) => ruta.startsWith(prefijo))) {
     res.writeHead(404);
     return res.end();
   }
   res.writeHead(200, { "Content-Type": TIPOS[".html"], "Cache-Control": "no-cache" });
   return createReadStream(join(DIST, "index.html")).pipe(res);
+}
+
+// Ruta del .br del archivo si es del visor, existe y el navegador acepta
+// Brotli; si no, null. Los ~6 MB del runtime de Blazor bajan a ~2 MB.
+async function versionBrotli(req, ruta, archivo) {
+  if (!CON_BROTLI.some((prefijo) => ruta.startsWith(prefijo))) return null;
+  if (!/\bbr\b/.test(req.headers["accept-encoding"] ?? "")) return null;
+  try {
+    return (await stat(`${archivo}.br`)).isFile() ? `${archivo}.br` : null;
+  } catch {
+    return null;
+  }
 }
 
 const servidor = createServer(async (req, res) => {
