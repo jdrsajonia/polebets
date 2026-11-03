@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"sync"
 	"time"
 )
 
@@ -106,6 +107,14 @@ type Worker struct {
 	// ganadora, su winning_option si ya se resolvio. Se olvida al abrir otro.
 	cerrado  *Mercado
 	ganadora *string
+
+	// actual guarda el ultimo MensajeDinamico que se difundio en vivo, para
+	// servirlo por REST (GET /internal/dinamica-actual) a quien entra o recarga
+	// /carrera, sin esperar al reenvio periodico del WebSocket. nil = no hay
+	// mercado dinamico vigente. Protegido por mu: lo escribe la goroutine del
+	// worker y lo lee el handler HTTP.
+	mu     sync.RWMutex
+	actual *MensajeDinamico
 }
 
 func NuevoWorker(f Fuente, p Pagos, d Difusor, ventana, observacion time.Duration) *Worker {
@@ -227,6 +236,7 @@ func (w *Worker) cambiar(ctx context.Context, nueva Simulacion) {
 	}
 	w.gestor, w.cola, w.terminado, w.abandonada, w.avisados, w.abierto = nil, nil, false, "", nil, nil
 	w.cerrado, w.ganadora = nil, nil
+	w.guardarActual(nil) // la simulacion anterior ya no tiene dinamica vigente
 }
 
 // aplicarCola aplica en orden. Una accion reintentable de una simulacion
@@ -338,6 +348,7 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 // ultimo cerrado o resuelto (HU2-13), con las mismas condiciones de simulacion.
 func (w *Worker) reenviarAbierto() {
 	if w.sim.Termino() || w.sim.ID == w.abandonada {
+		w.guardarActual(nil) // carrera terminada/abandonada: no hay dinamica vigente
 		return
 	}
 	var (
@@ -374,11 +385,9 @@ func (w *Worker) ahora() time.Time {
 	return time.Now()
 }
 
-// difundir no falla la accion: Pagos ya quedo al dia.
+// difundir no falla la accion: Pagos ya quedo al dia. Ademas de mandar el
+// mensaje por WebSocket, guarda una copia en w.actual para servirla por REST.
 func (w *Worker) difundir(m Mercado, estado string, ganadora *string) {
-	if w.Difusor == nil {
-		return
-	}
 	msg := MensajeDinamico{
 		MarketID: m.ID, EventID: m.EventoID, Template: m.Plantilla, Question: m.Pregunta,
 		Status: estado, RaceCloseS: segundoCierre(m.Cierre), ClosesAt: w.sim.HoraReal(m.Cierre),
@@ -387,9 +396,35 @@ func (w *Worker) difundir(m Mercado, estado string, ganadora *string) {
 	for _, o := range m.Opciones {
 		msg.Options = append(msg.Options, opcionPagos{Opcion: o.Nombre, Multiplicador: o.Multiplicador})
 	}
+	w.guardarActual(&msg)
+	if w.Difusor == nil {
+		return
+	}
 	if err := w.Difusor.Difundir(TipoMercadoDinamico, msg); err != nil {
 		log.Printf("HU2-08: no se pudo difundir %s: %v", m.ID, err)
 	}
+}
+
+// guardarActual y MercadoActual comparten mu: la foto que sirve el REST es la
+// ultima que se difundio en vivo. Olvidar (nil) cuando la simulacion termina
+// o cambia evita servir un mercado de una carrera que ya no corre.
+func (w *Worker) guardarActual(msg *MensajeDinamico) {
+	w.mu.Lock()
+	w.actual = msg
+	w.mu.Unlock()
+}
+
+// MercadoActual devuelve una copia del ultimo mercado dinamico difundido en
+// vivo, o nil si no hay ninguno vigente. Lo usa el handler de
+// GET /internal/dinamica-actual para la foto inicial del front.
+func (w *Worker) MercadoActual() *MensajeDinamico {
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	if w.actual == nil {
+		return nil
+	}
+	copia := *w.actual
+	return &copia
 }
 
 func describir(a Accion) string {
