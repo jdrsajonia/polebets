@@ -38,6 +38,7 @@ from app.models import (
     Event,
     EventEntry,
     LedgerEntry,
+    Market,
     Wallet,
 )
 
@@ -158,6 +159,44 @@ def obtener_evento(db: Session, event_id: uuid.UUID) -> ResultadoEvento:
     if evento is None:
         raise EventoNoExiste()
     return ResultadoEvento(evento, _contar_inscritos(db, event_id), nuevo=False)
+
+
+def listar_eventos(db: Session, estados: list[str]) -> list[ResultadoEvento]:
+    """Eventos cuyo status esta en `estados`, cada uno con su nº de inscritos.
+
+    El conteo de inscritos se hace en una sola consulta agrupada (no una por
+    evento), para el calendario (HU2-05). Ordena por hora de largada.
+    """
+    eventos = list(
+        db.scalars(select(Event).where(Event.status.in_(estados)).order_by(Event.starts_at.asc(), Event.id))
+    )
+    if not eventos:
+        return []
+    ids = [e.id for e in eventos]
+    conteo = dict(
+        db.execute(
+            select(EventEntry.event_id, func.count())
+            .where(EventEntry.event_id.in_(ids))
+            .group_by(EventEntry.event_id)
+        ).all()
+    )
+    return [ResultadoEvento(e, conteo.get(e.id, 0), nuevo=False) for e in eventos]
+
+
+def listar_mercados_evento(db: Session, event_id: uuid.UUID, kind: str | None = None) -> list[Market]:
+    """Mercados de un evento, opcionalmente filtrados por kind (estatica/dinamica).
+
+    Lanza EventoNoExiste si el evento no existe, para que el Orquestador
+    distinga "evento inexistente" (404) de "evento sin mercados" (lista vacia).
+    Ordena por hora de cierre, dejando al final los que no la tienen.
+    """
+    if db.get(Event, event_id) is None:
+        raise EventoNoExiste()
+    consulta = select(Market).where(Market.event_id == event_id)
+    if kind is not None:
+        consulta = consulta.where(Market.kind == kind)
+    consulta = consulta.order_by(Market.closes_at.asc().nulls_last(), Market.id)
+    return list(db.scalars(consulta))
 
 
 # ---------------------------------------------------------------------------

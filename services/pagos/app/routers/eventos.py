@@ -12,13 +12,14 @@ El token de servicio lo exige la dependencia ServicioInterno del router.
 """
 import uuid
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Header, HTTPException, Response, status
+from fastapi import APIRouter, Header, HTTPException, Query, Response, status
 
 from app.core.config import settings
 from app.deps import DbSession, ServicioInterno
 from app.models import TORNEO_CANCELADO, Event, EventEntry
+from app.routers.markets import _salida as _mercado_out
 from app.schemas.eventos import (
     EventCreateIn,
     EventOut,
@@ -26,6 +27,7 @@ from app.schemas.eventos import (
     RegistrationIn,
     RegistrationOut,
 )
+from app.schemas.markets import MarketOut
 from app.services.eventos import (
     DatosEvento,
     EventoConflicto,
@@ -36,6 +38,8 @@ from app.services.eventos import (
     crear_evento,
     iniciar_evento,
     inscribir,
+    listar_eventos,
+    listar_mercados_evento,
     obtener_evento,
     obtener_inscripcion,
 )
@@ -101,6 +105,19 @@ def crear(datos: EventCreateIn, db: DbSession, response: Response) -> EventOut:
     return _evento_out(r.evento, r.inscritos)
 
 
+@router.get("", response_model=list[EventOut])
+def listar(
+    db: DbSession,
+    response: Response,
+    estados: Annotated[str, Query(alias="status")] = "programado,en_curso",
+) -> list[EventOut]:
+    """Calendario (HU2-05): eventos cuyo status esta en la lista separada por
+    comas (por defecto programado,en_curso). Cada uno con su nº de inscritos."""
+    pedidos = [s.strip() for s in estados.split(",") if s.strip()]
+    response.headers["Cache-Control"] = "no-store"  # inscritos y botin cambian en vivo
+    return [_evento_out(r.evento, r.inscritos) for r in listar_eventos(db, pedidos)]
+
+
 @router.get("/{event_id}", response_model=EventOut, responses={404: {"description": NO_EXISTE}})
 def consultar(event_id: uuid.UUID, db: DbSession) -> EventOut:
     try:
@@ -108,6 +125,26 @@ def consultar(event_id: uuid.UUID, db: DbSession) -> EventOut:
     except EventoNoExiste:
         raise HTTPException(status.HTTP_404_NOT_FOUND, NO_EXISTE) from None
     return _evento_out(r.evento, r.inscritos)
+
+
+@router.get(
+    "/{event_id}/markets",
+    response_model=list[MarketOut],
+    responses={404: {"description": NO_EXISTE}},
+)
+def mercados_del_evento(
+    event_id: uuid.UUID,
+    db: DbSession,
+    response: Response,
+    kind: Annotated[Literal["estatica", "dinamica"] | None, Query()] = None,
+) -> list[MarketOut]:
+    """Mercados de un evento (HU2-05). Con kind=estatica, solo las estaticas."""
+    try:
+        mercados = listar_mercados_evento(db, event_id, kind)
+    except EventoNoExiste:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NO_EXISTE) from None
+    response.headers["Cache-Control"] = "no-store"
+    return [_mercado_out(m) for m in mercados]
 
 
 @router.post(
