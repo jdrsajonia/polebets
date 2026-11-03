@@ -82,12 +82,16 @@ func main() {
 	health.Register(mux, db)
 	ws.Register(mux, hub, autenticador, origenes.Permite)
 	pagos := registrarApuestas(mux, db, cfg, autenticador) // HU-06 (P1; la reemplaza HU2-09)
+	// HU2-14 lee la carrera del Ingestor en Mongo; HU2-09 usa la misma fuente
+	// para guardar la vuelta de cada apuesta (bets.lap).
+	fuenteCarrera := carrera.NuevaMongoFuente(db.DB)
 	// HU2-09: POST /internal/apuestas, la llama el Orquestador. Con Redis, las
 	// dinamicas de un inscrito van en fichas del torneo (almacen de HU2-11).
 	svcApostar := apostar.NuevoServicio(apostar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken), cfg.MaxApuestaIndividual)
 	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
 		svcApostar.Fichas = fichasApuesta{almacen: t.almacen}
 	}
+	svcApostar.Carrera = vueltaCarrera{fuente: fuenteCarrera}
 	apostar.Register(mux, svcApostar, cfg.InternalAPIToken)
 	// HU2-10: liquida en tokens las apuestas individuales de los mercados del
 	// P2 (Pagos) que ya tienen opcion ganadora. Las de torneo son de HU2-11.
@@ -113,7 +117,7 @@ func main() {
 	// HU2-14: lee de Mongo la carrera que reproduce el Ingestor y alimenta el
 	// tablero; cada cambio sale por WebSocket ("posiciones").
 	go carrera.NuevoLector(
-		carrera.NuevaMongoFuente(db.DB),
+		fuenteCarrera,
 		tableroEnVivo{posiciones.NuevoDifusor(tablero, hub)},
 		500*time.Millisecond,
 	).Run(ctx)
@@ -261,6 +265,21 @@ type avisoWS struct {
 
 func (a avisoWS) EnviarA(userID, tipo string, payload any) error {
 	return a.hub.EnviarA(userID, ws.Mensaje{Type: tipo, Payload: payload})
+}
+
+// vueltaCarrera cumple apostar.Carrera con la fuente de HU2-14: la vuelta de
+// la simulacion en curso (simulaciones.vuelta_actual). Antes de la largada o
+// con la carrera terminada no hay vuelta y bets.lap queda nula.
+type vueltaCarrera struct {
+	fuente *carrera.MongoFuente
+}
+
+func (v vueltaCarrera) VueltaActual(ctx context.Context) (int, bool, error) {
+	sim, ok, err := v.fuente.SimulacionActual(ctx)
+	if err != nil || !ok || sim.Estado != "en_curso" || sim.Vuelta.Actual <= 0 {
+		return 0, false, err
+	}
+	return sim.Vuelta.Actual, true, nil
 }
 
 // fichasApuesta cumple apostar.Fichas sobre el almacen de fichas (HU2-09 con
