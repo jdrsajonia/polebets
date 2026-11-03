@@ -368,8 +368,9 @@ func TestWorkerReenviaElMercadoAbiertoCada5s(t *testing.T) {
 		for i := 0; i <= 40; i++ {
 			tick(100000+int64(i)*1000, time.Duration(1+i)*time.Second)
 		}
-		// Se anuncia en i=0 y se reenvia en i=5, 10, 15, 20, 25; en i=30 cierra.
-		want := []string{"abierto", "abierto", "abierto", "abierto", "abierto", "abierto", "cerrado"}
+		// Se anuncia en i=0 y se reenvia en i=5, 10, 15, 20, 25; en i=30 cierra
+		// y desde ahi se reenvia el cerrado (HU2-13) en i=35 y 40.
+		want := []string{"abierto", "abierto", "abierto", "abierto", "abierto", "abierto", "cerrado", "cerrado", "cerrado"}
 		if got := d.estados(); !reflect.DeepEqual(got, want) {
 			t.Fatalf("difusion = %v", got)
 		}
@@ -418,6 +419,85 @@ func TestWorkerReenviaElMercadoAbiertoCada5s(t *testing.T) {
 		tick(110000, 30*time.Second)
 		if got := d.estados(); !reflect.DeepEqual(got, []string{"abierto", "cerrado"}) {
 			t.Fatalf("difusion = %v", got)
+		}
+	})
+}
+
+// HU2-13: sin abierto, el ultimo cerrado o resuelto se reenvia cada 5 s
+// mientras la simulacion esta en_curso.
+func TestWorkerReenviaElUltimoCerrado(t *testing.T) {
+	t.Run("cerrado y luego resuelto, con su winning_option", func(t *testing.T) {
+		w, f, _, d := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second)     // abre
+		tick(130000, 31*time.Second)  // cierra
+		tick(132000, 33*time.Second)  // < 5 s: nada
+		tick(136000, 37*time.Second)  // reenvia cerrado
+		tick(190000, 50*time.Second)  // resuelve "No"
+		tick(193000, 54*time.Second)  // < 5 s: nada
+		tick(196000, 56*time.Second)  // reenvia resuelto
+		tick(260000, 120*time.Second) // reenvia resuelto
+		want := []string{"abierto", "cerrado", "cerrado", "cerrado No", "cerrado No", "cerrado No"}
+		if got := d.estados(); !reflect.DeepEqual(got, want) {
+			t.Fatalf("difusion = %v", got)
+		}
+		if !reflect.DeepEqual(d.msgs[4], d.msgs[3]) {
+			t.Fatalf("el reenvio debe ser el mismo payload: %+v vs %+v", d.msgs[4], d.msgs[3])
+		}
+	})
+	t.Run("al abrir el siguiente se deja de reenviar el anterior", func(t *testing.T) {
+		w, f, _, d := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second)
+		tick(130000, 31*time.Second)
+		tick(190000, 50*time.Second) // resuelto
+		primero := d.msgs[0]
+		// Otro mercado que abre en vivo (lo que haria el Gestor mas adelante).
+		m2 := Mercado{ID: "m-2", EventoID: "sim-a", T0: 200000, Cierre: 230000}
+		m2.Plantilla, m2.Pregunta = PlantillaCambioLider, "¿Otro?"
+		w.cola = append(w.cola, pendiente{Accion: Accion{Tipo: AccionCrear, T: 200000, Mercado: m2, Estado: EstadoAbierto}, vivo: true})
+		tick(200000, 52*time.Second) // se anuncia m-2 abierto
+		desde := len(d.msgs) - 1
+		for i := 1; i <= 3; i++ {
+			tick(200000+int64(i)*5000, time.Duration(52+i*5)*time.Second)
+		}
+		got := d.msgs[desde:]
+		if len(got) != 4 {
+			t.Fatalf("difusion = %v", d.estados())
+		}
+		for _, m := range got {
+			if m.MarketID != "m-2" || m.Status != EstadoAbierto || m.MarketID == primero.MarketID {
+				t.Fatalf("reenvio inesperado: %+v", m)
+			}
+		}
+	})
+	t.Run("al terminar la simulacion deja de reenviarlo", func(t *testing.T) {
+		w, f, _, d := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second)
+		tick(130000, 31*time.Second)
+		f.sim.Estado = SimFinalizada
+		tick(140000, 40*time.Second)
+		tick(140000, 60*time.Second)
+		if got := d.estados(); !reflect.DeepEqual(got, []string{"abierto", "cerrado"}) {
+			t.Fatalf("difusion = %v", got)
+		}
+	})
+	t.Run("otra simulacion no hereda el cerrado", func(t *testing.T) {
+		w, f, _, d := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second)
+		tick(130000, 31*time.Second)
+		f.sim = Simulacion{ID: "sim-b", CarreraID: "9165", Estado: SimEnCurso, TCarreraMs: 1000, IniciadaEn: iniciadaPrueba}
+		f.eventos = nil
+		tick(1000, 40*time.Second)
+		tick(2000, 60*time.Second)
+		for _, m := range d.msgs[2:] {
+			t.Fatalf("reenvio en otra simulacion: %+v", m)
 		}
 	})
 }

@@ -27,6 +27,12 @@ const avisoReintento = 10 * time.Second
 // difundir con esta frecuencia de hora real, para que quien entra o recarga
 // la pagina lo vea sin esperar al siguiente cambio. La hora real solo decide
 // cuando reenviar; abrir y cerrar los decide el tiempo de carrera (RNF-19).
+//
+// HU2-13: si no hay abierto, se reenvia con la misma frecuencia el ULTIMO
+// mercado cerrado o resuelto (con su winning_option, si ya lo tiene) hasta
+// que abra el siguiente, para que quien recarga en la observacion vea su
+// apuesta y el resultado. Solo con la simulacion en_curso: al terminar la
+// carrera deja de reenviarse y no queda pegado en la siguiente.
 const reenvioAbierto = 5 * time.Second
 
 // margenVivoMs: en el primer lote de una simulacion, una accion con t mas
@@ -94,7 +100,12 @@ type Worker struct {
 	avisados map[string]time.Time // market_id -> ultimo aviso de reintento
 
 	abierto     *Mercado  // creado "abierto" en Pagos y anunciado en vivo, aun sin Cerrar aplicado
-	ultimoEnvio time.Time // ultima difusion de abierto
+	ultimoEnvio time.Time // ultima difusion de abierto (o de cerrado, ver abajo)
+
+	// cerrado es el ultimo mercado con su Cerrar aplicado y anunciado en vivo;
+	// ganadora, su winning_option si ya se resolvio. Se olvida al abrir otro.
+	cerrado  *Mercado
+	ganadora *string
 }
 
 func NuevoWorker(f Fuente, p Pagos, d Difusor, ventana, observacion time.Duration) *Worker {
@@ -215,6 +226,7 @@ func (w *Worker) cambiar(ctx context.Context, nueva Simulacion) {
 		}
 	}
 	w.gestor, w.cola, w.terminado, w.abandonada, w.avisados, w.abierto = nil, nil, false, "", nil, nil
+	w.cerrado, w.ganadora = nil, nil
 }
 
 // aplicarCola aplica en orden. Una accion reintentable de una simulacion
@@ -231,7 +243,7 @@ func (w *Worker) aplicarCola(ctx context.Context) {
 		if w.sim.Termino() {
 			log.Printf("HU2-08: ATENCION simulacion %s terminada: %s fallo (%v); se abandona con %d acciones sin aplicar",
 				w.sim.ID, describir(p.Accion), err, len(w.cola))
-			w.cola, w.abandonada, w.abierto = nil, w.sim.ID, nil
+			w.cola, w.abandonada, w.abierto, w.cerrado, w.ganadora = nil, w.sim.ID, nil, nil, nil
 			return
 		}
 		if errors.Is(err, ErrReintentable) {
@@ -284,6 +296,7 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 		if estado == EstadoAbierto && p.vivo {
 			copia := m
 			w.abierto = &copia
+			w.cerrado, w.ganadora = nil, nil
 		}
 	case AccionCerrar:
 		if err := w.Pagos.Cerrar(ctx, m.ID); err != nil {
@@ -292,6 +305,10 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 		if w.abierto != nil && w.abierto.ID == m.ID {
 			w.abierto = nil
 		}
+		if p.vivo {
+			copia := m
+			w.cerrado, w.ganadora = &copia, nil
+		}
 		log.Printf("HU2-08: %s", describir(p.Accion))
 	case AccionResolver:
 		if err := w.Pagos.Resolver(ctx, m.ID, p.Ganadora); err != nil {
@@ -299,11 +316,15 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 		}
 		g := p.Ganadora
 		ganadora = &g
+		// Solo si es el ultimo cerrado: el de un mercado anterior no lo reemplaza.
+		if w.cerrado != nil && w.cerrado.ID == m.ID {
+			w.ganadora = ganadora
+		}
 		log.Printf("HU2-08: %s gana %q", describir(p.Accion), g)
 	}
 	if p.vivo && estado != EstadoProgramado {
 		w.difundir(m, estado, ganadora)
-		if w.abierto != nil && w.abierto.ID == m.ID {
+		if (w.abierto != nil && w.abierto.ID == m.ID) || (w.cerrado != nil && w.cerrado.ID == m.ID) {
 			w.ultimoEnvio = w.ahora()
 		}
 	}
@@ -313,17 +334,36 @@ func (w *Worker) aplicar(ctx context.Context, p pendiente) error {
 // reenviarAbierto vuelve a difundir el mercado abierto cada reenvioAbierto,
 // solo en una simulacion en_curso, con su Crear ya aplicado en Pagos y
 // mientras el reloj de carrera no llegue a su cierre (si el Cerrar quedo en
-// la cola por un fallo, no se anuncia como abierto).
+// la cola por un fallo, no se anuncia como abierto). Sin abierto, reenvia el
+// ultimo cerrado o resuelto (HU2-13), con las mismas condiciones de simulacion.
 func (w *Worker) reenviarAbierto() {
-	m := w.abierto
-	if m == nil || w.sim.Termino() || w.sim.ID == w.abandonada || w.sim.ID != m.EventoID || w.sim.TCarreraMs >= m.Cierre {
+	if w.sim.Termino() || w.sim.ID == w.abandonada {
+		return
+	}
+	var (
+		m       *Mercado
+		estado  = EstadoAbierto
+		ganador *string
+	)
+	switch {
+	case w.abierto != nil:
+		if w.sim.ID != w.abierto.EventoID || w.sim.TCarreraMs >= w.abierto.Cierre {
+			return
+		}
+		m = w.abierto
+	case w.cerrado != nil:
+		if w.sim.ID != w.cerrado.EventoID {
+			return
+		}
+		m, estado, ganador = w.cerrado, "cerrado", w.ganadora
+	default:
 		return
 	}
 	ahora := w.ahora()
 	if ahora.Sub(w.ultimoEnvio) < reenvioAbierto {
 		return
 	}
-	w.difundir(*m, EstadoAbierto, nil)
+	w.difundir(*m, estado, ganador)
 	w.ultimoEnvio = ahora
 }
 
