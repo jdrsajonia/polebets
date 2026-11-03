@@ -69,7 +69,7 @@ describe("HU-03 · ver el saldo", () => {
 
     expect(await screen.findByTestId("saldo")).toHaveTextContent("2.450 PoleCoins");
     expect(saldoEnHeader()).toHaveTextContent("2.450 PoleCoins");
-    expect(screen.getByText(/1 PoleCoins = \$1\.000 COP/)).toBeInTheDocument();
+    expect(screen.getByText(/1 PoleCoin = \$1\.000 COP/)).toBeInTheDocument();
   });
 
   it("si el saldo no carga, lo explica y permite reintentar", async () => {

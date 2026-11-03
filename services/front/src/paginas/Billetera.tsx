@@ -107,7 +107,7 @@ export default function Billetera() {
             </p>
             {saldo !== null && copPorToken !== null && (
               <p className="texto-secundario">
-                ≈ ${numero.format(saldo * copPorToken)} COP · 1 PoleCoins = ${numero.format(copPorToken)} COP (valor indexado al USD)
+                ≈ ${numero.format(saldo * copPorToken)} COP · 1 PoleCoin = ${numero.format(copPorToken)} COP (valor indexado al USD)
               </p>
             )}
           </>

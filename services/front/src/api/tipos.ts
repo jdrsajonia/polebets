@@ -202,6 +202,19 @@ export interface ResultadoTorneo extends ResultadoDinamicoBase {
 
 export type ResultadoDinamico = ResultadoIndividual | ResultadoTorneo;
 
+// GET /api/mercados/{mercado_id}/mi-apuesta (§3.7, HU2-13): la apuesta del
+// jugador en un mercado, para mostrarla al recargar la pagina.
+export interface MiApuesta {
+  apuesta_id: string;
+  mercado_id: string;
+  opcion: string;
+  monto: number;
+  modo: ModoApuesta;
+  multiplicador: number;
+  status: "pending" | "won" | "lost";
+  payout: number | null; // null mientras esta pending; tokens o fichas segun el modo
+}
+
 // GET /api/eventos/{evento_id} (§3.4): solo lo que el front usa para
 // mostrar el modo antes de confirmar (RF-09).
 export interface DetalleEvento {

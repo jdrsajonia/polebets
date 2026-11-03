@@ -5,7 +5,7 @@
 // gano el mercado, pero el pago, el saldo y el puesto los confirma Pagos.
 // El payload del P1 (con puntos) no pasa este validador ni al reves.
 
-import type { ResultadoDinamico } from "../api/tipos";
+import type { MiApuesta, ResultadoDinamico } from "../api/tipos";
 
 const numero = new Intl.NumberFormat("es-CO");
 
@@ -39,4 +39,17 @@ export function textoResultado(r: ResultadoDinamico): string {
   return r.gano
     ? `¡Ganaste ${numero.format(r.pago)} PoleCoins! Saldo: ${numero.format(r.saldo)}`
     : `Perdiste ${numero.format(r.monto)} PoleCoins`;
+}
+
+// La apuesta ya liquidada segun mi-apuesta (status won o lost): el mismo texto
+// que textoResultado con lo que hay; Pagos no da saldo, total ni puesto aqui.
+export function estaLiquidada(a: MiApuesta): boolean {
+  return a.status !== "pending";
+}
+
+export function textoLiquidada(a: MiApuesta): string {
+  const gano = a.status === "won";
+  const pago = numero.format(a.payout ?? 0);
+  if (a.modo === "torneo") return gano ? `¡+${pago} fichas!` : `Perdiste ${numero.format(a.monto)} fichas`;
+  return gano ? `¡Ganaste ${pago} PoleCoins!` : `Perdiste ${numero.format(a.monto)} PoleCoins`;
 }
