@@ -125,13 +125,17 @@ func main() {
 	// HU2-08: el Gestor de mercados dinamicos lee la carrera que reproduce el
 	// Ingestor (solo lectura, RNF-18) y guarda los mercados en Pagos. Todo se
 	// decide con el tiempo de carrera (RNF-19); event_id = _id de la simulacion.
-	go dinamicas.NuevoWorker(
+	workerDinamicas := dinamicas.NuevoWorker(
 		dinamicas.NuevoLectorMongo(db.DB),
 		dinamicas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
 		difusionWS{hub: hub},
 		cfg.VentanaApuestas,
 		cfg.VentanaObservacion,
-	).Run(ctx)
+	)
+	// GET /internal/dinamica-actual: la foto inicial del mercado dinamico, que
+	// el Orquestador sirve al front sin esperar al reenvio del WebSocket.
+	dinamicas.Register(mux, workerDinamicas, cfg.InternalAPIToken)
+	go workerDinamicas.Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
 	// HU2-11: si hay almacen de fichas, el worker tambien liquida las apuestas
@@ -160,7 +164,7 @@ func main() {
 	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
 	tablero := posiciones.NuevoTablero()
-	posiciones.Register(mux, tablero, autenticador.ExigirSesion) // HU-05
+	posiciones.Register(mux, tablero, autenticador.ExigirSesion, cfg.InternalAPIToken) // HU-05 / HU2-14
 	// HU2-14: lee de Mongo la carrera que reproduce el Ingestor y alimenta el
 	// tablero; cada cambio sale por WebSocket ("posiciones").
 	go carrera.NuevoLector(

@@ -1,7 +1,22 @@
 // REST de HU2-08 contra el Orquestador (por el API Gateway, /api).
 
 import { ErrorHttp, http } from "../api/http";
-import type { DetalleEvento, MiApuesta, PeticionApuesta, RespuestaApuesta } from "../api/tipos";
+import type { DetalleEvento, MensajeDinamico, MiApuesta, PeticionApuesta, RespuestaApuesta } from "../api/tipos";
+import { esMensajeDinamico } from "./dinamico";
+
+// GET /api/dinamica-actual: la foto inicial del mercado dinamico vigente, que
+// el Orquestador lee del Motor. El front la pide al cargar /carrera para
+// mostrar la apuesta en vivo sin esperar al reenvio del WebSocket (~5 s).
+// Devuelve null si no hay ninguno (404) o si la respuesta no tiene la forma.
+export async function obtenerDinamicaActual(signal?: AbortSignal): Promise<MensajeDinamico | null> {
+  try {
+    const m = await http.get<unknown>("api", "/dinamica-actual", { signal });
+    return esMensajeDinamico(m) ? m : null;
+  } catch (error) {
+    if (error instanceof ErrorHttp && error.status === 404) return null;
+    throw error;
+  }
+}
 
 // GET /api/eventos/{evento_id} (§3.4). Punto de conexion con HU2-05: si la
 // ruta aun no existe o falla, devuelve null y el panel dice "el modo se

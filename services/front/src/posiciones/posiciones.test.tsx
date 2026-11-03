@@ -158,7 +158,7 @@ describe("usePosiciones", () => {
 
     expect(screen.getByText("Cargando posiciones…")).toBeInTheDocument();
     await waitFor(() => expect(codigosEnPantalla()).toEqual(["VAR", "OKA", "SAN"]));
-    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/motor/posiciones");
+    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/posiciones");
   });
 
   it("actualiza la tabla con cada mensaje del WebSocket y mide la latencia (criterio 2)", async () => {

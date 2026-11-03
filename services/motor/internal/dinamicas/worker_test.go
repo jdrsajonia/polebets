@@ -501,3 +501,49 @@ func TestWorkerReenviaElUltimoCerrado(t *testing.T) {
 		}
 	})
 }
+
+func TestMercadoActual(t *testing.T) {
+	t.Run("nil antes de que abra ningun mercado", func(t *testing.T) {
+		w, _, _, _ := escenarioWorker()
+		if w.MercadoActual() != nil {
+			t.Fatal("sin mercado abierto, MercadoActual debe ser nil")
+		}
+	})
+
+	t.Run("devuelve el abierto y luego el cerrado/resuelto", func(t *testing.T) {
+		w, f, _, _ := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+
+		tick(100000, time.Second) // abre cambio_lider
+		m := w.MercadoActual()
+		if m == nil || m.Status != EstadoAbierto || m.Template != "cambio_lider" {
+			t.Fatalf("tras abrir: %+v", m)
+		}
+
+		tick(130000, 31*time.Second) // cierra
+		if m := w.MercadoActual(); m == nil || m.Status != "cerrado" {
+			t.Fatalf("tras cerrar: %+v", m)
+		}
+
+		tick(190000, 91*time.Second) // resuelve
+		if m := w.MercadoActual(); m == nil || m.WinningOption == nil || *m.WinningOption != "No" {
+			t.Fatalf("tras resolver: %+v", m)
+		}
+	})
+
+	t.Run("se olvida al terminar la simulacion", func(t *testing.T) {
+		w, f, _, _ := escenarioWorker()
+		tick := relojReal(w, f)
+		tick(95000, 0)
+		tick(100000, time.Second) // abre
+		if w.MercadoActual() == nil {
+			t.Fatal("debia haber un mercado vigente")
+		}
+		f.sim.Estado = SimFinalizada
+		tick(140000, 40*time.Second)
+		if w.MercadoActual() != nil {
+			t.Fatal("carrera terminada: MercadoActual debe volver a nil")
+		}
+	})
+}
