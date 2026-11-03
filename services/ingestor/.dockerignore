@@ -1,2 +1,4 @@
-*.md
-.git
+*.exe
+ingestor
+*_test.go
+README.md

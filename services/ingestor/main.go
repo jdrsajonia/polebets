@@ -1,39 +1,59 @@
-// Ingestor — STUB base (T2-04).
-//
-// Esqueleto mínimo del Ingestor (HU2-16, HU2-19, Iván). Solo responde /health
-// para que el contenedor arranque y todo el stack levante con un solo comando.
-//
-// Qué va aquí cuando se implemente el servicio real:
-//   - Descargar carreras de OpenF1 por tramos (posiciones, coordenadas x/y,
-//     vueltas, pits, control de carrera) con un comando del Ingestor (HU2-16).
-//   - Recibir por el Broker (RabbitMQ) la orden de iniciar simulación (HU2-19).
-//   - Reproducir la carrera según el TIEMPO DE CARRERA y escribir cada dato en
-//     MongoDB. Es el ÚNICO componente que escribe en MongoDB (RNF-18).
-//
-// Puerto interno: 8002 (no se publica al host).
 package main
 
 import (
+	"context"
+	"fmt"
 	"log"
-	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+// db es la base de Mongo del Ingestor (único servicio que escribe en ella, RNF-18).
+var db *mongo.Database
+
 func main() {
-	puerto := os.Getenv("HTTP_PORT")
-	if puerto == "" {
-		puerto = "8002"
+	if len(os.Args) < 2 {
+		log.Fatal("Uso: ingestor servicio | ingestor descargar <session_key>")
+	}
+	comando := os.Args[1]
+
+	cfg, err := cargarConfig(comando == "servicio")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"estado":"ok","servicio":"ingestor","nota":"stub T2-04"}`))
-	})
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI(cfg.MongoURI))
+	if err == nil {
+		err = client.Ping(ctx, nil)
+	}
+	cancel()
+	if err != nil {
+		log.Fatalf("Error conectando a Mongo: %v", err)
+	}
+	db = client.Database(cfg.MongoDB)
+	fmt.Println("✅ Conectado a MongoDB")
 
-	log.Printf("ingestor (stub) escuchando en :%s", puerto)
-	if err := http.ListenAndServe(":"+puerto, mux); err != nil {
-		log.Fatalf("servidor HTTP terminó: %v", err)
+	switch comando {
+	case "descargar":
+		if len(os.Args) < 3 {
+			log.Fatal("Falta el ID de la sesión (session_key): ingestor descargar <session_key>")
+		}
+		// Ctrl+C (o docker stop) cancela la descarga y se limpia lo escrito.
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := DescargarCarrera(ctx, db, nuevoClienteOpenF1(cfg), os.Args[2]); err != nil {
+			stop()
+			log.Fatalf("❌ La descarga falló: %v", err)
+		}
+	case "servicio":
+		IniciarServicio(cfg)
+	default:
+		log.Fatalf("Comando no reconocido: %s", comando)
 	}
 }

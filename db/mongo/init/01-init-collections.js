@@ -7,9 +7,11 @@
 // porque está montado en /docker-entrypoint-initdb.d
 // ============================================================
 
-db = db.getSiblingDB('apuestas_db');
+// Misma base que MONGO_DB del .env (el compose la pasa como MONGO_INITDB_DATABASE).
+const nombreDB = process.env.MONGO_INITDB_DATABASE || 'apuestas_db';
+db = db.getSiblingDB(nombreDB);
 
-print('⏳ Inicializando base de datos: apuestas_db');
+print('⏳ Inicializando base de datos: ' + nombreDB);
 
 // ============================================================
 // 1. COLECCIÓN: carreras
@@ -22,34 +24,29 @@ db.createCollection('carreras', {
       bsonType: 'object',
       required: ['carrera_id', 'nombre', 'fuente', 'creada_en'],
       properties: {
-        carrera_id: {
-          bsonType: 'string',
-          description: 'Identificador único de la carrera (ej: 2024_monza)'
+        carrera_id: { bsonType: 'string' },
+        nombre: { bsonType: 'string' },
+        temporada: { bsonType: 'int' },
+        circuito: { bsonType: 'string' },
+        fuente: { enum: ['openf1', 'historica', 'simulada'] },
+        estado: { enum: ['cargada', 'en_vivo', 'finalizada', 'descargada'] },
+        session_key: { bsonType: 'string' },
+        hora_largada: { bsonType: 'date' },
+        total_vueltas: { bsonType: 'int' },
+        pilotos: {
+          bsonType: 'array',
+          items: {
+            bsonType: 'object',
+            properties: {
+              numero: { bsonType: 'int' },
+              codigo: { bsonType: 'string' },
+              nombre: { bsonType: 'string' },
+              equipo: { bsonType: 'string' },
+              color: { bsonType: 'string' }
+            }
+          }
         },
-        nombre: {
-          bsonType: 'string',
-          description: 'Nombre legible de la carrera'
-        },
-        temporada: {
-          bsonType: 'int',
-          description: 'Año de la temporada'
-        },
-        circuito: {
-          bsonType: 'string',
-          description: 'Nombre del circuito'
-        },
-        fuente: {
-          enum: ['openf1', 'historica', 'simulada'],
-          description: 'Origen de los datos'
-        },
-        estado: {
-          enum: ['cargada', 'en_vivo', 'finalizada'],
-          description: 'Estado actual de la carrera'
-        },
-        creada_en: {
-          bsonType: 'date',
-          description: 'Fecha de carga en el sistema'
-        }
+        creada_en: { bsonType: 'date' }
       }
     }
   }
@@ -63,63 +60,78 @@ print('✅ Colección "carreras" creada');
 
 // ============================================================
 // 2. COLECCIÓN: eventos_carrera
-// Datos crudos normalizados de OpenF1 (o de la reproducción
-// histórica). Esquema variable porque cada tipo de evento
-// tiene campos distintos. Esto justifica el uso de MongoDB.
+// Datos crudos normalizados de OpenF1.
 // ============================================================
 db.createCollection('eventos_carrera', {
   validator: {
     $jsonSchema: {
       bsonType: 'object',
-      required: ['carrera_id', 'timestamp', 'tipo', 'datos'],
+      required: ['carrera_id', 'timestamp', 'tipo', 't_carrera_ms', 'datos'],
       properties: {
-        carrera_id: {
-          bsonType: 'string',
-          description: 'Referencia a la carrera'
-        },
-        timestamp: {
-          bsonType: 'date',
-          description: 'Momento del evento en la carrera'
-        },
+        carrera_id: { bsonType: 'string' },
+        timestamp: { bsonType: 'date' },
+        // Milisegundos desde la largada (negativo antes). En la raíz para indexarlo.
+        t_carrera_ms: { bsonType: 'long' },
         tipo: {
-          enum: ['posicion', 'vuelta', 'bandera', 'clima', 'sector', 'pit_stop'],
-          description: 'Categoría del evento'
+          enum: ['posicion', 'intervalo', 'vuelta', 'pit', 'stint', 'control', 'clima', 'ubicacion'],
+          description: '8 tipos permitidos'
         },
-        datos: {
-          bsonType: 'object',
-          description: 'Payload variable según el tipo de evento'
-        },
-        leido_en: {
-          bsonType: 'date',
-          description: 'Cuándo lo leyó el motor del sistema'
-        },
-        emitido_en: {
-          bsonType: 'date',
-          description: 'Hora REAL en que la reproducción (POST /ingest/replay) ' +
-            'emitió el evento por WebSocket. La liquidación (HU-07) la ' +
-            'compara con la ventana del mercado; timestamp es histórico.'
-        }
+        datos: { bsonType: 'object' },
+        leido_en: { bsonType: 'date' },
+        // Hora real en que la reproducción emitió el dato (lo lee el Motor).
+        emitido_en: { bsonType: 'date' },
+        simulacion_id: { bsonType: 'string' },
+        // Descarga que escribió el dato: al volver a descargar se reemplaza
+        // la carga anterior solo cuando la nueva terminó bien.
+        carga_id: { bsonType: 'string' }
       }
     }
   }
 });
 
-// Índice compuesto para la consulta más frecuente:
-// "dame los eventos de una carrera ordenados por tiempo"
-db.eventos_carrera.createIndex({ carrera_id: 1, timestamp: 1 });
-// Índice para filtrar por tipo dentro de una carrera
+db.eventos_carrera.createIndex({ carrera_id: 1, t_carrera_ms: 1 });
 db.eventos_carrera.createIndex({ carrera_id: 1, tipo: 1, timestamp: 1 });
-// HU-07: "¿se emitió algún evento de posición entre cierra_en y observa_hasta?"
 db.eventos_carrera.createIndex({ carrera_id: 1, tipo: 1, emitido_en: 1 });
+db.eventos_carrera.createIndex({ carga_id: 1 });
 
 print('✅ Colección "eventos_carrera" creada con índices');
 
 
 // ============================================================
-// 3. COLECCIÓN: mercados
-// Mercados creados por el administrador. Tienen un ciclo de
-// vida: abierto → cerrado → liquidado. El motor es quien
-// gestiona las transiciones.
+// 3. COLECCIÓN: simulaciones
+// Nueva colección para HU2-19 (Iniciar simulación).
+// ============================================================
+db.createCollection('simulaciones', {
+  validator: {
+    $jsonSchema: {
+      bsonType: 'object',
+      required: ['_id', 'carrera_id', 'estado', 'hora_largada', 'creada_en'],
+      properties: {
+        _id: { bsonType: 'string' }, // UUID
+        carrera_id: { bsonType: 'string' },
+        estado: { enum: ['programada', 'en_curso', 'finalizada', 'fallida'] },
+        hora_largada: { bsonType: 'date' },
+        iniciada_en: { bsonType: 'date' },
+        terminada_en: { bsonType: 'date' },
+        t_inicio_ms: { bsonType: 'long' },
+        t_carrera_ms: { bsonType: 'long' },
+        vuelta_actual: { bsonType: 'int' },
+        total_vueltas: { bsonType: 'int' },
+        latido_en: { bsonType: 'date' },
+        motivo_fallo: { bsonType: 'string' },
+        creada_en: { bsonType: 'date' }
+      }
+    }
+  }
+});
+db.simulaciones.createIndex({ estado: 1, hora_largada: 1 });
+
+print('✅ Colección "simulaciones" creada con índices');
+
+
+// ============================================================
+// 4. COLECCIÓN: mercados
+// (Sin cambios)
 // ============================================================
 db.createCollection('mercados', {
   validator: {
@@ -130,100 +142,38 @@ db.createCollection('mercados', {
         'abre_en', 'cierra_en', 'creado_en'
       ],
       properties: {
-        carrera_id: {
-          bsonType: 'string',
-          description: 'Carrera a la que pertenece el mercado'
-        },
-        tipo: {
-          // Único tipo del prototipo: mercado Sí/No "¿habrá algún cambio de
-          // posición durante la ventana de observación?". El motor lo fija al
-          // abrir el mercado y la liquidación (HU-07) se guía solo por él.
-          enum: ['cambio_posicion'],
-          description: 'Tipo de mercado; decide cómo se liquida'
-        },
-        pregunta: {
-          bsonType: 'string',
-          description: 'Pregunta del mercado (ej: ¿Quién irá primero?)'
-        },
-        opciones: {
-          bsonType: 'array',
-          minItems: 2,
-          items: { bsonType: 'string' },
-          description: 'Opciones entre las que se apuesta'
-        },
-        estado: {
-          enum: ['abierto', 'cerrado', 'liquidado'],
-          description: 'Estado del ciclo de vida'
-        },
-        abre_en: {
-          bsonType: 'date',
-          description: 'Cuándo se abre la ventana de apuestas'
-        },
-        cierra_en: {
-          bsonType: 'date',
-          description: 'Cuándo cierra (abre_en + ventana de apuestas)'
-        },
-        observa_hasta: {
-          bsonType: 'date',
-          description: 'Cuándo termina la ventana de observación'
-        },
-        resultado: {
-          bsonType: ['string', 'null'],
-          description: 'Opción ganadora tras la liquidación'
-        },
-        puntos_otorgados: {
-          bsonType: ['int', 'double', 'null'],
-          description: 'Fórmula aplicada al liquidar'
-        },
-        liquidacion_error: {
-          bsonType: 'string',
-          description: 'Diagnóstico del último intento fallido de liquidación'
-        },
-        liquidacion_reintento_en: {
-          bsonType: 'date',
-          description: 'Momento mínimo del próximo intento automático'
-        },
-        liquidacion_lease: {
-          bsonType: 'string',
-          description: 'Token de adquisición temporal del mercado'
-        },
-        liquidacion_lease_hasta: {
-          bsonType: 'date',
-          description: 'Vencimiento del lease para recuperación tras caída'
-        },
-        creado_por: {
-          bsonType: 'string',
-          description: 'ID o nombre del administrador que lo creó'
-        },
-        creado_en: {
-          bsonType: 'date',
-          description: 'Timestamp de creación'
-        },
-        liquidado_en: {
-          bsonType: ['date', 'null'],
-          description: 'Timestamp de liquidación'
-        }
+        carrera_id: { bsonType: 'string' },
+        tipo: { enum: ['cambio_posicion'] },
+        pregunta: { bsonType: 'string' },
+        opciones: { bsonType: 'array', minItems: 2, items: { bsonType: 'string' } },
+        estado: { enum: ['abierto', 'cerrado', 'liquidado'] },
+        abre_en: { bsonType: 'date' },
+        cierra_en: { bsonType: 'date' },
+        observa_hasta: { bsonType: 'date' },
+        resultado: { bsonType: ['string', 'null'] },
+        puntos_otorgados: { bsonType: ['int', 'double', 'null'] },
+        liquidacion_error: { bsonType: 'string' },
+        liquidacion_reintento_en: { bsonType: 'date' },
+        liquidacion_lease: { bsonType: 'string' },
+        liquidacion_lease_hasta: { bsonType: 'date' },
+        creado_por: { bsonType: 'string' },
+        creado_en: { bsonType: 'date' },
+        liquidado_en: { bsonType: ['date', 'null'] }
       }
     }
   }
 });
 
-// El motor consulta constantemente:
-// "¿hay mercados abiertos o por cerrar?"
 db.mercados.createIndex({ estado: 1, cierra_en: 1 });
 db.mercados.createIndex({ estado: 1, observa_hasta: 1, liquidacion_reintento_en: 1 });
-// Índice por carrera para listar mercados de una sesión
 db.mercados.createIndex({ carrera_id: 1, creado_en: -1 });
 
 print('✅ Colección "mercados" creada con índices');
 
 
 // ============================================================
-// 4. COLECCIÓN: apuestas_contexto
-// Contexto de cada apuesta desde el lado del motor. NO guarda
-// dinero (eso vive en PostgreSQL). Solo guarda lo que el motor
-// necesita para liquidar: qué apostó, a qué mercado, en qué
-// momento del evento, y con qué snapshot de la carrera.
+// 5. COLECCIÓN: apuestas_contexto
+// (Sin cambios)
 // ============================================================
 db.createCollection('apuestas_contexto', {
   validator: {
@@ -234,71 +184,31 @@ db.createCollection('apuestas_contexto', {
         'opcion', 'creada_en'
       ],
       properties: {
-        apuesta_id: {
-          bsonType: 'string',
-          description: 'UUID generado por Pagos (referencia a Postgres)'
-        },
-        mercado_id: {
-          bsonType: 'objectId',
-          description: 'Referencia al mercado en esta BD'
-        },
-        usuario_id: {
-          bsonType: 'string',
-          description: 'UUID del usuario (referencia a Postgres)'
-        },
-        opcion: {
-          bsonType: 'string',
-          description: 'Opción elegida por el jugador'
-        },
-        monto: {
-          bsonType: 'int',
-          minimum: 1,
-          description: 'Monto apostado en tokens (copia del valor en Postgres)'
-        },
-        snapshot_evento: {
-          bsonType: 'object',
-          description: 'Estado de la carrera al momento de apostar'
-        },
-        creada_en: {
-          bsonType: 'date',
-          description: 'Timestamp de creación'
-        },
-        liquidada: {
-          bsonType: 'bool',
-          description: 'Marca de liquidación'
-        },
-        gano: {
-          bsonType: ['bool', 'null'],
-          description: 'Resultado tras la liquidación'
-        },
-        puntos_obtenidos: {
-          bsonType: ['double', 'int'],
-          minimum: 0,
-          description: 'Puntos confirmados por Pagos'
-        }
+        apuesta_id: { bsonType: 'string' },
+        mercado_id: { bsonType: 'objectId' },
+        usuario_id: { bsonType: 'string' },
+        opcion: { bsonType: 'string' },
+        monto: { bsonType: 'int', minimum: 1 },
+        snapshot_evento: { bsonType: 'object' },
+        creada_en: { bsonType: 'date' },
+        liquidada: { bsonType: 'bool' },
+        gano: { bsonType: ['bool', 'null'] },
+        puntos_obtenidos: { bsonType: ['double', 'int'], minimum: 0 }
       }
     }
   }
 });
 
-// Clave de idempotencia: no se puede registrar dos veces la misma apuesta
 db.apuestas_contexto.createIndex({ apuesta_id: 1 }, { unique: true });
-// Consultas por mercado (para liquidar en bloque)
 db.apuestas_contexto.createIndex({ mercado_id: 1, liquidada: 1 });
-// Consultas por usuario (para historial)
 db.apuestas_contexto.createIndex({ usuario_id: 1, creada_en: -1 });
 
 print('✅ Colección "apuestas_contexto" creada con índices');
 
 
 // ============================================================
-// 5. COLECCIÓN: reproducciones
-// Una por carrera (_id = carrera_id). La escribe la reproducción
-// (POST /ingest/replay) mientras emite eventos: un "latido" cada
-// pocos segundos. La liquidación (HU-07) la usa para saber si la
-// reproducción estuvo corriendo durante TODA la ventana de un
-// mercado: solo así "no hubo eventos" significa que ganó "No"
-// y no que nadie lanzó la reproducción.
+// 6. COLECCIÓN: reproducciones
+// (Sin cambios, para los workers viejos del Motor)
 // ============================================================
 db.createCollection('reproducciones', {
   validator: {
@@ -306,30 +216,12 @@ db.createCollection('reproducciones', {
       bsonType: 'object',
       required: ['_id', 'iniciada_en', 'latido_en'],
       properties: {
-        _id: {
-          bsonType: 'string',
-          description: 'carrera_id de la carrera que se reproduce'
-        },
-        iniciada_en: {
-          bsonType: 'date',
-          description: 'Hora real en que arrancó la reproducción actual'
-        },
-        latido_en: {
-          bsonType: 'date',
-          description: 'Último latido: la reproducción seguía viva a esta hora'
-        },
-        terminada_en: {
-          bsonType: ['date', 'null'],
-          description: 'Hora real en que terminó (null mientras corre)'
-        },
-        desde: {
-          bsonType: 'date',
-          description: 'Instante de la carrera (histórico) desde el que se reproduce'
-        },
-        factor: {
-          bsonType: 'double',
-          description: 'Velocidad de la reproducción (1 = tiempo real)'
-        }
+        _id: { bsonType: 'string' },
+        iniciada_en: { bsonType: 'date' },
+        latido_en: { bsonType: 'date' },
+        terminada_en: { bsonType: ['date', 'null'] },
+        desde: { bsonType: 'date' },
+        factor: { bsonType: 'double' }
       }
     }
   }
@@ -348,10 +240,11 @@ print('========================================');
 print('Colecciones creadas:');
 print('  1. carreras             (metadata de carreras)');
 print('  2. eventos_carrera      (datos crudos de OpenF1)');
-print('  3. mercados             (mercados del admin)');
-print('  4. apuestas_contexto    (contexto de apuestas del motor)');
-print('  5. reproducciones       (latido de la reproducción, HU-07)');
+print('  3. simulaciones         (HU2-19: simulación programada)');
+print('  4. mercados             (mercados del admin)');
+print('  5. apuestas_contexto    (contexto de apuestas del motor)');
+print('  6. reproducciones       (latido de la reproducción, HU-07)');
 print('');
-print('Índices creados: 11');
-print('Validaciones: 5 (una por colección)');
+print('Índices creados: 13');
+print('Validaciones: 6 (una por colección)');
 print('========================================');

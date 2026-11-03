@@ -1,13 +1,10 @@
-# Ingestor — STUB base (T2-04). Mismo patrón que services/motor y services/orquestador.
+# Ingestor (HU2-16): descarga carreras de OpenF1 y las reproduce en MongoDB.
 # ---- build ----
 FROM golang:1.25-alpine AS build
 
 WORKDIR /src
 
-# El stub solo usa la librería estándar, así que no hay go.sum todavía. Cuando
-# se agreguen dependencias (cliente de RabbitMQ, driver de MongoDB), se copia
-# go.sum aquí junto a go.mod.
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
@@ -23,4 +20,7 @@ COPY --from=build /ingestor /app/ingestor
 USER app
 
 EXPOSE 8002
+# Por defecto arranca el servicio; la descarga se corre aparte:
+#   docker exec arqui_ingestor /app/ingestor descargar <session_key>
 ENTRYPOINT ["/app/ingestor"]
+CMD ["servicio"]

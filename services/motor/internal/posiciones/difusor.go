@@ -4,7 +4,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/arquisoft/motor/internal/ingest"
 	"github.com/arquisoft/motor/internal/ws"
 )
 
@@ -14,7 +13,17 @@ type Notificador interface {
 	Difundir(ws.Mensaje) error
 }
 
-// Difusor conecta la reproduccion (ingest) con el Tablero y el WebSocket:
+// PilotoCarrera es la estructura mínima que el Motor necesita para armar el tablero.
+// (Antes venía de 'ingest', pero ahora el Ingestor es un servicio aparte).
+type PilotoCarrera struct {
+	Numero int
+	Nombre string
+	Codigo string
+	Equipo string
+	Color  string
+}
+
+// Difusor conecta la reproduccion con el Tablero y el WebSocket:
 // cada aviso actualiza el tablero y difunde la foto completa a todos.
 type Difusor struct {
 	tablero *Tablero
@@ -22,15 +31,12 @@ type Difusor struct {
 	ahora   func() time.Time
 }
 
-// Si Difusor deja de cumplir el contrato de ingest, esto no compila.
-var _ ingest.ObservadorCarrera = (*Difusor)(nil)
-
 func NuevoDifusor(tablero *Tablero, hub Notificador) *Difusor {
 	return &Difusor{tablero: tablero, hub: hub, ahora: time.Now}
 }
 
 // Iniciar arranca la carrera y difunde de una vez la foto inicial.
-func (d *Difusor) Iniciar(carreraID string, pilotos []ingest.PilotoCarrera, posiciones map[int]int) {
+func (d *Difusor) Iniciar(carreraID string, pilotos []PilotoCarrera, posiciones map[int]int) {
 	d.difundir(d.tablero.Iniciar(carreraID, pilotos, posiciones))
 }
 

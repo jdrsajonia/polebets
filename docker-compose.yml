@@ -18,8 +18,8 @@
 #     pagos          REAL  (FastAPI)      -> ya existía; dueño de PG Pagos
 #     pagos-consumer REAL  (misma imagen de pagos, comando placeholder) -> HU2-18 consumidor AMQP
 #     motor          REAL  (Go)           -> ya existía; lee Mongo, escribe Redis
-#     ingestor       STUB  (Go)           -> HU2-16/19 Iván; único que escribe Mongo
-#     admin          STUB  (FastAPI)      -> HU2-18/19 Iván; única otra entrada (8003)
+#     ingestor       REAL  (Go)           -> HU2-16/19 Iván; descarga OpenF1, reproduce; único que escribe Mongo
+#     admin          REAL  (FastAPI)      -> HU2-18/19/23 Iván; única otra entrada (8003)
 #
 #   Infra (imágenes oficiales, ya funcionan):
 #     postgres-usuarios, postgres-pagos, mongo, redis, rabbitmq
@@ -191,6 +191,8 @@ services:
         condition: service_healthy
     ports:
       - "8003:8003"
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8003/health').status==200 else sys.exit(1)\""]
       interval: 10s
@@ -365,6 +367,8 @@ services:
       MONGO_DB: ${MONGO_DB}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       HTTP_PORT: "8002"
+      # Opcional: el histórico de OpenF1 es gratis sin token.
+      OPENF1_API_KEY: ${OPENF1_API_KEY:-}
     depends_on:
       mongo:
         condition: service_healthy
