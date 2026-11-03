@@ -18,6 +18,11 @@ const TipoMercadoDinamico = "mercado_dinamico"
 // apuesta tarde. Despues viene su Cerrar.
 const EstadoProgramado = "programado"
 
+// avisoReintento: el aviso de una accion que queda para el siguiente tick
+// sale a lo sumo una vez por este tiempo y por market_id (el tick es de
+// 500 ms; sin esto, un evento que aun no existe en Pagos llena el log).
+const avisoReintento = 10 * time.Second
+
 // margenVivoMs: en el primer lote de una simulacion, una accion con t mas
 // atras que esto respecto al reloj es de recuperacion y no se difunde.
 const margenVivoMs = 5_000
@@ -73,6 +78,11 @@ type Worker struct {
 	terminado  bool // ya se llamo Terminar en el Gestor
 	cola       []pendiente
 	abandonada string
+
+	// Ahora es la hora real, solo para espaciar los logs (nunca decide
+	// mercados: eso es del tiempo de carrera). nil = time.Now.
+	Ahora    func() time.Time
+	avisados map[string]time.Time // market_id -> ultimo aviso de reintento
 }
 
 func NuevoWorker(f Fuente, p Pagos, d Difusor, ventana, observacion time.Duration) *Worker {
@@ -132,8 +142,8 @@ func (w *Worker) Procesar(ctx context.Context) error {
 			sim.ID, sim.CarreraID, sim.Estado, seg(sim.TCarreraMs))
 	}
 
-	if err := w.aplicarCola(ctx); err != nil || len(w.cola) > 0 || w.terminado {
-		return err
+	if w.aplicarCola(ctx); len(w.cola) > 0 || w.terminado {
+		return nil
 	}
 
 	reloj := sim.TCarreraMs
@@ -156,7 +166,8 @@ func (w *Worker) Procesar(ctx context.Context) error {
 		logSinResolver(sim, sinResolver)
 	}
 	w.encolar(acciones, reloj, sim.Termino())
-	return w.aplicarCola(ctx)
+	w.aplicarCola(ctx)
+	return nil
 }
 
 // encolar marca que se difunde: en el primer lote (al arrancar el Gestor) lo
@@ -182,35 +193,53 @@ func (w *Worker) cambiar(ctx context.Context, nueva Simulacion) {
 		if len(w.cola) > 0 {
 			log.Printf("HU2-08: simulacion %s reemplazada por %s: aplicando %d acciones pendientes", w.sim.ID, nueva.ID, len(w.cola))
 			w.sim.Estado = SimFallida // se aplica como terminada: un intento, sin bucle
-			_ = w.aplicarCola(ctx)
+			w.aplicarCola(ctx)
 		}
 	}
-	w.gestor, w.cola, w.terminado, w.abandonada = nil, nil, false, ""
+	w.gestor, w.cola, w.terminado, w.abandonada, w.avisados = nil, nil, false, "", nil
 }
 
-// aplicarCola aplica en orden. Devuelve error solo si una accion reintentable
-// de una simulacion en_curso queda pendiente.
-func (w *Worker) aplicarCola(ctx context.Context) error {
+// aplicarCola aplica en orden. Una accion reintentable de una simulacion
+// en_curso se queda al frente de la cola para el siguiente tick.
+func (w *Worker) aplicarCola(ctx context.Context) {
 	for len(w.cola) > 0 {
 		p := w.cola[0]
 		err := w.aplicar(ctx, p)
 		if err == nil {
 			w.cola = w.cola[1:]
+			delete(w.avisados, p.Mercado.ID)
 			continue
 		}
 		if w.sim.Termino() {
 			log.Printf("HU2-08: ATENCION simulacion %s terminada: %s fallo (%v); se abandona con %d acciones sin aplicar",
 				w.sim.ID, describir(p.Accion), err, len(w.cola))
 			w.cola, w.abandonada = nil, w.sim.ID
-			return nil
+			return
 		}
 		if errors.Is(err, ErrReintentable) {
-			return fmt.Errorf("%s queda para el siguiente tick: %w", describir(p.Accion), err)
+			w.avisarReintento(p.Accion, err)
+			return
 		}
 		log.Printf("HU2-08: ATENCION %s no se reintenta: %v", describir(p.Accion), err)
 		w.cola = w.cola[1:]
 	}
-	return nil
+}
+
+// avisarReintento loguea a lo sumo una vez cada avisoReintento por mercado.
+func (w *Worker) avisarReintento(a Accion, err error) {
+	ahora := time.Now()
+	if w.Ahora != nil {
+		ahora = w.Ahora()
+	}
+	if previo, ok := w.avisados[a.Mercado.ID]; ok && ahora.Sub(previo) < avisoReintento {
+		return
+	}
+	if w.avisados == nil {
+		w.avisados = map[string]time.Time{}
+	}
+	w.avisados[a.Mercado.ID] = ahora
+	log.Printf("HU2-08: %s queda para el siguiente tick: %v (se reintenta cada tick; este aviso sale cada %s)",
+		describir(a), err, avisoReintento)
 }
 
 func (w *Worker) aplicar(ctx context.Context, p pendiente) error {

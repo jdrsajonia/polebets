@@ -1,10 +1,14 @@
 package dinamicas
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"math"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -294,5 +298,44 @@ func TestWorkerCambioDeSimulacion(t *testing.T) {
 	ticks(t, w, f, 95000, 100000)
 	if len(p.altas) != 2 || p.altas[1].Mercado.EventoID != "sim-b" || p.altas[1].Mercado.ID == p.altas[0].Mercado.ID {
 		t.Fatalf("altas = %+v", p.altas)
+	}
+}
+
+func TestWorkerAvisoDeReintentoCada10s(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	w, f, p, _ := escenarioWorker()
+	ahora := time.Date(2026, 11, 2, 20, 0, 0, 0, time.UTC)
+	w.Ahora = func() time.Time { return ahora }
+	tick := func(reloj int64) {
+		f.sim.TCarreraMs = reloj
+		_ = w.Procesar(context.Background())
+		ahora = ahora.Add(500 * time.Millisecond)
+	}
+	avisos := func() int { return strings.Count(buf.String(), "queda para el siguiente tick") }
+
+	// El evento aun no existe en Pagos: 25 ticks seguidos (12,5 s) fallando.
+	for i := 0; i < 25; i++ {
+		p.errores["crear"] = append(p.errores["crear"], ErrReintentable)
+	}
+	tick(95000)
+	for i := 0; i < 25; i++ {
+		tick(100000)
+	}
+	if n := avisos(); n != 2 { // en 0 s y en 10 s
+		t.Fatalf("avisos = %d:\n%s", n, buf.String())
+	}
+	tick(100000) // ahora si se crea
+	if len(p.altas) != 1 {
+		t.Fatalf("altas = %d", len(p.altas))
+	}
+
+	// Un fallo nuevo del mismo mercado despues de un exito avisa enseguida.
+	p.errores["cerrar"] = []error{ErrReintentable}
+	tick(130000)
+	if n := avisos(); n != 3 {
+		t.Fatalf("avisos = %d:\n%s", n, buf.String())
 	}
 }
