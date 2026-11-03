@@ -18,9 +18,9 @@ Motor: Gestor de mercados (internal/dinamicas)
                                                             └─▶ HU2-10 liquida
 ```
 
-Estado de la implementación: bloque 1 (dominio puro) y bloque 2 (lector de
-Mongo y cliente de Pagos). El worker y el mensaje WebSocket vienen en el
-bloque 3.
+Estado de la implementación: dominio puro, lector de Mongo, cliente de Pagos,
+worker y mensaje WebSocket `mercado_dinamico` (bloques 1 a 3). Falta la
+prueba punta a punta con Docker Compose (bloque 4).
 
 ## Qué cubre
 
@@ -177,6 +177,22 @@ fórmula del reloj del Ingestor: en vivo coincide con la hora real y al
 reprocesar da exactamente lo mismo. Van en UTC (con zona, como exige Pagos).
 `race_close_s` es `race_close` en segundos, redondeado hacia abajo.
 
+## Worker
+
+| Situación | Qué hace |
+| --- | --- |
+| Simulación `en_curso` sin `t_carrera_ms` | Espera |
+| No se pueden leer los datos de la carrera | Reintenta en el próximo tick sin crear el Gestor (se leen una vez por simulación) |
+| Acción reintentable que falla (`en_curso`) | Queda en la cola en memoria; no se leen eventos nuevos hasta aplicarla, así nada se duplica |
+| 409 u otro rechazo (`en_curso`) | Log `ATENCION` y se salta esa acción |
+| Simulación ya terminada al verla | Se procesa una vez; si una acción falla, se abandona hasta que aparezca otra |
+| Motor que arranca a mitad de carrera | Reprocesa desde el inicio; Pagos responde 200 a lo ya creado. Si `race_close` ya pasó, crea `programado` y luego cierra |
+| Aparece otra simulación | `Terminar()` en el Gestor viejo y aplica sus cierres (un intento) antes de cambiar |
+
+Se difunde `mercado_dinamico` solo en vivo. En el primer lote de una
+simulación, una acción más de 5 s detrás del reloj es recuperación y no se
+anuncia, ni nada de una simulación que ya estaba terminada.
+
 ## Código
 
 `services/motor/internal/dinamicas`:
@@ -190,5 +206,6 @@ reprocesar da exactamente lo mismo. Van en UTC (con zona, como exige Pagos).
 | `uuid.go` | UUIDv5 con la biblioteca estándar |
 | `mongo.go` | Lector de Mongo, solo lectura: simulación actual, datos de la carrera y eventos `(cursor, reloj]` |
 | `pagos.go` | Cliente de Pagos: crear, open, close y resolve con el token de servicio |
+| `worker.go` | Worker cada 500 ms: cola de acciones, recuperación, cambio de simulación y difusión |
 
 Pruebas: `go test -race ./internal/dinamicas/` desde `services/motor`.

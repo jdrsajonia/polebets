@@ -17,6 +17,7 @@ internal/apuestas    # HU-06: POST /apuestas
 internal/mercados    # HU-11: abrir mercado y ciclo abierto → cerrado → liquidar
 internal/ingest      # HU-04: ingesta de OpenF1 y replay
 internal/posiciones  # HU-05: tablero de posiciones, GET /posiciones y difusión de la foto
+internal/dinamicas   # HU2-08: Gestor de mercados dinámicos (dominio puro + lector de Mongo, cliente de Pagos y worker)
 ```
 
 Para agregar una HU, crea un paquete en `internal/` con una función `Register(mux, ...)` y llámala desde `main.go`. Así nadie edita el paquete de otro:
@@ -114,6 +115,7 @@ El front decide qué hacer según `type`. Los tipos están en `internal/ws/mensa
 | `mercado_liquidado` | todos | HU-07 | el mercado se resolvió |
 | `resultado_apuesta` | solo al usuario | HU-08 / HU2-11 | se liquidó la apuesta de ese usuario (puntos en individual, fichas en torneo) |
 | `ranking_torneo` | todos | HU2-11 | cambiaron las fichas de un torneo (tras liquidar sus apuestas) |
+| `mercado_dinamico` | todos | HU2-08 | el Gestor abre, cierra o resuelve un mercado dinámico (no reemplaza `mercado_abierto`/`mercado_cerrado`, que siguen siendo del P1) |
 
 Desde Go:
 
@@ -325,6 +327,60 @@ cliente `fichas.PagosCierreHTTP`) y solo si Pagos confirma el reparto borra las
 claves del torneo. Si Pagos falla, Redis queda intacto y el cierre se puede
 repetir (Pagos es idempotente). Lo invoca el flujo de fin de carrera (HU2-07).
 Ver [`../../documentation/hu2-12-reparto-botin.md`](../../documentation/hu2-12-reparto-botin.md).
+
+## Apuestas dinámicas (HU2-08)
+
+`internal/dinamicas` abre solo los mercados de «Sí / No» durante la carrera.
+Catálogo, reglas y justificación en
+[`../../documentation/hu2-08-apuestas-dinamicas.md`](../../documentation/hu2-08-apuestas-dinamicas.md).
+
+```
+MongoDB (Ingestor escribe, el Motor solo lee)
+  simulaciones.t_carrera_ms = reloj · eventos_carrera (cursor, reloj]
+        │ worker cada 500 ms
+        ▼
+Gestor (dominio puro, determinista) ─▶ Crear · Cerrar · Resolver
+        │                                   │
+        ▼                                   ▼
+WebSocket "mercado_dinamico"        Pagos /internal/markets (kind = dinamica)
+                                            └─▶ HU2-10 liquida
+```
+
+- **Supuesto `event_id` = `_id` de la simulación** (acordado con HU2-07): el
+  evento en Pagos se crea con ese id. Mientras no exista, crear responde 404
+  y el worker reintenta en cada tick sin avanzar.
+- `market_id` = UUIDv5 de `simulacion|plantilla|t0`; `opens_at` y `closes_at`
+  salen de `iniciada_en + (t − t_inicio_ms)`. Así, reprocesar la misma
+  simulación da exactamente los mismos datos y Pagos responde 200.
+- Al arrancar a mitad de carrera se reprocesa desde el inicio. Un mercado
+  cuyo `race_close` ya pasó se crea `programado` y se cierra (nunca queda
+  abierto). La recuperación no se difunde.
+- Una simulación que ya estaba terminada al verla se procesa una sola vez; si
+  una acción falla, se loguea y se abandona. Si aparece otra simulación, se
+  cierra lo que dejó abierto la anterior.
+- Usa `BETTING_WINDOW_SECONDS` y `OBSERVATION_WINDOW_SECONDS`, en tiempo de carrera.
+
+Payload de `mercado_dinamico` (`status` es `abierto` o `cerrado`;
+`winning_option` solo llega al resolver):
+
+```json
+{
+  "type": "mercado_dinamico",
+  "payload": {
+    "market_id": "75f33557-0ff4-5b93-9017-4c8f8a27746e",
+    "event_id": "<_id de la simulación>",
+    "template": "cambio_lider",
+    "question": "¿Habrá un líder distinto de VER al terminar el próximo minuto?",
+    "options": [{ "opcion": "Sí", "multiplicador": 3.5 }, { "opcion": "No", "multiplicador": 1.25 }],
+    "status": "cerrado",
+    "race_close_s": 130,
+    "winning_option": "No"
+  }
+}
+```
+
+Logs para seguir la demo (`docker compose logs -f motor | grep HU2-08`): cada
+acción sale con plantilla, `market_id` y t de carrera.
 
 ## Correr y probar
 
