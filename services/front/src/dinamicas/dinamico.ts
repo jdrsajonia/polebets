@@ -58,3 +58,34 @@ export function siguienteMercado(actual: MensajeDinamico | null, msg: MensajeDin
   }
   return ORDEN[fase] >= ORDEN[faseDinamica(actual)] ? msg : actual;
 }
+
+// ---------------------------------------------------------------------------
+// Antes de confirmar (RF-09): pago potencial, monto y modo
+// ---------------------------------------------------------------------------
+
+// Lo que recibe el jugador si acierta: monto x multiplicador, truncado como el
+// motor y Pagos (centesimas enteras, ROUND_DOWN).
+export function pagoSiAcierta(monto: number, multiplicador: number): number {
+  if (!Number.isInteger(monto) || monto <= 0) return 0;
+  return Math.floor((monto * Math.round(multiplicador * 100)) / 100);
+}
+
+export const PASO_MONTO = 10;
+
+// Valida el texto del campo monto: entero > 0.
+export function validarMonto(texto: string): { ok: true; monto: number } | { ok: false; error: string } {
+  const limpio = texto.trim();
+  if (limpio === "") return { ok: false, error: "Escribe el monto" };
+  if (!/^\d+$/.test(limpio)) return { ok: false, error: "El monto debe ser un número entero" };
+  const monto = Number(limpio);
+  if (monto <= 0) return { ok: false, error: "El monto debe ser mayor que 0" };
+  return { ok: true, monto };
+}
+
+// Botones + y -: suma o resta PASO_MONTO sin bajar de 1. Si el campo no es
+// un numero valido, arranca desde 0.
+export function ajustarMonto(texto: string, delta: number): string {
+  const v = validarMonto(texto);
+  const base = v.ok ? v.monto : 0;
+  return String(Math.max(1, base + delta));
+}
