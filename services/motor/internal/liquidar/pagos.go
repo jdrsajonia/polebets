@@ -32,9 +32,9 @@ func (p *PagosHTTP) MercadosPorLiquidar(ctx context.Context) ([]Mercado, error) 
 	return ms, p.leer(ctx, "/internal/markets?status=cerrado&resuelto=true&limit=50", &ms)
 }
 
-func (p *PagosHTTP) ApuestasPendientes(ctx context.Context, mercadoID string) ([]Apuesta, error) {
+func (p *PagosHTTP) ApuestasPendientes(ctx context.Context, mercadoID, modo string) ([]Apuesta, error) {
 	var as []Apuesta
-	ruta := "/internal/markets/" + url.PathEscape(mercadoID) + "/bets?mode=individual&status=pending"
+	ruta := "/internal/markets/" + url.PathEscape(mercadoID) + "/bets?mode=" + url.QueryEscape(modo) + "&status=pending"
 	return as, p.leer(ctx, ruta, &as)
 }
 
@@ -57,6 +57,28 @@ func (p *PagosHTTP) Liquidar(ctx context.Context, betID string, gano bool) (Pago
 	var r Pago
 	if err := json.Unmarshal(b, &r); err != nil {
 		return Pago{}, fmt.Errorf("%w: respuesta invalida: %v", ErrPagosNoDisponible, err)
+	}
+	return r, nil
+}
+
+// LiquidarTorneo llama a POST /internal/bets/torneo/{bet_id}/settlement: marca
+// won/lost y el pago en fichas, sin tokens. 201 = ahora, 200 = ya estaba.
+func (p *PagosHTTP) LiquidarTorneo(ctx context.Context, betID string, gano bool) (PagoTorneo, error) {
+	resultado := "lost"
+	if gano {
+		resultado = "won"
+	}
+	ruta := "/internal/bets/torneo/" + url.PathEscape(betID) + "/settlement"
+	estado, b, err := p.pedir(ctx, http.MethodPost, ruta, map[string]string{"result": resultado}, "")
+	if err != nil {
+		return PagoTorneo{}, err
+	}
+	if estado != http.StatusCreated && estado != http.StatusOK {
+		return PagoTorneo{}, fmt.Errorf("%w: settlement de torneo respondio %d: %s", ErrPagosNoDisponible, estado, b)
+	}
+	var r PagoTorneo
+	if err := json.Unmarshal(b, &r); err != nil {
+		return PagoTorneo{}, fmt.Errorf("%w: respuesta invalida: %v", ErrPagosNoDisponible, err)
 	}
 	return r, nil
 }

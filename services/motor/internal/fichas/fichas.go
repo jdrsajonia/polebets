@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -213,8 +214,7 @@ func (a *Almacen) Liquidar(ctx context.Context, eventoID, apuestaID string, gano
 
 	pagadas := int64(0)
 	if gano {
-		// monto x multiplicador, truncado a entero: las fichas son enteras.
-		pagadas = int64(float64(reserva.Monto) * reserva.Multiplic)
+		pagadas = FichasPagadas(reserva.Monto, reserva.Multiplic)
 	}
 	if _, err := a.store.GuardarResultado(ctx, eventoID, apuestaID, ResultadoApuesta{
 		Gano:          gano,
@@ -223,6 +223,14 @@ func (a *Almacen) Liquidar(ctx context.Context, eventoID, apuestaID string, gano
 		return Estado{}, fmt.Errorf("guardar resultado de fichas: %w", err)
 	}
 	return a.store.Recalcular(ctx, eventoID, reserva.UsuarioID)
+}
+
+// FichasPagadas es monto x multiplicador truncado a entero, igual que Pagos
+// (bets.payout): el multiplicador tiene 2 decimales, asi que se pasa a
+// centesimas enteras y se calcula monto*centesimas/100. Con float, 100 x 1.13
+// daba 112 en vez de 113.
+func FichasPagadas(monto int64, multiplicador float64) int64 {
+	return monto * int64(math.Round(multiplicador*100)) / 100
 }
 
 // EstadoDe devuelve el estado actual de un jugador (saldo y apostado).

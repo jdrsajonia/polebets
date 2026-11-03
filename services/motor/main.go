@@ -93,13 +93,18 @@ func main() {
 	}
 	svcApostar.Carrera = vueltaCarrera{fuente: fuenteCarrera}
 	apostar.Register(mux, svcApostar, cfg.InternalAPIToken)
-	// HU2-10: liquida en tokens las apuestas individuales de los mercados del
-	// P2 (Pagos) que ya tienen opcion ganadora. Las de torneo son de HU2-11.
-	go liquidar.NuevoWorker(
+	// HU2-10: liquida los mercados del P2 (Pagos) que ya tienen opcion
+	// ganadora: las individuales en tokens y, con Redis, las de torneo en
+	// fichas (almacen de HU2-11). Sin Redis las de torneo esperan.
+	workerP2 := liquidar.NuevoWorker(
 		liquidar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
 		avisoWS{hub: hub},
 		5*time.Second,
-	).Run(ctx)
+	)
+	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
+		workerP2.Fichas = t
+	}
+	go workerP2.Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
 	// HU2-11: si hay almacen de fichas, el worker tambien liquida las apuestas
@@ -235,6 +240,20 @@ func (a adaptadorTorneo) Liquidar(ctx context.Context, eventoID, apuestaID strin
 	}, nil
 }
 
+// LiquidarApuesta cumple liquidar.Fichas (HU2-10 con los mercados del P2).
+// Solo la reserva inexistente (Redis respondio) es ErrSinReserva; el resto
+// son fallos de conexion que el worker reintenta.
+func (a adaptadorTorneo) LiquidarApuesta(ctx context.Context, eventoID, apuestaID string, gano bool) (liquidar.FichasTorneo, error) {
+	res, err := a.almacen.LiquidarYUbicar(ctx, eventoID, apuestaID, gano, 0)
+	if errors.Is(err, fichas.ErrJugadorNoInscrito) {
+		return liquidar.FichasTorneo{}, liquidar.ErrSinReserva
+	}
+	if err != nil {
+		return liquidar.FichasTorneo{}, err
+	}
+	return liquidar.FichasTorneo{Ganadas: res.FichasGanadas, Total: res.FichasTotal, Puesto: res.Puesto}, nil
+}
+
 func (a adaptadorTorneo) Difundir(ctx context.Context, eventoID string) {
 	a.difusor.Difundir(ctx, eventoID)
 }
@@ -270,6 +289,10 @@ func (a avisoWS) EnviarA(userID, tipo string, payload any) error {
 // vueltaCarrera cumple apostar.Carrera con la fuente de HU2-14: la vuelta de
 // la simulacion en curso (simulaciones.vuelta_actual). Antes de la largada o
 // con la carrera terminada no hay vuelta y bets.lap queda nula.
+//
+// No compara la carrera de la simulacion con la del evento del mercado: RF-22
+// solo permite una simulacion a la vez, asi que la que esta en curso es la
+// del evento.
 type vueltaCarrera struct {
 	fuente *carrera.MongoFuente
 }

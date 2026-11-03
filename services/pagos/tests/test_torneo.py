@@ -329,3 +329,12 @@ def test_el_motor_lista_las_pendientes_de_torneo_con_su_modo(client, fabrica):
 
     assert r.status_code == 200
     assert [(b["bet_id"], b["mode"], b["amount"]) for b in r.json()] == [(str(bet_tor), "torneo", 50)]
+
+
+@requires_db
+def test_pago_en_fichas_cuadra_con_el_motor(client, fabrica):
+    """Mismo calculo que fichas.FichasPagadas del Motor: monto × centésimas / 100, truncado."""
+    user_id = fabrica.billetera()
+    for monto, multiplicador, esperado in ((10, "2.30", 23), (100, "1.13", 113), (50, "1.14", 57)):
+        _, bet_id = _registrar(client, user_id, fabrica.mercado(), amount=monto, multiplier=multiplicador)
+        assert _liquidar(client, bet_id, "won").json()["payout"] == esperado, (monto, multiplicador)

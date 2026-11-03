@@ -268,7 +268,8 @@ El paquete `internal/fichas` es el almacén de fichas y el ranking:
   apuesta y se recalcula el total, así un reintento con la misma apuesta no
   descuenta dos veces (RNF-12). Quien llega a 0 fichas no puede apostar.
 - **Liquidar** (`Almacen.Liquidar`): al resolver el mercado, una apuesta de
-  torneo ganadora recibe `monto × multiplicador` en fichas y una perdedora
+  torneo ganadora recibe `monto × multiplicador` en fichas (en centésimas
+  enteras y truncado, igual que `bets.payout` en Pagos) y una perdedora
   nada. El resultado se escribe una sola vez por apuesta y el total se
   recalcula: repetir la liquidación no paga doble.
 
@@ -278,10 +279,21 @@ se **recalcula** desde su saldo inicial, sus reservas y los resultados escritos.
 Así el componente es seguro ante reintentos, reinicios del motor y dobles
 entregas del WebSocket.
 
-El worker de liquidación (HU-07) decide por el `modo` de cada contexto de
-apuesta: `individual` va a Pagos en tokens (como siempre); `torneo` va al
-almacén de fichas y no toca Pagos. Si no hay `REDIS_URL`, una apuesta de torneo
-queda reintentable (nunca se liquida un torneo en tokens).
+Mercados del P2 (Pagos, HU2-10, paquete `liquidar`): por cada mercado cerrado
+con ganador, el worker paga las individuales en tokens y, para las de torneo
+(`mode=torneo&status=pending`), escribe las fichas en Redis
+(`LiquidarYUbicar`), marca la apuesta en Pagos
+(`POST /internal/bets/torneo/{id}/settlement`) y avisa al jugador. Al
+terminar el mercado difunde `ranking_torneo`. `/liquidated` solo se llama
+cuando no queda ninguna pendiente de ningún modo.
+
+- Sin `REDIS_URL` las de torneo quedan pendientes y el mercado espera (nunca
+  se liquida un torneo en tokens). Con Redis caído, igual: se reintenta.
+- Si Redis responde pero la apuesta no tiene reserva (Pagos la registró y la
+  reserva falló sin reintento del jugador), se marca `lost` con 0 fichas: nunca
+  se le descontaron. Queda en el log.
+
+El worker del P1 (HU-07, paquete `liquidacion`) sigue con los mercados de Mongo.
 
 Al cambiar las fichas de un torneo, el motor difunde el **ranking** por
 WebSocket (RF-18, cambio en pantalla en < 1 s, RNF-13):
@@ -313,8 +325,8 @@ WebSocket (RF-18, cambio en pantalla en < 1 s, RNF-13):
 | `min_apostado` | fichas que hay que apostar para ser elegible (techo del porcentaje) |
 
 Cuando la apuesta liquidada fue de torneo, `resultado_apuesta` (que llega solo
-al dueño, HU-08) trae además `modo: "torneo"`, `fichas_ganadas`, `fichas_total`
-y `puesto` en lugar de puntos (RF-17).
+al dueño, HU-08) trae además `modo: "torneo"`, `fichas_ganadas`, `fichas_perdidas`,
+`fichas_total` y `puesto` en lugar de tokens (RF-17).
 
 Detalle completo, claves de Redis y decisiones en
 [`../../documentation/hu2-11-fichas-ranking.md`](../../documentation/hu2-11-fichas-ranking.md).

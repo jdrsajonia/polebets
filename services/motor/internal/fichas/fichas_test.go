@@ -237,3 +237,41 @@ func TestReservarEnTorneoNoActivoFalla(t *testing.T) {
 		t.Fatalf("quiero ErrTorneoNoActivo, tengo %v", err)
 	}
 }
+
+func TestFichasPagadasEnCentesimasComoPagos(t *testing.T) {
+	casos := []struct {
+		monto int64
+		mult  float64
+		want  int64
+	}{
+		{10, 2.30, 23},
+		{100, 1.13, 113}, // con float daba 112
+		{50, 1.14, 57},   // con float daba 56
+		{3, 1.5, 4},      // 4,5 -> 4, como pago_por_apuesta de Pagos
+		{10, 1.33, 13},
+	}
+	for _, c := range casos {
+		if got := FichasPagadas(c.monto, c.mult); got != c.want {
+			t.Errorf("%d x %v = %d, quiero %d", c.monto, c.mult, got, c.want)
+		}
+	}
+}
+
+func TestLiquidarYUbicarPagaEnCentesimas(t *testing.T) {
+	a, _ := nuevoAlmacenDePrueba()
+	ctx := context.Background()
+	_ = a.InicializarTorneo(ctx, evt, []string{"u1"}, 1000)
+	_, _ = a.ReservarApuesta(ctx, evt, Reserva{ApuestaID: "b1", UsuarioID: "u1", Monto: 100, Opcion: "Sí", Multiplic: 1.13})
+
+	res, err := a.LiquidarYUbicar(ctx, evt, "b1", true, 1.13)
+	if err != nil {
+		t.Fatalf("liquidar: %v", err)
+	}
+	// 1000 - 100 + 113 = 1013. Repetir no cambia las fichas (RNF-12).
+	if res.FichasGanadas != 113 || res.FichasTotal != 1013 {
+		t.Fatalf("ganadas=%d total=%d (quiero 113/1013)", res.FichasGanadas, res.FichasTotal)
+	}
+	if res, _ = a.LiquidarYUbicar(ctx, evt, "b1", true, 1.13); res.FichasTotal != 1013 {
+		t.Fatalf("repetir cambio las fichas: %d", res.FichasTotal)
+	}
+}
