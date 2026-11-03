@@ -80,11 +80,16 @@ func nuevoIndiceVueltas(marcas []marcaVuelta) indiceVueltas {
 	return ix
 }
 
-// vueltaActual es el mayor lap_number con t_carrera_ms ≤ t (0 antes de la largada).
-func (ix indiceVueltas) vueltaActual(t int64) int {
+// vueltaActual es el mayor lap_number con t_carrera_ms ≤ t (0 antes de la
+// largada), sin pasar de total (la vuelta de enfriamiento no se muestra).
+// total ≤ 0 significa que no se conoce.
+func (ix indiceVueltas) vueltaActual(t int64, total int) int {
 	i := sort.Search(len(ix.ts), func(i int) bool { return ix.ts[i] > t })
 	if i == 0 {
 		return 0
 	}
-	return ix.maxHasta[i-1]
+	if v := ix.maxHasta[i-1]; total <= 0 || v < total {
+		return v
+	}
+	return total
 }

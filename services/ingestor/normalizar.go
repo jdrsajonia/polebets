@@ -94,11 +94,14 @@ func tiempoStint(stint Registro, vueltas map[int]int64) (int64, bool) {
 	return 0, false
 }
 
-// totalVueltas es la vuelta más alta que se registró.
-func totalVueltas(vueltas map[int]int64) int {
+// totalVueltas es la vuelta más alta que algún piloto completó (con
+// lap_duration). La vuelta de enfriamiento tras la bandera a cuadros aparece
+// en /laps sin duración y no cuenta.
+func totalVueltas(laps []Registro) int {
 	total := 0
-	for n := range vueltas {
-		if n > total {
+	for _, lap := range laps {
+		n, ok := entero(lap["lap_number"])
+		if _, completa := lap["lap_duration"].(float64); ok && completa && n > total {
 			total = n
 		}
 	}

@@ -115,12 +115,16 @@ func TestVueltaActualEsLaDelLider(t *testing.T) {
 	})
 	casos := map[int64]int{-1: 0, 0: 1, 94999: 1, 95000: 2, 189999: 2, 190000: 3, 1 << 40: 3}
 	for tms, want := range casos {
-		if got := ix.vueltaActual(tms); got != want {
+		if got := ix.vueltaActual(tms, 0); got != want {
 			t.Errorf("vueltaActual(%d) = %d, want %d", tms, got, want)
 		}
 	}
-	if got := nuevoIndiceVueltas(nil).vueltaActual(1000); got != 0 {
+	if got := nuevoIndiceVueltas(nil).vueltaActual(1000, 62); got != 0 {
 		t.Errorf("sin vueltas = %d, want 0", got)
+	}
+	// Con total 2, la vuelta 3 (enfriamiento) se muestra como 2/2.
+	if got := ix.vueltaActual(1<<40, 2); got != 2 {
+		t.Errorf("tras la bandera = %d, want 2", got)
 	}
 }
 

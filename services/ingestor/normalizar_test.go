@@ -51,8 +51,18 @@ func TestTiemposPorVueltaUsaElLiderYVuelta1SinFecha(t *testing.T) {
 	if _, ok := v[3]; ok {
 		t.Error("la vuelta 3 sin fecha no debería quedar")
 	}
-	if totalVueltas(v) != 4 {
-		t.Errorf("total_vueltas = %d, want 4", totalVueltas(v))
+}
+
+func TestTotalVueltasIgnoraLaDeEnfriamiento(t *testing.T) {
+	laps := []Registro{
+		{"lap_number": 1.0, "lap_duration": nil}, // vuelta 1 sin tiempo (largada)
+		{"lap_number": 61.0, "lap_duration": 99.3},
+		{"lap_number": 62.0, "lap_duration": 98.2},
+		{"lap_number": 62.0, "lap_duration": nil}, // un piloto que abandonó
+		{"lap_number": 63.0, "lap_duration": nil}, // enfriamiento tras la bandera
+	}
+	if got := totalVueltas(laps); got != 62 {
+		t.Errorf("total_vueltas = %d, want 62", got)
 	}
 }
 

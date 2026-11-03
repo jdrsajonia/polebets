@@ -144,7 +144,7 @@ func DescargarCarrera(ctx context.Context, db *mongo.Database, cli *clienteOpenF
 		log.Printf("   piloto %d listo (%d ubicaciones acumuladas)", num, g.conteo["ubicacion"])
 	}
 
-	if err := g.confirmar(ctx, sesion, largada, pilotos, totalVueltas(vueltas)); err != nil {
+	if err := g.confirmar(ctx, sesion, largada, pilotos, totalVueltas(laps)); err != nil {
 		return err
 	}
 	log.Printf("🎉 Sesión %s descargada: %v (omitidos sin fecha: %d)", sessionKey, g.conteo, g.omitidos)

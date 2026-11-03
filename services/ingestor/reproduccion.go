@@ -260,7 +260,7 @@ func (r *reproductor) latir(ctx context.Context, sim simulacion, t int64, prep p
 	defer cancel()
 	if _, err := r.col("simulaciones").UpdateOne(c, bson.M{"_id": sim.ID}, bson.M{"$set": bson.M{
 		"t_carrera_ms":  t,
-		"vuelta_actual": int32(prep.vueltas.vueltaActual(t)),
+		"vuelta_actual": int32(prep.vueltas.vueltaActual(t, int(prep.totalVueltas))),
 		"total_vueltas": prep.totalVueltas,
 		"latido_en":     ahora,
 	}}); err != nil {
