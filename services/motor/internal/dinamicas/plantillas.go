@@ -121,9 +121,15 @@ type adelantamiento struct{}
 
 func (adelantamiento) ID() string { return PlantillaAdelantamiento }
 
+// La pareja P1-P2 no se propone: esa pelea es de cambio_lider, y asi no
+// salen dos preguntas equivalentes seguidas cuando cambio_lider esta en
+// cooldown.
 func (adelantamiento) Evaluar(e *Estado, _ Evento) []Propuesta {
 	var res []Propuesta
 	for _, p := range parejas(e, 0, umbralAdelantamiento, false) {
+		if p.posB == 1 {
+			continue
+		}
 		res = append(res, Propuesta{
 			Plantilla: PlantillaAdelantamiento,
 			Pregunta:  fmt.Sprintf("¿%s irá delante de %s al terminar el próximo minuto?", e.Codigo(p.b), e.Codigo(p.a)),

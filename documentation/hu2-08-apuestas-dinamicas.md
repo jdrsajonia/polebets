@@ -91,12 +91,16 @@ mira solo lo que pasa en `(race_close, race_close + O]` y el estado en
 
 | # | `template` | Se abre cuando | Pregunta | Sí / No | Gana «Sí» si |
 | --- | --- | --- | --- | --- | --- |
-| 1 | `adelantamiento` | B a < 1,0 s de A, que va justo delante (varios: menor intervalo; empate por posición) | ¿{B} irá delante de {A} al terminar el próximo minuto? | 3.0 / 1.3 | En race_close+O, B va delante de A |
+| 1 | `adelantamiento` | B a < 1,0 s de A, que va justo delante, con A distinto del líder (varios: menor intervalo; empate por posición) | ¿{B} irá delante de {A} al terminar el próximo minuto? | 3.0 / 1.3 | En race_close+O, B va delante de A |
 | 2 | `cambio_lider` | P2 a < 1,5 s del líder L | ¿Habrá un líder distinto de {L} al terminar el próximo minuto? | 3.5 / 1.25 | En race_close+O el P1 no es L |
-| 3 | `brecha_se_cierra` | B entre 1,0 y 3,0 s (inclusive) de A, justo delante | ¿{B} estará a menos de 1 s de {A} al terminar el próximo minuto? | 2.5 / 1.5 | En race_close+O, B va delante de A, o detrás con su último intervalo < 1,0 s |
+| 3 | `brecha_se_cierra` | B entre 1,0 y 3,0 s (inclusive) de A, justo delante | ¿{B} estará a menos de 1 s de {A} al terminar el próximo minuto? | 2.5 / 1.5 | En race_close+O, B va delante de A, o A sigue justo delante de B (adyacentes) y el último intervalo de B es < 1,0 s. Con otro auto en medio, «No» |
 | 4 | `entrada_pits` | Alguien del top 10 lleva ≥ 18 vueltas con las mismas llantas | ¿Algún piloto del top 10 entrará a pits en el próximo minuto? | 2.2 / 1.6 | Hay un pit en la observación de alguien que estaba en el top 10 en race_close |
 | 5 | `vuelta_rapida` | El líder empieza la vuelta 10, 20, 30…, con mejor vuelta conocida M | ¿Habrá una nueva vuelta rápida de la carrera en el próximo minuto? | 2.8 / 1.35 | Una vuelta que **termina** en la observación es < M |
 | 6 | `safety_car` | Llega un control con bandera YELLOW o DOUBLE YELLOW | ¿Saldrá el Safety Car o el VSC en el próximo minuto? | 4.0 / 1.2 | En la observación llega un control con «SAFETY CAR DEPLOYED» (incluye el VSC) |
+
+`adelantamiento` no propone la pareja P1-P2: esa pelea ya la pregunta
+`cambio_lider`, y si no, cuando `cambio_lider` está en cooldown saldría la
+misma pregunta con otras palabras.
 
 Los ids de `template` no se cambian: HU2-21 los usa en las consultas de
 rentabilidad.

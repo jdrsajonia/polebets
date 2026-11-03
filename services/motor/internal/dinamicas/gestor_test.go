@@ -134,18 +134,18 @@ func TestCooldownPlantilla(t *testing.T) {
 	casos := []struct {
 		nombre string
 		t      int64
-		abre   string
+		abre   []string
 	}{
-		// NOR a 0,5 s de VER tambien es adelantamiento: con cambio_lider en
-		// cooldown se abre la siguiente por prioridad.
-		{"a los 180 s menos 1 ms cae a la siguiente", 279999, "crear adelantamiento 279999"},
-		{"a los 180 s vuelve a abrir", 280000, "crear cambio_lider 280000"},
+		// NOR a 0,5 s de VER no es adelantamiento (P1-P2 es de cambio_lider):
+		// mientras dure el cooldown no se abre nada.
+		{"a los 180 s menos 1 ms no abre", 279999, nil},
+		{"a los 180 s vuelve a abrir", 280000, []string{"crear cambio_lider 280000"}},
 	}
 	for _, c := range casos {
 		t.Run(c.nombre, func(t *testing.T) {
 			evs := con(enVuelta2(), intv(100000, 4, f(0.5)), intv(c.t, 4, f(0.5)))
 			got := resumen(correr(cfgPrueba(), evs, c.t))
-			if want := append(append([]string(nil), inicio...), c.abre); !reflect.DeepEqual(got, want) {
+			if want := append(append([]string(nil), inicio...), c.abre...); !reflect.DeepEqual(got, want) {
 				t.Fatalf("acciones = %v", got)
 			}
 		})
