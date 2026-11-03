@@ -2,7 +2,7 @@
 // que reproduce el Ingestor (HU2-16/HU2-19) en MongoDB.
 //
 //	Ingestor (unico que escribe en Mongo, RNF-18)
-//	  simulaciones     {_id, carrera_id, estado, t_carrera_ms}
+//	  simulaciones     {_id, carrera_id, estado, t_carrera_ms, vuelta_actual, total_vueltas}
 //	  carreras         {carrera_id, pilotos[{numero, codigo, nombre, equipo, color}]}
 //	  eventos_carrera  {carrera_id, tipo:"posicion", t_carrera_ms, datos.raw{driver_number, position}}
 //	        │ el Motor solo lee
@@ -16,7 +16,9 @@
 // evento a medias. Si el Motor se reinicia a mitad de carrera, la primera
 // lectura trae todo hasta el instante actual y el tablero queda al dia.
 //
-// Varios cambios del mismo paso se aplican juntos y se difunde UNA foto.
+// Varios cambios del mismo paso se aplican juntos y se difunde UNA foto, que
+// tambien lleva la vuelta actual y el total ("Vuelta X/Y", RF-19). Si solo
+// cambia la vuelta, igual se difunde.
 package carrera
 
 import (
@@ -33,6 +35,13 @@ type Simulacion struct {
 	CarreraID  string
 	Estado     string // programada | en_curso | finalizada
 	TCarreraMs int64  // reloj de carrera ya emitido; math.MinInt64 si aun no arranca
+	Vuelta     Vuelta
+}
+
+// Vuelta es la vuelta actual y el total de la carrera (0 = desconocido).
+type Vuelta struct {
+	Actual int
+	Total  int
 }
 
 // Piloto son los datos fijos de un carro (carreras.pilotos).
@@ -65,8 +74,9 @@ type Fuente interface {
 // Tablero es el tablero + difusor de HU-05 (adaptado en main.go).
 type Tablero interface {
 	Iniciar(carreraID string, pilotos []Piloto)
-	// Aplicar actualiza varias posiciones (numero -> posicion) y difunde una foto.
-	Aplicar(cambios map[int]int)
+	// Aplicar actualiza varias posiciones (numero -> posicion) y la vuelta, y
+	// difunde una foto. cambios puede venir vacio si solo cambio la vuelta.
+	Aplicar(cambios map[int]int, vuelta Vuelta)
 }
 
 type Lector struct {
@@ -75,7 +85,8 @@ type Lector struct {
 	Intervalo time.Duration
 
 	simID  string
-	cursor int64 // ultimo t_carrera_ms aplicado de simID
+	cursor int64  // ultimo t_carrera_ms aplicado de simID
+	vuelta Vuelta // ultima vuelta difundida de simID
 }
 
 func NuevoLector(f Fuente, t Tablero, intervalo time.Duration) *Lector {
@@ -115,6 +126,7 @@ func (l *Lector) Paso(ctx context.Context) error {
 		l.Tablero.Iniciar(sim.CarreraID, pilotos)
 		l.simID = sim.ID
 		l.cursor = math.MinInt64 // incluye la parrilla (eventos antes de la largada)
+		l.vuelta = Vuelta{}
 		log.Printf("HU2-14: siguiendo la simulacion %s (carrera %s, %d pilotos)", sim.ID, sim.CarreraID, len(pilotos))
 	}
 	if sim.TCarreraMs <= l.cursor {
@@ -124,16 +136,15 @@ func (l *Lector) Paso(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("leer posiciones: %w", err)
 	}
-	if len(cambios) > 0 {
-		ultimas := make(map[int]int, len(cambios))
-		for _, c := range cambios { // en orden: gana el mas reciente de cada carro
-			if c.Numero > 0 && c.Posicion > 0 {
-				ultimas[c.Numero] = c.Posicion
-			}
+	ultimas := make(map[int]int, len(cambios))
+	for _, c := range cambios { // en orden: gana el mas reciente de cada carro
+		if c.Numero > 0 && c.Posicion > 0 {
+			ultimas[c.Numero] = c.Posicion
 		}
-		if len(ultimas) > 0 {
-			l.Tablero.Aplicar(ultimas)
-		}
+	}
+	if len(ultimas) > 0 || sim.Vuelta != l.vuelta {
+		l.Tablero.Aplicar(ultimas, sim.Vuelta)
+		l.vuelta = sim.Vuelta
 	}
 	l.cursor = sim.TCarreraMs
 	return nil

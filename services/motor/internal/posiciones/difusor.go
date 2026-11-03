@@ -47,9 +47,9 @@ func (d *Difusor) Actualizar(numero, posicion int) {
 	}
 }
 
-// Aplicar actualiza varias posiciones y difunde una sola foto (HU2-14).
-func (d *Difusor) Aplicar(cambios map[int]int) {
-	if foto, ok := d.tablero.ActualizarVarias(cambios); ok {
+// Aplicar actualiza varias posiciones y la vuelta, y difunde una sola foto (HU2-14).
+func (d *Difusor) Aplicar(cambios map[int]int, vuelta, total int) {
+	if foto, ok := d.tablero.ActualizarVarias(cambios, vuelta, total); ok {
 		d.difundir(foto)
 	}
 }

@@ -249,8 +249,8 @@ func (t tableroEnVivo) Iniciar(carreraID string, pilotos []carrera.Piloto) {
 	t.difusor.Iniciar(carreraID, datos, map[int]int{})
 }
 
-func (t tableroEnVivo) Aplicar(cambios map[int]int) {
-	t.difusor.Aplicar(cambios)
+func (t tableroEnVivo) Aplicar(cambios map[int]int, vuelta carrera.Vuelta) {
+	t.difusor.Aplicar(cambios, vuelta.Actual, vuelta.Total)
 }
 
 // avisoWS adapta el Hub del WebSocket a liquidar.Avisador (HU2-10). El

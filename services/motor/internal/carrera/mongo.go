@@ -31,6 +31,8 @@ func (m *MongoFuente) SimulacionActual(ctx context.Context) (Simulacion, bool, e
 		CarreraID  string `bson:"carrera_id"`
 		Estado     string `bson:"estado"`
 		TCarreraMs *int64 `bson:"t_carrera_ms"`
+		Vuelta     int    `bson:"vuelta_actual"`
+		Total      int    `bson:"total_vueltas"`
 	}
 	err := m.simulaciones.FindOne(ctx,
 		bson.M{"estado": bson.M{"$in": bson.A{"en_curso", "finalizada"}}},
@@ -42,7 +44,10 @@ func (m *MongoFuente) SimulacionActual(ctx context.Context) (Simulacion, bool, e
 	if err != nil {
 		return Simulacion{}, false, err
 	}
-	s := Simulacion{ID: doc.ID, CarreraID: doc.CarreraID, Estado: doc.Estado, TCarreraMs: math.MinInt64}
+	s := Simulacion{
+		ID: doc.ID, CarreraID: doc.CarreraID, Estado: doc.Estado, TCarreraMs: math.MinInt64,
+		Vuelta: Vuelta{Actual: doc.Vuelta, Total: doc.Total},
+	}
 	if doc.TCarreraMs != nil {
 		s.TCarreraMs = *doc.TCarreraMs
 	}

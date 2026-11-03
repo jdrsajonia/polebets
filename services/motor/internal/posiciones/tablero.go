@@ -24,6 +24,8 @@ type Piloto struct {
 // FotoPosiciones es el estado completo de la carrera en un instante.
 type FotoPosiciones struct {
 	CarreraID     string    `json:"carrera_id"`
+	Vuelta        int       `json:"vuelta,omitempty"`        // vuelta actual (HU2-14); 0 = desconocida
+	TotalVueltas  int       `json:"total_vueltas,omitempty"` // total de la carrera (HU2-14)
 	ActualizadoEn time.Time `json:"actualizado_en"`
 	EmitidoEn     time.Time `json:"emitido_en,omitzero"`
 	Pilotos       []Piloto  `json:"pilotos"`
@@ -42,6 +44,8 @@ type Tablero struct {
 	carreraID  string
 	pilotos    map[int]PilotoCarrera // datos fijos por numero de carro
 	posiciones map[int]int           // posicion actual por numero
+	vuelta     int                   // vuelta actual (HU2-14)
+	total      int                   // total de vueltas (HU2-14)
 	foto       FotoPosiciones        // ultima foto armada
 }
 
@@ -59,6 +63,7 @@ func (t *Tablero) Iniciar(carreraID string, pilotos []PilotoCarrera, posiciones 
 	for _, p := range pilotos {
 		t.pilotos[p.Numero] = p
 	}
+	t.vuelta, t.total = 0, 0
 	t.posiciones = make(map[int]int, len(posiciones))
 	for numero, posicion := range posiciones {
 		t.posiciones[numero] = posicion
@@ -79,9 +84,9 @@ func (t *Tablero) Actualizar(numero, posicion int) (FotoPosiciones, bool) {
 	return t.foto, true
 }
 
-// ActualizarVarias aplica varios eventos de posicion (numero -> posicion) y
-// arma una sola foto (HU2-14: el lector trae los cambios por tramos).
-func (t *Tablero) ActualizarVarias(cambios map[int]int) (FotoPosiciones, bool) {
+// ActualizarVarias aplica varios eventos de posicion (numero -> posicion) y la
+// vuelta, y arma una sola foto (HU2-14: el lector trae los cambios por tramos).
+func (t *Tablero) ActualizarVarias(cambios map[int]int, vuelta, total int) (FotoPosiciones, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.iniciado {
@@ -90,6 +95,7 @@ func (t *Tablero) ActualizarVarias(cambios map[int]int) (FotoPosiciones, bool) {
 	for numero, posicion := range cambios {
 		t.posiciones[numero] = posicion
 	}
+	t.vuelta, t.total = vuelta, total
 	t.foto = t.armar()
 	return t.foto, true
 }
@@ -111,6 +117,8 @@ func (t *Tablero) armar() FotoPosiciones {
 	})
 	return FotoPosiciones{
 		CarreraID:     t.carreraID,
+		Vuelta:        t.vuelta,
+		TotalVueltas:  t.total,
 		ActualizadoEn: t.ahora().UTC(),
 		Pilotos:       filas,
 	}

@@ -43,6 +43,7 @@ type tableroFalso struct {
 	inicios    []string
 	pilotos    []Piloto
 	posiciones map[int]int
+	vuelta     Vuelta
 	fotos      int // difusiones por Aplicar
 }
 
@@ -52,10 +53,11 @@ func (t *tableroFalso) Iniciar(carreraID string, pilotos []Piloto) {
 	t.posiciones = map[int]int{}
 }
 
-func (t *tableroFalso) Aplicar(cambios map[int]int) {
+func (t *tableroFalso) Aplicar(cambios map[int]int, vuelta Vuelta) {
 	for n, p := range cambios {
 		t.posiciones[n] = p
 	}
+	t.vuelta = vuelta
 	t.fotos++
 }
 
@@ -181,6 +183,42 @@ func TestSinSimulacionOConErrorNoTocaElTablero(t *testing.T) {
 	paso(t, l) // se recupera en el siguiente paso
 	if len(tb.inicios) != 1 || tb.fotos != 1 {
 		t.Errorf("tras recuperarse: inicios %v fotos %d", tb.inicios, tb.fotos)
+	}
+}
+
+func TestLaFotoLlevaLaVueltaActualYElTotal(t *testing.T) {
+	f, tb, l := nueva()
+	f.sim.Vuelta = Vuelta{Actual: 1, Total: 57}
+	paso(t, l)
+	if tb.vuelta != (Vuelta{Actual: 1, Total: 57}) {
+		t.Errorf("vuelta = %+v", tb.vuelta)
+	}
+
+	f.sim.TCarreraMs = 9500
+	f.sim.Vuelta = Vuelta{Actual: 2, Total: 57}
+	paso(t, l)
+	if tb.vuelta != (Vuelta{Actual: 2, Total: 57}) || tb.fotos != 2 {
+		t.Errorf("vuelta = %+v fotos %d", tb.vuelta, tb.fotos)
+	}
+}
+
+func TestSoloCambiaLaVueltaTambienDifunde(t *testing.T) {
+	f, tb, l := nueva()
+	f.sim.Vuelta = Vuelta{Actual: 1, Total: 57}
+	// Primer paso: parrilla + vuelta 1.
+	paso(t, l)
+	f.sim.TCarreraMs = 1000 // sin eventos de posicion en (0, 1000]
+	f.sim.Vuelta = Vuelta{Actual: 2, Total: 57}
+
+	paso(t, l)
+
+	if tb.fotos != 2 || tb.vuelta.Actual != 2 {
+		t.Errorf("fotos %d vuelta %+v", tb.fotos, tb.vuelta)
+	}
+	f.sim.TCarreraMs = 2000 // ni posiciones ni vuelta nuevas: no se difunde
+	paso(t, l)
+	if tb.fotos != 2 {
+		t.Errorf("sin cambios no debia difundir; fotos %d", tb.fotos)
 	}
 }
 

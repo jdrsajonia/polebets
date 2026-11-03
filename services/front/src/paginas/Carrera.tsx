@@ -31,7 +31,7 @@ export default function Carrera() {
               Carrera en vivo
             </h1>
             <span className="texto-secundario">
-              {foto ? [foto.vuelta !== undefined && `Vuelta ${foto.vuelta}`, foto.carrera_id].filter(Boolean).join(" · ") : "Esperando datos de la carrera"}
+              {foto ? [foto.vuelta !== undefined && (foto.total_vueltas ? `Vuelta ${foto.vuelta}/${foto.total_vueltas}` : `Vuelta ${foto.vuelta}`), foto.carrera_id].filter(Boolean).join(" · ") : "Esperando datos de la carrera"}
             </span>
           </div>
         </div>
