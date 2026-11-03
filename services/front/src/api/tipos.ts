@@ -20,6 +20,7 @@ export const TIPOS_WS = {
   mercadoLiquidado: "mercado_liquidado", // HU-07
   resultadoApuesta: "resultado_apuesta", // HU-08
   rankingTorneo: "ranking_torneo", // HU2-11
+  mercadoDinamico: "mercado_dinamico", // HU2-08
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -125,11 +126,65 @@ export interface RankingTorneo {
 }
 
 // ---------------------------------------------------------------------------
+// HU2-08: apuestas dinamicas
+// ---------------------------------------------------------------------------
+// Payload de "mercado_dinamico": el Gestor del motor lo difunde al abrir,
+// cerrar y resolver un mercado dinamico (services/motor/README.md, "Apuestas
+// dinamicas"). Convive con mercado_abierto/mercado_cerrado del P1.
+
+export interface OpcionDinamica {
+  opcion: string; // "Sí" o "No"
+  multiplicador: number;
+}
+
+export interface MensajeDinamico {
+  market_id: string;
+  event_id: string; // _id de la simulacion (= evento en Pagos)
+  template: string; // adelantamiento, cambio_lider, ...
+  question: string;
+  options: OpcionDinamica[];
+  status: "abierto" | "cerrado";
+  race_close_s: number; // segundo de carrera del cierre
+  closes_at: string; // ISO UTC: solo para la cuenta regresiva (decide el motor)
+  winning_option: string | null; // solo al resolver
+}
+
+// POST /api/apuestas (documentation/orquestador-api.md §3.6).
+export type ModoApuesta = "individual" | "torneo";
+
+export interface PeticionApuesta {
+  mercado_id: string;
+  opcion: string;
+  monto: number; // entero > 0
+}
+
+export interface RespuestaApuesta {
+  apuesta_id: string;
+  mercado_id: string;
+  opcion: string;
+  monto: number;
+  modo: ModoApuesta;
+  multiplicador: number;
+  pago_si_acierta: number; // en tokens o fichas segun el modo
+  saldo: number | null; // tokens que quedan (individual)
+  fichas: number | null; // fichas que quedan (torneo)
+}
+
+// GET /api/eventos/{evento_id} (§3.4): solo lo que el front usa para
+// mostrar el modo antes de confirmar (RF-09).
+export interface DetalleEvento {
+  evento: { evento_id: string; estado: string; estado_torneo: string };
+  mi_inscripcion: { inscrito: boolean; devuelta: boolean };
+}
+
+// ---------------------------------------------------------------------------
 // Errores
 // ---------------------------------------------------------------------------
 
 // Forma unica de los errores de http.ts. status 0 = no hubo respuesta.
+// codigo es el identificador estable del Orquestador ({ error, codigo }).
 export interface ErrorApi {
   status: number;
   message: string;
+  codigo?: string;
 }
