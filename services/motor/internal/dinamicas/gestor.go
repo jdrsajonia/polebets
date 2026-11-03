@@ -12,6 +12,7 @@ const (
 	pausaTrasCierreMs        = 10_000  // la siguiente abre 10 s despues de RESOLVER la anterior
 	cooldownPlantillaMs      = 180_000 // misma plantilla
 	cooldownParMs            = 300_000 // mismo par de pilotos, en cualquier plantilla
+	cooldownLiderMs          = 600_000 // cambio_lider con el mismo lider
 	vueltaMinima             = 2       // no se abre antes de la vuelta 2 del lider
 	vueltasFinalesSinMercado = 2       // ni en las 2 ultimas vueltas
 )
@@ -71,6 +72,7 @@ type Gestor struct {
 	ultimoFin       int64            // Resolucion del ultimo mercado resuelto
 	ultimaPlantilla map[string]int64 // plantilla -> T0 del ultimo mercado
 	ultimoPar       map[[2]int]int64 // par de pilotos -> T0 del ultimo mercado
+	ultimoLider     map[int]int64    // lider de cambio_lider -> T0 del ultimo
 
 	vueltas []porTerminar // ordenadas por (T, seq)
 	seq     int
@@ -92,6 +94,7 @@ func NuevoGestor(cfg Config) *Gestor {
 		plantillas:      Catalogo,
 		ultimaPlantilla: map[string]int64{},
 		ultimoPar:       map[[2]int]int64{},
+		ultimoLider:     map[int]int64{},
 	}
 }
 
@@ -234,20 +237,54 @@ func (g *Gestor) evaluar(ev Evento) {
 	if v < vueltaMinima || g.cfg.TotalVueltas <= 0 || v > g.cfg.TotalVueltas-vueltasFinalesSinMercado {
 		return
 	}
+	// Variedad: entre las plantillas que se cumplen gana la que hace mas
+	// tiempo no se abre (nunca abierta = la mas antigua); con empate, la de
+	// mas prioridad (el orden del Catalogo). safety_car gana siempre. Solo
+	// depende del tiempo de carrera: es determinista (RNF-20).
+	var elegida *Propuesta
+	antiguedad := int64(math.MaxInt64)
 	for _, pl := range g.plantillas {
-		if ultimo, ok := g.ultimaPlantilla[pl.ID()]; ok && t-ultimo < cooldownPlantillaMs {
+		ultimo, abierta := g.ultimaPlantilla[pl.ID()]
+		if abierta && t-ultimo < cooldownPlantillaMs {
 			continue
 		}
-		for _, p := range pl.Evaluar(g.estado, ev) {
-			if par, ok := clavePar(p.Pilotos); ok {
-				if ultimo, ok := g.ultimoPar[par]; ok && t-ultimo < cooldownParMs {
-					continue
-				}
-			}
+		p, ok := g.primeraPermitida(pl, ev, t)
+		if !ok {
+			continue
+		}
+		if pl.ID() == PlantillaSafetyCar {
 			g.abrir(p, t)
 			return
 		}
+		if !abierta {
+			ultimo = math.MinInt64
+		}
+		if elegida == nil || ultimo < antiguedad { // estricto: el empate lo gana la prioridad
+			elegida, antiguedad = &p, ultimo
+		}
 	}
+	if elegida != nil {
+		g.abrir(*elegida, t)
+	}
+}
+
+// primeraPermitida es la primera propuesta de la plantilla que pasa los
+// cooldowns por par y, en cambio_lider, por lider.
+func (g *Gestor) primeraPermitida(pl Plantilla, ev Evento, t int64) (Propuesta, bool) {
+	for _, p := range pl.Evaluar(g.estado, ev) {
+		if par, ok := clavePar(p.Pilotos); ok {
+			if ultimo, ok := g.ultimoPar[par]; ok && t-ultimo < cooldownParMs {
+				continue
+			}
+		}
+		if p.Plantilla == PlantillaCambioLider && len(p.Pilotos) > 0 {
+			if ultimo, ok := g.ultimoLider[p.Pilotos[0]]; ok && t-ultimo < cooldownLiderMs {
+				continue
+			}
+		}
+		return p, true
+	}
+	return Propuesta{}, false
 }
 
 func (g *Gestor) abrir(p Propuesta, t0 int64) {
@@ -263,6 +300,9 @@ func (g *Gestor) abrir(p Propuesta, t0 int64) {
 	g.ultimaPlantilla[p.Plantilla] = t0
 	if par, ok := clavePar(p.Pilotos); ok {
 		g.ultimoPar[par] = t0
+	}
+	if p.Plantilla == PlantillaCambioLider && len(p.Pilotos) > 0 {
+		g.ultimoLider[p.Pilotos[0]] = t0
 	}
 	g.acciones = append(g.acciones, Accion{Tipo: AccionCrear, T: t0, Mercado: *m, Estado: EstadoAbierto})
 }

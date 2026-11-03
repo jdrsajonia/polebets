@@ -107,9 +107,12 @@ rentabilidad.
 
 ## Reglas del Gestor
 
-- **Prioridad** si varias se cumplen en el mismo t: safety_car > cambio_lider
-  > adelantamiento > entrada_pits > brecha_se_cierra > vuelta_rapida. Una
-  plantilla en cooldown cuenta como «no se cumple» y se prueba la siguiente.
+- **Variedad** si varias se cumplen en el mismo t: `safety_car` gana
+  siempre; entre las demás gana la que hace **más tiempo no se abre** (nunca
+  abierta = la más antigua). Si empatan, decide la prioridad: cambio_lider >
+  adelantamiento > entrada_pits > brecha_se_cierra > vuelta_rapida. Una
+  plantilla en cooldown cuenta como «no se cumple». No hay azar: solo cuenta
+  el tiempo de carrera de cada apertura (RNF-20).
 - **Un solo mercado vivo a la vez** (abierto u observando). La siguiente
   solo puede abrirse cuando la anterior ya se **resolvió** (o quedó sin
   resolver al terminar la simulación), y 10 s de carrera después de esa
@@ -117,7 +120,8 @@ rentabilidad.
   resultado.
 - **Cooldown:** la misma plantilla, 180 s desde su última apertura; el mismo
   par de pilotos, 300 s, en cualquier plantilla con par (adelantamiento y
-  brecha_se_cierra; el par no tiene orden).
+  brecha_se_cierra; el par no tiene orden); y `cambio_lider` no repite el
+  mismo líder antes de 600 s.
 - **Vueltas:** no se abre nada antes de la vuelta 2 del líder ni en las 2
   últimas vueltas (`vuelta actual > total_vueltas − 2`). Sin `total_vueltas`
   no se abre nada.

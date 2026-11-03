@@ -140,19 +140,136 @@ func TestCooldownPlantilla(t *testing.T) {
 		t      int64
 		abre   []string
 	}{
-		// NOR a 0,5 s de VER no es adelantamiento (P1-P2 es de cambio_lider):
-		// mientras dure el cooldown no se abre nada.
+		// En 250 s NOR pasa a liderar con VER a 0,5 s (otro lider, asi no lo
+		// frena el cooldown por lider). P1-P2 no es adelantamiento: mientras
+		// dure el cooldown de la plantilla no se abre nada.
 		{"a los 180 s menos 1 ms no abre", 279999, nil},
 		{"a los 180 s vuelve a abrir", 280000, []string{"crear cambio_lider 280000"}},
 	}
 	for _, c := range casos {
 		t.Run(c.nombre, func(t *testing.T) {
-			evs := con(enVuelta2(), intv(100000, 4, f(0.5)), intv(c.t, 4, f(0.5)))
+			evs := con(enVuelta2(), intv(100000, 4, f(0.5)), pos(250000, 4, 1), pos(250000, 1, 2), intv(c.t, 1, f(0.5)))
 			got := resumen(correr(cfgPrueba(), evs, c.t))
 			if want := append(append([]string(nil), inicio...), c.abre...); !reflect.DeepEqual(got, want) {
 				t.Fatalf("acciones = %v", got)
 			}
 		})
+	}
+}
+
+func TestCambioLiderNoRepiteLiderAntesDe600s(t *testing.T) {
+	// Solo se cumple cambio_lider (NOR a 0,5 s de VER todo el tiempo).
+	evs := con(enVuelta2(), intv(100000, 4, f(0.5)), intv(280000, 4, f(0.5)), intv(699999, 4, f(0.5)), intv(700000, 4, f(0.5)))
+	var creados []string
+	for _, a := range resumen(correr(cfgPrueba(), evs, 700000)) {
+		if strings.HasPrefix(a, "crear") {
+			creados = append(creados, a)
+		}
+	}
+	if want := []string{"crear cambio_lider 100000", "crear cambio_lider 700000"}; !reflect.DeepEqual(creados, want) {
+		t.Fatalf("creados = %v", creados)
+	}
+}
+
+// carreraDePelea: 5 pilotos a 0,5 s uno de otro todo el tiempo, asi que
+// cambio_lider y adelantamiento se cumplen siempre. El lider rota cada 200 s
+// (en 150 s, 350 s, ...) para que cambio_lider no lo frene el cooldown por
+// lider.
+func carreraDePelea(hasta int64) []Evento {
+	pilotos := []int{1, 4, 16, 44, 63}
+	var evs []Evento
+	for i, p := range pilotos {
+		evs = append(evs, pos(0, p, i+1), vta(0, p, 2, nil))
+	}
+	for k := int64(0); 150000+k*200000 < hasta; k++ {
+		t := 150000 + k*200000
+		for i, p := range pilotos {
+			// rotacion: el que iba en P(k+1) queda de lider
+			evs = append(evs, pos(t, p, (i-int(k+1)%5+5)%5+1))
+		}
+	}
+	for t := int64(1000); t <= hasta; t += 1000 {
+		for _, p := range pilotos {
+			evs = append(evs, intv(t, p, f(0.5)))
+		}
+	}
+	sort.SliceStable(evs, func(i, j int) bool {
+		if evs[i].T != evs[j].T {
+			return evs[i].T < evs[j].T
+		}
+		return evs[i].ID < evs[j].ID
+	})
+	return evs
+}
+
+func TestVariedadSeAlternan(t *testing.T) {
+	cfg := cfgPrueba()
+	cfg.TotalVueltas = 100
+	evs := carreraDePelea(1_000_000)
+	acciones := correr(cfg, evs, 1_000_000)
+	var plantillas []string
+	for _, a := range acciones {
+		if a.Tipo == AccionCrear {
+			plantillas = append(plantillas, a.Mercado.Plantilla)
+		}
+	}
+	t.Logf("secuencia: %v", plantillas)
+	if len(plantillas) < 8 {
+		t.Fatalf("muy pocos mercados: %v", plantillas)
+	}
+	for i := 1; i < len(plantillas); i++ {
+		if plantillas[i] == plantillas[i-1] {
+			t.Fatalf("no se alternan: %v", plantillas)
+		}
+	}
+	for _, p := range plantillas {
+		if p != PlantillaCambioLider && p != PlantillaAdelantamiento {
+			t.Fatalf("plantilla inesperada %s: %v", p, plantillas)
+		}
+	}
+	// Determinista: otra corrida da lo mismo.
+	if otra := correr(cfg, evs, 1_000_000); !reflect.DeepEqual(otra, acciones) {
+		t.Fatal("dos corridas difieren")
+	}
+}
+
+func TestVariedadGanaLaMasAntigua(t *testing.T) {
+	// adelantamiento abre en 100 s, cambio_lider en 200 s y brecha en 300 s.
+	// Durante la brecha (350 s) NOR pasa a liderar y se cumplen a la vez
+	// cambio_lider (NOR) y adelantamiento (VER-LEC). Al terminar la pausa
+	// (400 s) las dos estan disponibles: gana adelantamiento, que lleva mas
+	// tiempo sin abrirse, aunque cambio_lider tenga mas prioridad.
+	evs := con(parrilla(0), pos(0, 44, 4), vta(0, 1, 2, nil), intv(0, 4, f(5)),
+		intv(100000, 16, f(0.5)),
+		intv(200000, 4, f(0.5)),
+		intv(200500, 4, f(5)), intv(200500, 16, f(5)),
+		intv(300000, 44, f(2.0)),
+		pos(350000, 4, 1), pos(350000, 1, 2), intv(350000, 1, f(0.5)), intv(350000, 16, f(0.5)),
+		pos(400000, 44, 4),
+	)
+	var creados []string
+	for _, a := range resumen(correr(cfgPrueba(), evs, 400000)) {
+		if strings.HasPrefix(a, "crear") {
+			creados = append(creados, a)
+		}
+	}
+	want := []string{"crear adelantamiento 100000", "crear cambio_lider 200000", "crear brecha_se_cierra 300000", "crear adelantamiento 400000"}
+	if !reflect.DeepEqual(creados, want) {
+		t.Fatalf("creados = %v", creados)
+	}
+}
+
+func TestVariedadEmpateYSafetyCar(t *testing.T) {
+	// Nunca abiertas las dos: empate, gana la prioridad (cambio_lider).
+	base := con(parrilla(0), vta(0, 1, 2, nil), intv(10, 4, f(0.5)), intv(10, 16, f(0.4)))
+	cfg := cfgPrueba()
+	cfg.InicioMs = 100000
+	if acc := correr(cfg, con(base, pos(100000, 1, 1)), 100000); acc[0].Mercado.Plantilla != PlantillaCambioLider {
+		t.Fatalf("acciones = %v", resumen(acc))
+	}
+	// safety_car gana aunque las otras lleven mas tiempo sin abrirse.
+	if acc := correr(cfg, con(base, ctrl(100000, "YELLOW", "")), 100000); acc[0].Mercado.Plantilla != PlantillaSafetyCar {
+		t.Fatalf("acciones = %v", resumen(acc))
 	}
 }
 
