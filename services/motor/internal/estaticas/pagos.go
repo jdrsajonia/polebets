@@ -13,6 +13,15 @@ import (
 	"time"
 )
 
+// KindEstatica ya esta en catalogo.go. Estados del mercado en Pagos:
+const (
+	// EstadoAbierto: el mercado acepta apuestas (antes de la largada).
+	EstadoAbierto = "abierto"
+	// EstadoProgramado: creado pero sin aceptar apuestas; se usa si el Motor
+	// arranca con la carrera ya largada (nadie apuesta tarde).
+	EstadoProgramado = "programado"
+)
+
 // Errores del cliente de Pagos. El worker decide con errors.Is:
 var (
 	// ErrReintentable: red, 5xx o 429. Se reintenta en el siguiente tick.
