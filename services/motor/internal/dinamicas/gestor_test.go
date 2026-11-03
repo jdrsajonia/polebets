@@ -115,15 +115,19 @@ func TestPrioridad(t *testing.T) {
 	}
 }
 
-func TestUnaAbiertaYPausaTrasCierre(t *testing.T) {
+func TestUnMercadoVivoYPausaTrasResolver(t *testing.T) {
 	evs := con(enVuelta2(),
-		intv(100000, 4, f(0.5)),  // abre cambio_lider; cierra en 130 s
-		intv(110000, 16, f(0.3)), // adelantamiento, pero ya hay una abierta
-		intv(135000, 16, f(0.3)), // cerrada hace 5 s: pausa
-		intv(140000, 16, f(0.3)), // 10 s despues del cierre: abre
+		intv(100000, 4, f(0.5)),  // abre cambio_lider; cierra en 130 s y resuelve en 190 s
+		intv(110000, 16, f(0.3)), // adelantamiento, pero hay una abierta
+		intv(150000, 16, f(0.3)), // cerrada pero observando: tampoco
+		intv(195000, 16, f(0.3)), // resuelta hace 5 s: pausa
+		intv(200000, 16, f(0.3)), // 10 s despues de resolver: abre
 	)
-	got := resumen(correr(cfgPrueba(), evs, 140000))
-	want := []string{"crear cambio_lider 100000", "cerrar cambio_lider 130000", "crear adelantamiento 140000"}
+	got := resumen(correr(cfgPrueba(), evs, 200000))
+	want := []string{
+		"crear cambio_lider 100000", "cerrar cambio_lider 130000",
+		"resolver cambio_lider 190000 No", "crear adelantamiento 200000",
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("acciones = %v", got)
 	}
@@ -159,8 +163,8 @@ func TestCooldownPar(t *testing.T) {
 		evs    []Evento
 		ultima string
 	}{
-		{"mismo par en otra plantilla espera", con(base, intv(140000, 16, f(2.0))), "cerrar adelantamiento 130000"},
-		{"otro par no espera", con(base, intv(140000, 16, nil), intv(140000, 44, f(2.0))), "crear brecha_se_cierra 140000"},
+		{"mismo par en otra plantilla espera", con(base, intv(200000, 16, f(2.0))), "resolver adelantamiento 190000 No"},
+		{"otro par no espera", con(base, intv(200000, 16, nil), intv(200000, 44, f(2.0))), "crear brecha_se_cierra 200000"},
 		{"mismo par a los 300 s", con(base, intv(399999, 16, f(2.0)), intv(400000, 16, f(2.0))), "crear brecha_se_cierra 400000"},
 	}
 	for _, c := range casos {
@@ -285,16 +289,31 @@ func TestSafetyCar(t *testing.T) {
 }
 
 func TestTerminar(t *testing.T) {
+	casos := []struct {
+		nombre string
+		reloj  int64
+		cierra []string
+	}{
+		// cambio_lider abre en 100 s, cierra en 130 s y resuelve en 190 s.
+		{"termina con el mercado abierto: se cierra", 110000, []string{"cerrar cambio_lider 110000"}},
+		{"termina observando: queda cerrado sin resolver", 150000, nil},
+	}
+	for _, c := range casos {
+		t.Run(c.nombre, func(t *testing.T) {
+			g := NuevoGestor(cfgPrueba())
+			g.Avanzar(con(enVuelta2(), intv(100000, 4, f(0.5))), c.reloj)
+			acc, sinResolver := g.Terminar()
+			if got := resumen(acc); !reflect.DeepEqual(got, c.cierra) {
+				t.Fatalf("acciones = %v", got)
+			}
+			if len(sinResolver) != 1 || sinResolver[0].Plantilla != PlantillaCambioLider {
+				t.Fatalf("sin resolver = %+v", sinResolver)
+			}
+		})
+	}
 	g := NuevoGestor(cfgPrueba())
-	// cambio_lider abre en 100 s y cierra en 130 s; adelantamiento abre en 140 s.
-	g.Avanzar(con(enVuelta2(), intv(100000, 4, f(0.5)), intv(140000, 16, f(0.3))), 150000)
-	acc, sinResolver := g.Terminar()
-	if got := resumen(acc); !reflect.DeepEqual(got, []string{"cerrar adelantamiento 150000"}) {
-		t.Fatalf("acciones = %v", got)
-	}
-	if len(sinResolver) != 2 || sinResolver[0].Plantilla != PlantillaCambioLider || sinResolver[1].Plantilla != PlantillaAdelantamiento {
-		t.Fatalf("sin resolver = %+v", sinResolver)
-	}
+	g.Avanzar(con(enVuelta2(), intv(100000, 4, f(0.5))), 150000)
+	g.Terminar()
 	if acc := g.Avanzar([]Evento{pos(300000, 4, 1)}, 400000); acc != nil {
 		t.Fatalf("despues de terminar no hay acciones: %v", resumen(acc))
 	}
@@ -424,23 +443,23 @@ func TestDeterminismo(t *testing.T) {
 	// La carrera debe ejercitar el ciclo completo y varias plantillas.
 	plantillas := map[string]bool{}
 	cuenta := map[TipoAccion]int{}
-	abiertos := 0
-	var ultimoCierre int64 = -1
+	vivos := 0 // abiertos u observando
+	var ultimaResolucion int64 = -1
 	for _, a := range todo {
 		cuenta[a.Tipo]++
 		switch a.Tipo {
 		case AccionCrear:
 			plantillas[a.Mercado.Plantilla] = true
-			abiertos++
-			if abiertos > 1 {
-				t.Fatalf("dos abiertas a la vez en %d", a.T)
+			vivos++
+			if vivos > 1 {
+				t.Fatalf("dos mercados vivos a la vez en %d", a.T)
 			}
-			if ultimoCierre >= 0 && a.T-ultimoCierre < pausaTrasCierreMs {
-				t.Fatalf("abrio %d ms despues del cierre", a.T-ultimoCierre)
+			if ultimaResolucion >= 0 && a.T-ultimaResolucion < pausaTrasCierreMs {
+				t.Fatalf("abrio %d ms despues de la resolucion", a.T-ultimaResolucion)
 			}
-		case AccionCerrar:
-			abiertos--
-			ultimoCierre = a.T
+		case AccionResolver:
+			vivos--
+			ultimaResolucion = a.T
 		}
 	}
 	if cuenta[AccionCrear] < 5 || cuenta[AccionCrear] != cuenta[AccionCerrar] || cuenta[AccionCrear] != cuenta[AccionResolver] {

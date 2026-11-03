@@ -110,9 +110,11 @@ rentabilidad.
 - **Prioridad** si varias se cumplen en el mismo t: safety_car > cambio_lider
   > adelantamiento > entrada_pits > brecha_se_cierra > vuelta_rapida. Una
   plantilla en cooldown cuenta como «no se cumple» y se prueba la siguiente.
-- **Una abierta a la vez.** La siguiente puede abrirse 10 s de carrera después
-  de que la anterior **cierra** (no hay que esperar a que se resuelva), así que
-  puede haber varias cerradas esperando su resolución.
+- **Un solo mercado vivo a la vez** (abierto u observando). La siguiente
+  solo puede abrirse cuando la anterior ya se **resolvió** (o quedó sin
+  resolver al terminar la simulación), y 10 s de carrera después de esa
+  resolución. Así el jugador ve una sola pregunta por vez, de la apertura al
+  resultado.
 - **Cooldown:** la misma plantilla, 180 s desde su última apertura; el mismo
   par de pilotos, 300 s, en cualquier plantilla con par (adelantamiento y
   brecha_se_cierra; el par no tiene orden).

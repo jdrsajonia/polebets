@@ -9,7 +9,7 @@ import (
 
 // Reglas del Gestor (en milisegundos de carrera).
 const (
-	pausaTrasCierreMs        = 10_000  // la siguiente abre 10 s despues del cierre anterior
+	pausaTrasCierreMs        = 10_000  // la siguiente abre 10 s despues de RESOLVER la anterior
 	cooldownPlantillaMs      = 180_000 // misma plantilla
 	cooldownParMs            = 300_000 // mismo par de pilotos, en cualquier plantilla
 	vueltaMinima             = 2       // no se abre antes de la vuelta 2 del lider
@@ -67,8 +67,8 @@ type Gestor struct {
 	abierto    *Mercado   // a lo sumo uno
 	pendientes []*Mercado // cerrados sin resolver, por T0
 
-	hayCierre       bool
-	ultimoCierre    int64
+	hayFin          bool             // ya se resolvio algun mercado
+	ultimoFin       int64            // Resolucion del ultimo mercado resuelto
 	ultimaPlantilla map[string]int64 // plantilla -> T0 del ultimo mercado
 	ultimoPar       map[[2]int]int64 // par de pilotos -> T0 del ultimo mercado
 
@@ -222,10 +222,12 @@ func (g *Gestor) programar(ev Evento) {
 // evaluar abre un mercado si se puede y alguna plantilla se cumple en ev.T.
 func (g *Gestor) evaluar(ev Evento) {
 	t := ev.T
-	if g.abierto != nil || t < g.cfg.InicioMs {
+	// Un solo mercado vivo a la vez: ni abierto ni observando. El siguiente
+	// espera la resolucion del anterior y la pausa.
+	if g.abierto != nil || len(g.pendientes) > 0 || t < g.cfg.InicioMs {
 		return
 	}
-	if g.hayCierre && t < g.ultimoCierre+pausaTrasCierreMs {
+	if g.hayFin && t < g.ultimoFin+pausaTrasCierreMs {
 		return
 	}
 	v := g.estado.VueltaActual()
@@ -272,7 +274,6 @@ func (g *Gestor) cerrar(t int64) {
 	if mv, ok := g.estado.MejorVuelta(); ok {
 		m.MejorVueltaCierre = mv
 	}
-	g.hayCierre, g.ultimoCierre = true, t
 	g.pendientes = append(g.pendientes, m)
 	g.acciones = append(g.acciones, Accion{Tipo: AccionCerrar, T: t, Mercado: *m})
 }
@@ -287,6 +288,7 @@ func (g *Gestor) resolver() {
 			break
 		}
 	}
+	g.hayFin, g.ultimoFin = true, m.Resolucion
 	g.acciones = append(g.acciones, Accion{Tipo: AccionResolver, T: m.Resolucion, Mercado: *m, Ganadora: ganadora})
 }
 
