@@ -193,6 +193,8 @@ services:
       - "8003:8003"
     environment:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      # HU2-17 (RF-21): valida el login de la CLI y su token contra Usuarios.
+      USUARIOS_BASE_URL: http://usuarios:8001
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8003/health').status==200 else sys.exit(1)\""]
       interval: 10s
