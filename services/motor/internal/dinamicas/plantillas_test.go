@@ -130,10 +130,10 @@ func TestResolverPlantillas(t *testing.T) {
 		{"pits no: nadie entra", entradaPits{}, Mercado{OrdenCierre: []int{1, 4, 16}}, nil, []Evento{intv(5, 16, f(1))}, OpcionNo},
 		{"pits no: entra alguien fuera del top 10", entradaPits{}, Mercado{OrdenCierre: []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11}}, nil, []Evento{pitEv(5, 11)}, OpcionNo},
 
-		{"vuelta_rapida si", vueltaRapida{}, Mercado{Propuesta: Propuesta{MejorVuelta: 90.5}}, nil, []Evento{terminada(5, 4, 90.4)}, OpcionSi},
-		{"vuelta_rapida no: igual a M", vueltaRapida{}, Mercado{Propuesta: Propuesta{MejorVuelta: 90.5}}, nil, []Evento{terminada(5, 4, 90.5)}, OpcionNo},
+		{"vuelta_rapida si", vueltaRapida{}, Mercado{Propuesta: Propuesta{MejorVuelta: 91}, MejorVueltaCierre: 90.5}, nil, []Evento{terminada(5, 4, 90.4)}, OpcionSi},
+		{"vuelta_rapida no: igual a M", vueltaRapida{}, Mercado{Propuesta: Propuesta{MejorVuelta: 91}, MejorVueltaCierre: 90.5}, nil, []Evento{terminada(5, 4, 90.5)}, OpcionNo},
 		// El inicio de una vuelta rapida no cuenta: solo cuando termina.
-		{"vuelta_rapida no: solo empezo", vueltaRapida{}, Mercado{Propuesta: Propuesta{MejorVuelta: 90.5}}, nil, []Evento{vta(5, 4, 12, f(80))}, OpcionNo},
+		{"vuelta_rapida no: solo empezo", vueltaRapida{}, Mercado{Propuesta: Propuesta{MejorVuelta: 91}, MejorVueltaCierre: 90.5}, nil, []Evento{vta(5, 4, 12, f(80))}, OpcionNo},
 
 		{"safety_car si: SC", safetyCar{}, Mercado{}, nil, []Evento{ctrl(5, "", "SAFETY CAR DEPLOYED")}, OpcionSi},
 		{"safety_car si: VSC", safetyCar{}, Mercado{}, nil, []Evento{ctrl(5, "", "VIRTUAL SAFETY CAR DEPLOYED")}, OpcionSi},

@@ -49,7 +49,8 @@ type Propuesta struct {
 	// brecha_se_cierra, y [L] en cambio_lider. Solo un par de dos activa el
 	// cooldown por par.
 	Pilotos []int
-	// MejorVuelta es M al abrir (solo vuelta_rapida).
+	// MejorVuelta es M al abrir (solo vuelta_rapida; se resuelve con la M
+	// del cierre, Mercado.MejorVueltaCierre).
 	MejorVuelta float64
 }
 
@@ -264,10 +265,10 @@ func (vueltaRapida) Evaluar(e *Estado, ev Evento) []Propuesta {
 	}}
 }
 
-// Gana Si si una vuelta que termina en la observacion baja M.
+// Gana Si si una vuelta que termina en la observacion baja la M del cierre.
 func (vueltaRapida) Resolver(m Mercado, _ *Estado, obs []Evento) string {
 	for _, ev := range obs {
-		if ev.Tipo == TipoVueltaTerminada && ev.DuracionVuelta != nil && *ev.DuracionVuelta > 0 && *ev.DuracionVuelta < m.MejorVuelta {
+		if ev.Tipo == TipoVueltaTerminada && ev.DuracionVuelta != nil && *ev.DuracionVuelta > 0 && *ev.DuracionVuelta < m.MejorVueltaCierre {
 			return OpcionSi
 		}
 	}

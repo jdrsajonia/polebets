@@ -269,6 +269,9 @@ func (g *Gestor) cerrar(t int64) {
 	m := g.abierto
 	g.abierto = nil
 	m.OrdenCierre = g.estado.Orden()
+	if mv, ok := g.estado.MejorVuelta(); ok {
+		m.MejorVueltaCierre = mv
+	}
 	g.hayCierre, g.ultimoCierre = true, t
 	g.pendientes = append(g.pendientes, m)
 	g.acciones = append(g.acciones, Accion{Tipo: AccionCerrar, T: t, Mercado: *m})

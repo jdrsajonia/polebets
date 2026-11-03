@@ -247,6 +247,24 @@ func TestVueltaRapida(t *testing.T) {
 	}
 }
 
+func TestVueltaRapidaUsaLaMDelCierre(t *testing.T) {
+	// Abre en 120 s con M = 90 (NOR). Durante la ventana (120, 150] termina
+	// una de 85 s de LEC (empezada en 55 s): M del cierre = 85. En la
+	// observacion termina una de 87 s de 44 (empezada en 83 s, fin 170 s):
+	// baja la M de la apertura pero no la del cierre => No.
+	evs := con(parrilla(0), vta(1000, 4, 1, f(90)), vta(50000, 1, 9, nil), vta(55000, 16, 9, f(85)),
+		vta(83000, 44, 9, f(87)), vta(120000, 1, 10, nil))
+	acc := correr(cfgPrueba(), evs, 210000)
+	got := resumen(acc)
+	want := []string{"crear vuelta_rapida 120000", "cerrar vuelta_rapida 150000", "resolver vuelta_rapida 210000 No"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("acciones = %v", got)
+	}
+	if acc[0].Mercado.MejorVuelta != 90 || acc[1].Mercado.MejorVueltaCierre != 85 {
+		t.Fatalf("M apertura = %v, M cierre = %v", acc[0].Mercado.MejorVuelta, acc[1].Mercado.MejorVueltaCierre)
+	}
+}
+
 func TestEntradaPitsUsaElTop10DelCierre(t *testing.T) {
 	evs := con(enVuelta2(), stintEv(0, 16, 1, 0), vta(95000, 16, 19, nil), vta(96000, 1, 19, nil),
 		pitEv(140000, 16))

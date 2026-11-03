@@ -12,6 +12,9 @@ type Mercado struct {
 
 	// OrdenCierre es la clasificacion en Cierre (entrada_pits la usa).
 	OrdenCierre []int
+	// MejorVueltaCierre es M en Cierre (vuelta_rapida la usa): una vuelta
+	// rapida durante la ventana deja vieja la M de la apertura.
+	MejorVueltaCierre float64
 
 	obs []Evento // eventos en (Cierre, Resolucion]
 }
