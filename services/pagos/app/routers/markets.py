@@ -6,7 +6,7 @@
   POST /internal/markets/{market_id}/resolve           guardar winning_option de un mercado cerrado
   GET  /internal/markets?status=cerrado&resuelto=true  mercados listos para liquidar (HU2-10)
   GET  /internal/markets/{market_id}                   estado, opciones y multiplicadores (HU2-09)
-  GET  /internal/markets/{market_id}/bets              apuestas del mercado (HU2-10)
+  GET  /internal/markets/{market_id}/bets              apuestas del mercado (HU2-10; ?user_id= para HU2-13)
   POST /internal/markets/{market_id}/liquidated        marcar el mercado como liquidado (HU2-10)
 
 Los mercados los crean HU2-07 (estaticas) y HU2-08 (dinamicas) y quien conoce
@@ -133,6 +133,7 @@ def apuestas(
     response: Response,
     modo: Literal["individual", "torneo"] | None = Query(None, alias="mode"),
     estado: Literal["pending", "won", "lost"] | None = Query(None, alias="status"),
+    user_id: uuid.UUID | None = None,  # HU2-13: la apuesta de un jugador (a lo sumo una, uq_bets_user_market)
 ) -> list[MarketBetOut]:
     if db.get(Market, market_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NO_EXISTE)
@@ -141,6 +142,8 @@ def apuestas(
         consulta = consulta.where(Bet.mode == modo)
     if estado is not None:
         consulta = consulta.where(Bet.status == estado)
+    if user_id is not None:
+        consulta = consulta.where(Bet.user_id == user_id)
     response.headers["Cache-Control"] = "no-store"
     return [
         MarketBetOut(
