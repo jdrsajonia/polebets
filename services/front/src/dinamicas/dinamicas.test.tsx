@@ -101,7 +101,8 @@ describe("HU2-08 · logica", () => {
 
   it.each([
     ["sin mercado, uno abierto aparece", null, msg(), "m-1 abierto"],
-    ["sin mercado, el cierre de uno desconocido se ignora", null, msg({ status: "cerrado" }), "nada"],
+    ["sin mercado, el cierre reenviado se muestra (HU2-13)", null, msg({ status: "cerrado" }), "m-1 cerrado"],
+    ["sin mercado, el resuelto reenviado se muestra (HU2-13)", null, msg({ status: "cerrado", winning_option: "No" }), "m-1 resuelto"],
     ["el mismo mercado se cierra", msg(), msg({ status: "cerrado" }), "m-1 cerrado"],
     ["el mismo mercado se resuelve", msg({ status: "cerrado" }), msg({ status: "cerrado", winning_option: "No" }), "m-1 resuelto"],
     ["el cierre de otro mercado se ignora", msg(), msg({ market_id: "m-0", status: "cerrado" }), "m-1 abierto"],
@@ -608,5 +609,52 @@ describe("HU2-13 · mi apuesta al recargar", () => {
     expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("¡Ganaste 37 PoleCoins! Saldo: 1.027");
     await act(() => vi.advanceTimersByTimeAsync(ESPERA_RESULTADO_MS * 2));
     expect(pedidas()).toHaveLength(1);
+  });
+});
+
+describe("HU2-13 · recargar con el mercado cerrado o resuelto", () => {
+  const RUTA = "GET /api/mercados/m-1/mi-apuesta";
+
+  afterEach(() => vi.useRealTimers());
+
+  it("sin mercado en pantalla, el reenvio del cerrado se muestra con mi apuesta", async () => {
+    rutas[RUTA] = { status: 200, body: miApuesta() };
+    abrirCarrera();
+    enviarWs("mercado_dinamico", msg({ status: "cerrado" }));
+
+    expect(screen.getByTestId("fase-dinamica")).toHaveTextContent("Cerrado · en observación");
+    expect(await screen.findByTestId("apuesta-dinamica")).toHaveTextContent("Tu apuesta: 30 PoleCoins a «No». Esperando el resultado…");
+    expect(screen.queryByRole("button", { name: /Confirmar apuesta/ })).not.toBeInTheDocument();
+    // Otro cerrado, con este en pantalla, se ignora; uno abierto nuevo lo reemplaza.
+    enviarWs("mercado_dinamico", msg({ market_id: "m-0", status: "cerrado", question: "¿Viejo?" }));
+    expect(screen.queryByText("¿Viejo?")).not.toBeInTheDocument();
+    enviarWs("mercado_dinamico", msg({ market_id: "m-2", question: "¿Nuevo?" }));
+    expect(screen.getByText("¿Nuevo?")).toBeInTheDocument();
+  });
+
+  it("sin mercado en pantalla, el resuelto reenviado entra al reintento del resultado", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    rutas[RUTA] = [
+      { status: 200, body: miApuesta() }, // al montar: aun pending
+      { status: 200, body: miApuesta({ status: "won", payout: 37 }) },
+    ];
+    abrirCarrera();
+    enviarWs("mercado_dinamico", msg({ status: "cerrado", winning_option: "No" }));
+    expect(screen.getByTestId("cuenta-dinamica")).toHaveTextContent("Ganó «No»");
+    expect(await screen.findByTestId("apuesta-dinamica")).toHaveTextContent("Esperando el resultado…");
+
+    await act(() => vi.advanceTimersByTimeAsync(ESPERA_RESULTADO_MS));
+    expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("¡Ganaste 37 PoleCoins!");
+    // El reenvio del mismo resuelto no cambia nada.
+    enviarWs("mercado_dinamico", msg({ status: "cerrado", winning_option: "No" }));
+    expect(screen.getByTestId("resultado-dinamica")).toHaveTextContent("¡Ganaste 37 PoleCoins!");
+  });
+
+  it("con uno ya en pantalla se mantiene la regla: no retrocede de fase", async () => {
+    abrirCarrera();
+    enviarWs("mercado_dinamico", msg({ status: "cerrado", winning_option: "Sí" }));
+    enviarWs("mercado_dinamico", msg({ status: "cerrado" }));
+    enviarWs("mercado_dinamico", msg());
+    expect(screen.getByTestId("fase-dinamica")).toHaveTextContent("Resuelto");
   });
 });
