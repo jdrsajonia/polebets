@@ -33,6 +33,7 @@ type pagosFalso struct {
 	cerrados        int
 	largadas        int
 	resueltos       int
+	finalizados     int
 	ultimaGanadora  string
 	jugadores       []string
 }
@@ -55,6 +56,7 @@ func (p *pagosFalso) Largar(context.Context, string) (Largada, error) {
 	p.largadas++
 	return Largada{Jugadores: p.jugadores, FichasIniciales: 1000}, nil
 }
+func (p *pagosFalso) Finalizar(context.Context, string) error { p.finalizados++; return nil }
 
 // torneoFalso registra la inicializacion de fichas.
 type torneoFalso struct {
@@ -116,6 +118,77 @@ func TestCicloCompleto(t *testing.T) {
 	if pagos.resueltos != 1 {
 		t.Fatalf("un segundo tick en finalizada no debia resolver otra vez (resueltos=%d)", pagos.resueltos)
 	}
+	// Torneo activo (4 inscritos): HU2-12 cierra con reparto, no este worker.
+	if pagos.finalizados != 0 {
+		t.Fatalf("un torneo activo NO debe finalizarse desde estaticas (finalizados=%d)", pagos.finalizados)
+	}
+}
+
+func TestTorneoCanceladoFinalizaLaCarrera(t *testing.T) {
+	// Largada sin jugadores (torneo cancelado por pocos inscritos). Al terminar
+	// la carrera, estaticas finaliza el evento en Pagos (players vacios): nadie
+	// mas lo cerraria, porque HU2-12 solo cierra torneos activos (Redis).
+	fuente := &fuenteFalsa{
+		sim:        Simulacion{ID: "evt-5", CarreraID: "2024_monza", Estado: SimProgramada},
+		pilotos:    map[int]string{1: "VER", 4: "NOR"},
+		posiciones: []EventoPosicion{{T: 100, Piloto: 1, Pos: 1}},
+	}
+	pagos := &pagosFalso{jugadores: nil} // largada cancela el torneo
+	torneo := &torneoFalso{}
+	w := NuevoWorker(fuente, pagos, torneo)
+	ctx := context.Background()
+
+	must(t, w.Procesar(ctx)) // programada: crea y abre
+
+	// en_curso: larga (sin jugadores). No inicializa fichas ni finaliza aun.
+	fuente.sim.Estado = SimEnCurso
+	must(t, w.Procesar(ctx))
+	if torneo.veces != 0 {
+		t.Fatalf("torneo cancelado no debe inicializar fichas (veces=%d)", torneo.veces)
+	}
+	if pagos.finalizados != 0 {
+		t.Fatalf("no debe finalizar antes de que termine la carrera (finalizados=%d)", pagos.finalizados)
+	}
+
+	// finalizada: resuelve y finaliza el evento (torneo cancelado).
+	fuente.sim.Estado = SimFinalizada
+	must(t, w.Procesar(ctx))
+	if pagos.resueltos != 1 {
+		t.Fatalf("debia resolver la estatica (resueltos=%d)", pagos.resueltos)
+	}
+	if pagos.finalizados != 1 {
+		t.Fatalf("debia finalizar el evento cancelado una vez (finalizados=%d)", pagos.finalizados)
+	}
+
+	// Otro tick: no vuelve a finalizar (idempotencia en memoria).
+	must(t, w.Procesar(ctx))
+	if pagos.finalizados != 1 {
+		t.Fatalf("no debia finalizar dos veces (finalizados=%d)", pagos.finalizados)
+	}
+}
+
+func TestTorneoCanceladoYSimulacionFallida(t *testing.T) {
+	// Torneo cancelado y ademas la simulacion falla: igual hay que finalizar la
+	// carrera (no se resuelve la estatica, pero el evento no puede quedar colgado).
+	fuente := &fuenteFalsa{
+		sim:        Simulacion{ID: "evt-6", CarreraID: "2024_monza", Estado: SimEnCurso},
+		pilotos:    map[int]string{1: "VER", 4: "NOR"},
+		posiciones: []EventoPosicion{{T: 100, Piloto: 1, Pos: 1}},
+	}
+	pagos := &pagosFalso{jugadores: nil}
+	w := NuevoWorker(fuente, pagos, &torneoFalso{})
+	ctx := context.Background()
+
+	must(t, w.Procesar(ctx)) // en_curso: crea, abre, larga (cancelado)
+
+	fuente.sim.Estado = SimFallida
+	must(t, w.Procesar(ctx))
+	if pagos.resueltos != 0 {
+		t.Fatalf("una simulacion fallida no resuelve la estatica (resueltos=%d)", pagos.resueltos)
+	}
+	if pagos.finalizados != 1 {
+		t.Fatalf("un evento cancelado con carrera fallida debe finalizarse (finalizados=%d)", pagos.finalizados)
+	}
 }
 
 func TestArranqueConCarreraYaTerminada(t *testing.T) {
@@ -136,6 +209,10 @@ func TestArranqueConCarreraYaTerminada(t *testing.T) {
 	}
 	if pagos.ultimaGanadora != "VER" {
 		t.Errorf("ganadora = %q, se esperaba VER", pagos.ultimaGanadora)
+	}
+	// Torneo cancelado (sin jugadores): tambien finaliza la carrera en Pagos.
+	if pagos.finalizados != 1 {
+		t.Errorf("evento cancelado debia finalizarse una vez (finalizados=%d)", pagos.finalizados)
 	}
 }
 

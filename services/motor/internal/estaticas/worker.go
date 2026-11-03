@@ -8,6 +8,7 @@
 //	simulacion largo        -> cierra el mercado + start (cierra inscripciones)
 //	                           e inicializa las fichas del torneo (HU2-11)
 //	simulacion finalizada   -> resuelve el mercado con el ganador real
+//	torneo cancelado + fin  -> finaliza la carrera en Pagos (sin reparto)
 //
 // Todo lo decide el ESTADO de la simulacion, no la hora real. El ciclo es
 // idempotente: reprocesar la misma simulacion no duplica nada porque Pagos es
@@ -33,10 +34,12 @@ type Torneo interface {
 // faseSim lleva en memoria que ya se hizo de la simulacion actual. La verdad
 // esta en Pagos (idempotente); esto solo evita repetir trabajo cada tick.
 type faseSim struct {
-	id       string
-	abierto  bool // evento creado y mercado abierto
-	largado  bool // mercado cerrado, inscripciones cerradas, fichas creadas
-	resuelto bool // mercado resuelto (gano alguien) o fallo (queda sin resolver)
+	id        string
+	abierto   bool // evento creado y mercado abierto
+	largado   bool // mercado cerrado, inscripciones cerradas, fichas creadas
+	cancelado bool // la largada no dejo torneo (<4 inscritos): no hay reparto
+	resuelto  bool // mercado resuelto (gano alguien) o fallo (queda sin resolver)
+	cerrado   bool // evento finalizado en Pagos (solo torneos cancelados)
 }
 
 // Worker orquesta el ciclo de los mercados estaticos de la simulacion actual.
@@ -114,6 +117,18 @@ func (w *Worker) Procesar(ctx context.Context) error {
 		log.Printf("HU2-07: simulacion %s fallida; el mercado estatico del evento %s queda cerrado SIN resolver (no se paga)", sim.ID, sim.ID)
 		w.fase.resuelto = true
 	}
+
+	// Fase 4 (solo torneo cancelado): con la carrera terminada y la estatica
+	// ya resuelta, nadie mas cerrara el evento (HU2-12 solo cierra los torneos
+	// activos, que estan en Redis). Se finaliza aqui para que el evento deje de
+	// verse "en_curso" en el calendario. Pagos no paga: el torneo esta cancelado.
+	if w.fase.resuelto && w.fase.cancelado && !w.fase.cerrado {
+		if err := w.Pagos.Finalizar(ctx, sim.ID); err != nil {
+			return err
+		}
+		w.fase.cerrado = true
+		log.Printf("HU2-07: evento %s finalizado (torneo cancelado, sin reparto)", sim.ID)
+	}
 	return nil
 }
 
@@ -177,7 +192,15 @@ func (w *Worker) largar(ctx context.Context, sim Simulacion) error {
 	}
 	log.Printf("HU2-07: evento %s largado: mercado estatico cerrado, %d inscritos al torneo", sim.ID, len(largada.Jugadores))
 
-	if w.Torneo != nil && len(largada.Jugadores) > 0 {
+	// Sin jugadores, la largada canceló el torneo (<4 inscritos, HU2-06): no
+	// hay fichas que crear ni reparto que hacer. Se recuerda para que la fase 3
+	// finalice la carrera en Pagos (HU2-12 solo cierra los torneos activos).
+	if len(largada.Jugadores) == 0 {
+		w.fase.cancelado = true
+		return nil
+	}
+
+	if w.Torneo != nil {
 		if err := w.Torneo.InicializarTorneo(ctx, sim.ID, largada.Jugadores, largada.FichasIniciales); err != nil {
 			return err
 		}
