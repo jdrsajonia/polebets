@@ -21,6 +21,9 @@
 #     ingestor       REAL  (Go)           -> HU2-16/19 Iván; descarga OpenF1, reproduce; único que escribe Mongo
 #     admin          REAL  (FastAPI)      -> HU2-18/19/23 Iván; única otra entrada (8003)
 #
+#   Cliente fuera del conteo (perfil "cli", no lo levanta `docker compose up`):
+#     cli            Rust (ratatui)       -> HU2-17 William; `docker compose run --rm cli`
+#
 #   Infra (imágenes oficiales, ya funcionan):
 #     postgres-usuarios, postgres-pagos, mongo, redis, rabbitmq
 #
@@ -205,6 +208,24 @@ services:
     networks:
       - borde
       - interna
+
+  # CLI del administrador (HU2-17, Rust). No es un servicio: es la terminal del
+  # admin, empaquetada para correrla sin instalar Rust. El perfil "cli" la deja
+  # fuera de `docker compose up`; se abre con:
+  #   docker compose run --rm cli
+  # Solo comparte la red de borde con Admin, igual que un cliente externo.
+  cli:
+    build:
+      context: ./services/cli
+    profiles: ["cli"]
+    stdin_open: true
+    tty: true
+    depends_on:
+      - admin
+    environment:
+      POLEBET_ADMIN_URL: http://admin:8003
+    networks:
+      - borde
 
   # ===========================================================================
   # Lógica (interna)
