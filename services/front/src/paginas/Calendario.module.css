@@ -1,0 +1,134 @@
+/* Pantalla /eventos (HU2-05). Usa solo las variables de estilos/tokens.css. */
+
+.pagina {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.pagina p {
+  margin: 0;
+}
+
+.titulo {
+  margin: 0;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.subtitulo {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+.lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Cada evento del calendario es un botón-tarjeta clicable. */
+.tarjetaEvento {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+.tarjetaEvento:hover {
+  border-color: var(--border-strong);
+}
+
+.filaEvento {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.carrera,
+.pregunta {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.estado {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.estado[data-estado="en_curso"],
+.estado[data-estado="abierto"] {
+  color: var(--accent-text);
+  border-color: var(--accent-border);
+}
+
+.metaEvento {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.cabecera {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mercado {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.opciones {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.opcion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
