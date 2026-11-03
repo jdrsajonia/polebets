@@ -170,6 +170,51 @@ export interface RespuestaApuesta {
   fichas: number | null; // fichas que quedan (torneo)
 }
 
+// Payload de "resultado_apuesta" de los mercados dinamicos (HU2-10, HU2-13):
+// lo envia el worker de liquidar del motor solo al dueño de la apuesta
+// (services/motor/internal/liquidar, structs Resultado y ResultadoTorneo).
+// No trae puntos: el del P1 sigue siendo ResultadoApuesta.
+
+interface ResultadoDinamicoBase {
+  mercado_id: string;
+  apuesta_id: string;
+  pregunta: string;
+  opcion: string; // lo que aposto el jugador
+  opcion_ganadora: string;
+  gano: boolean;
+  monto: number;
+  multiplicador: number;
+}
+
+export interface ResultadoIndividual extends ResultadoDinamicoBase {
+  modo: "individual";
+  pago: number; // PoleCoins recibidos (0 si perdio)
+  saldo: number; // saldo tras liquidar
+}
+
+export interface ResultadoTorneo extends ResultadoDinamicoBase {
+  modo: "torneo";
+  fichas_ganadas: number; // 0 si perdio
+  fichas_perdidas: number; // el monto si perdio, 0 si gano
+  fichas_total: number; // fichas del jugador tras liquidar
+  puesto: number; // puesto en el ranking tras liquidar
+}
+
+export type ResultadoDinamico = ResultadoIndividual | ResultadoTorneo;
+
+// GET /api/mercados/{mercado_id}/mi-apuesta (§3.7, HU2-13): la apuesta del
+// jugador en un mercado, para mostrarla al recargar la pagina.
+export interface MiApuesta {
+  apuesta_id: string;
+  mercado_id: string;
+  opcion: string;
+  monto: number;
+  modo: ModoApuesta;
+  multiplicador: number;
+  status: "pending" | "won" | "lost";
+  payout: number | null; // null mientras esta pending; tokens o fichas segun el modo
+}
+
 // GET /api/eventos/{evento_id} (§3.4): solo lo que el front usa para
 // mostrar el modo antes de confirmar (RF-09).
 export interface DetalleEvento {

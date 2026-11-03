@@ -6,7 +6,7 @@ from tests.conftest import headers, requires_db
 
 @requires_db
 def test_el_motor_lee_el_mercado_con_sus_opciones_y_multiplicadores(client, fabrica):
-    mercado = fabrica.mercado()
+    mercado = fabrica.mercado(status="programado")
 
     r = client.get(f"/internal/markets/{mercado.id}", headers=headers())
 
@@ -93,6 +93,21 @@ def test_apuestas_pendientes_individuales_del_mercado(client, fabrica):
         str(user_ver), "VER", 100, 2.5, "pending", None,
     )
     assert client.get(f"/internal/markets/{uuid.uuid4()}/bets", headers=headers()).status_code == 404
+
+
+@requires_db
+def test_apuestas_del_mercado_filtra_por_usuario(client, fabrica):
+    mercado = fabrica.mercado()
+    bet_ver, user_ver = _apostar(client, fabrica, mercado, "VER", 100)
+    _apostar(client, fabrica, mercado, "NOR", 50)
+    url = f"/internal/markets/{mercado.id}/bets"
+
+    r = client.get(f"{url}?user_id={user_ver}", headers=headers())
+    assert r.status_code == 200, r.text
+    assert [b["bet_id"] for b in r.json()] == [str(bet_ver)]
+    # Un jugador que no aposto: lista vacia (no 404, el mercado existe).
+    assert client.get(f"{url}?user_id={uuid.uuid4()}", headers=headers()).json() == []
+    assert client.get(f"{url}?user_id=no-es-uuid", headers=headers()).status_code == 422
 
 
 @requires_db

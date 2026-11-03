@@ -148,6 +148,68 @@ func TestSinSimulacionNoHaceNada(t *testing.T) {
 	}
 }
 
+func TestSimulacionFallidaNoResuelve(t *testing.T) {
+	// Una simulacion que se corta (fallida) arranco la carrera: el mercado se
+	// cierra y las inscripciones tambien, pero NO se resuelve (no hay resultado
+	// fiable). Resolver aqui pagaria a quien iba primero en el corte: incorrecto.
+	fuente := &fuenteFalsa{
+		sim:        Simulacion{ID: "evt-3", CarreraID: "2024_monza", Estado: SimEnCurso},
+		pilotos:    map[int]string{1: "VER", 4: "NOR"},
+		posiciones: []EventoPosicion{{T: 100, Piloto: 1, Pos: 1}},
+	}
+	pagos := &pagosFalso{jugadores: []string{"u1", "u2"}}
+	w := NuevoWorker(fuente, pagos, &torneoFalso{})
+	ctx := context.Background()
+
+	// Tick 1: en_curso -> crea, abre, cierra y larga. No resuelve aun.
+	must(t, w.Procesar(ctx))
+	if pagos.cerrados != 1 || pagos.largadas != 1 {
+		t.Fatalf("tras la largada: cerrados=%d largadas=%d, se esperaba 1 y 1", pagos.cerrados, pagos.largadas)
+	}
+
+	// Tick 2: la simulacion falla -> NO debe resolver.
+	fuente.sim.Estado = SimFallida
+	must(t, w.Procesar(ctx))
+	if pagos.resueltos != 0 {
+		t.Fatalf("una simulacion fallida NO debe resolver (resueltos=%d)", pagos.resueltos)
+	}
+
+	// Tick 3: sigue fallida -> tampoco resuelve ni repite nada.
+	must(t, w.Procesar(ctx))
+	if pagos.resueltos != 0 {
+		t.Fatalf("un segundo tick fallida tampoco debe resolver (resueltos=%d)", pagos.resueltos)
+	}
+}
+
+func TestSinGanadorReintentaYNoMarcaResuelto(t *testing.T) {
+	// finalizada pero sin un lider claro (ningun position==1): resolver debe
+	// fallar para que Procesar NO marque la fase como resuelta y lo reintente.
+	// Cuando luego aparece el ganador, el siguiente tick resuelve.
+	fuente := &fuenteFalsa{
+		sim:        Simulacion{ID: "evt-4", CarreraID: "2024_monza", Estado: SimFinalizada},
+		pilotos:    map[int]string{1: "VER", 4: "NOR"},
+		posiciones: []EventoPosicion{{T: 100, Piloto: 1, Pos: 2}}, // nadie en P1
+	}
+	pagos := &pagosFalso{jugadores: nil}
+	w := NuevoWorker(fuente, pagos, &torneoFalso{})
+	ctx := context.Background()
+
+	// Tick 1: se pone al dia (crea/larga) pero resolver falla -> error.
+	if err := w.Procesar(ctx); err == nil {
+		t.Fatal("sin ganador, Procesar debia devolver error para reintentar")
+	}
+	if pagos.resueltos != 0 {
+		t.Fatalf("no debia resolver sin ganador (resueltos=%d)", pagos.resueltos)
+	}
+
+	// Tick 2: ahora llega el evento que pone a VER en P1 -> resuelve.
+	fuente.posiciones = []EventoPosicion{{T: 200, Piloto: 1, Pos: 1}}
+	must(t, w.Procesar(ctx))
+	if pagos.resueltos != 1 || pagos.ultimaGanadora != "VER" {
+		t.Fatalf("tras aparecer el ganador: resueltos=%d ganadora=%q, se esperaba 1 y VER", pagos.resueltos, pagos.ultimaGanadora)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {

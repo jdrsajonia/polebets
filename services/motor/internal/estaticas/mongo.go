@@ -35,9 +35,17 @@ func (s Simulacion) Largo() bool {
 	return s.Estado == SimEnCurso || s.Estado == SimFinalizada || s.Estado == SimFallida
 }
 
-// Termino indica que la carrera ya acabo: se resuelven las estaticas.
+// Termino indica que la carrera acabo BIEN: solo entonces se resuelven las
+// estaticas con el ganador real. Una simulacion `fallida` NO termina: no hay
+// resultado fiable y resolver con la foto parcial pagaria a quien no debe.
 func (s Simulacion) Termino() bool {
-	return s.Estado == SimFinalizada || s.Estado == SimFallida
+	return s.Estado == SimFinalizada
+}
+
+// Fallo indica que la carrera se corto sin resultado valido. El mercado queda
+// cerrado (ya se cerro en la largada) pero sin resolver: no se paga nada.
+func (s Simulacion) Fallo() bool {
+	return s.Estado == SimFallida
 }
 
 // DatosCarrera es lo que el Gestor necesita de `carreras` para armar el

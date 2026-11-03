@@ -30,6 +30,17 @@ func NuevaMongoFuente(db *mongo.Database) *MongoFuente {
 var estadosSimulacion = bson.A{"en_curso", "finalizada", "fallida"}
 
 func (m *MongoFuente) SimulacionActual(ctx context.Context) (Simulacion, bool, error) {
+	return m.ultima(ctx, bson.M{"estado": bson.M{"$in": estadosSimulacion}})
+}
+
+// SimulacionDe devuelve la simulacion mas reciente de una carrera, en
+// cualquier estado; ok=false si nunca se simulo. La usa el cierre del evento
+// (HU2-12): la carrera puede repetirse en otra demo, por eso la mas reciente.
+func (m *MongoFuente) SimulacionDe(ctx context.Context, carreraID string) (Simulacion, bool, error) {
+	return m.ultima(ctx, bson.M{"carrera_id": carreraID})
+}
+
+func (m *MongoFuente) ultima(ctx context.Context, filtro bson.M) (Simulacion, bool, error) {
 	var doc struct {
 		ID         string `bson:"_id"`
 		CarreraID  string `bson:"carrera_id"`
@@ -39,7 +50,7 @@ func (m *MongoFuente) SimulacionActual(ctx context.Context) (Simulacion, bool, e
 		Total      int    `bson:"total_vueltas"`
 	}
 	err := m.simulaciones.FindOne(ctx,
-		bson.M{"estado": bson.M{"$in": estadosSimulacion}},
+		filtro,
 		options.FindOne().SetSort(bson.D{{Key: "iniciada_en", Value: -1}}),
 	).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {

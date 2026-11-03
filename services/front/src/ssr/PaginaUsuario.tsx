@@ -98,7 +98,7 @@ export default function PaginaUsuario({ datos, generadaEn }: PropsPagina) {
               <p className="pu-vacio">No pudimos cargar tu saldo.</p>
             ) : (
               <p className="pu-saldo">
-                {formatoNumero(saldo)} <span>PBT</span>
+                {formatoNumero(saldo)} <span>PoleCoins</span>
               </p>
             )}
             <a href="/billetera" className="pu-enlace-seccion">Comprar tokens</a>
@@ -150,7 +150,7 @@ function Eventos({ eventos }: { eventos: EventoPagina[] | null }) {
               <td>{nombreTorneo(e.estado_torneo, e.devuelta)}</td>
               <td className="pu-num">{e.puesto === null ? "—" : `${e.puesto}º`}</td>
               <td className="pu-num">{e.fichas === null ? "—" : formatoNumero(e.fichas)}</td>
-              <td className="pu-num">{e.premio === null ? "—" : `${formatoNumero(e.premio)} PBT`}</td>
+              <td className="pu-num">{e.premio === null ? "—" : `${formatoNumero(e.premio)} PoleCoins`}</td>
             </tr>
           ))}
         </tbody>
@@ -165,7 +165,7 @@ function Apuestas({ apuestas }: { apuestas: ApuestaPagina[] | null }) {
   return (
     <ul className="pu-lista">
       {apuestas.map((a) => {
-        const unidad = a.modo === "torneo" ? "fichas" : "PBT";
+        const unidad = a.modo === "torneo" ? "fichas" : "PoleCoins";
         return (
           <li key={a.apuesta_id}>
             <span>
@@ -191,7 +191,7 @@ function Transacciones({ transacciones }: { transacciones: TransaccionPagina[] |
           <span>
             {nombreTransaccion(t.tipo)} <span className="texto-secundario">· {formatoFecha(t.creada_en)}</span>
           </span>
-          <span className={t.tokens >= 0 ? "pu-num pu-mas" : "pu-num pu-menos"}>{formatoDelta(t.tokens)} PBT</span>
+          <span className={t.tokens >= 0 ? "pu-num pu-mas" : "pu-num pu-menos"}>{formatoDelta(t.tokens)} PoleCoins</span>
         </li>
       ))}
     </ul>

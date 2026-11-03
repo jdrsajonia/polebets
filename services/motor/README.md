@@ -270,7 +270,8 @@ El paquete `internal/fichas` es el almacén de fichas y el ranking:
   apuesta y se recalcula el total, así un reintento con la misma apuesta no
   descuenta dos veces (RNF-12). Quien llega a 0 fichas no puede apostar.
 - **Liquidar** (`Almacen.Liquidar`): al resolver el mercado, una apuesta de
-  torneo ganadora recibe `monto × multiplicador` en fichas y una perdedora
+  torneo ganadora recibe `monto × multiplicador` en fichas (en centésimas
+  enteras y truncado, igual que `bets.payout` en Pagos) y una perdedora
   nada. El resultado se escribe una sola vez por apuesta y el total se
   recalcula: repetir la liquidación no paga doble.
 
@@ -280,10 +281,21 @@ se **recalcula** desde su saldo inicial, sus reservas y los resultados escritos.
 Así el componente es seguro ante reintentos, reinicios del motor y dobles
 entregas del WebSocket.
 
-El worker de liquidación (HU-07) decide por el `modo` de cada contexto de
-apuesta: `individual` va a Pagos en tokens (como siempre); `torneo` va al
-almacén de fichas y no toca Pagos. Si no hay `REDIS_URL`, una apuesta de torneo
-queda reintentable (nunca se liquida un torneo en tokens).
+Mercados del P2 (Pagos, HU2-10, paquete `liquidar`): por cada mercado cerrado
+con ganador, el worker paga las individuales en tokens y, para las de torneo
+(`mode=torneo&status=pending`), escribe las fichas en Redis
+(`LiquidarYUbicar`), marca la apuesta en Pagos
+(`POST /internal/bets/torneo/{id}/settlement`) y avisa al jugador. Al
+terminar el mercado difunde `ranking_torneo`. `/liquidated` solo se llama
+cuando no queda ninguna pendiente de ningún modo.
+
+- Sin `REDIS_URL` las de torneo quedan pendientes y el mercado espera (nunca
+  se liquida un torneo en tokens). Con Redis caído, igual: se reintenta.
+- Si Redis responde pero la apuesta no tiene reserva (Pagos la registró y la
+  reserva falló sin reintento del jugador), se marca `lost` con 0 fichas: nunca
+  se le descontaron. Queda en el log.
+
+El worker del P1 (HU-07, paquete `liquidacion`) sigue con los mercados de Mongo.
 
 Al cambiar las fichas de un torneo, el motor difunde el **ranking** por
 WebSocket (RF-18, cambio en pantalla en < 1 s, RNF-13):
@@ -315,8 +327,8 @@ WebSocket (RF-18, cambio en pantalla en < 1 s, RNF-13):
 | `min_apostado` | fichas que hay que apostar para ser elegible (techo del porcentaje) |
 
 Cuando la apuesta liquidada fue de torneo, `resultado_apuesta` (que llega solo
-al dueño, HU-08) trae además `modo: "torneo"`, `fichas_ganadas`, `fichas_total`
-y `puesto` en lugar de puntos (RF-17).
+al dueño, HU-08) trae además `modo: "torneo"`, `fichas_ganadas`, `fichas_perdidas`,
+`fichas_total` y `puesto` en lugar de tokens (RF-17).
 
 Detalle completo, claves de Redis y decisiones en
 [`../../documentation/hu2-11-fichas-ranking.md`](../../documentation/hu2-11-fichas-ranking.md).
@@ -325,7 +337,28 @@ Detalle completo, claves de Redis y decisiones en
 fichas finales de Redis, las envía a Pagos (`POST /internal/events/{id}/close`,
 cliente `fichas.PagosCierreHTTP`) y solo si Pagos confirma el reparto borra las
 claves del torneo. Si Pagos falla, Redis queda intacto y el cierre se puede
-repetir (Pagos es idempotente). Lo invoca el flujo de fin de carrera (HU2-07).
+repetir (Pagos es idempotente).
+
+Lo llama el worker de `internal/cierre` (cada 5 s, solo con Redis). Por cada
+torneo con fichas en Redis (`Almacen.EventosActivos`):
+
+1. lee el evento en Pagos (`race_key`, `tournament_status`); cancelado → nada;
+2. la última simulación de esa carrera en Mongo tiene que estar `finalizada`
+   (misma fuente que HU2-14);
+3. `GET /internal/events/{id}/pendientes` de Pagos tiene que dar
+   `mercados_sin_liquidar = 0` y `apuestas_torneo_pending = 0`;
+4. difunde el `ranking_torneo` final y llama a `CerrarTorneo` una vez.
+
+Si falta algo espera a la siguiente vuelta; nunca cierra antes. Los eventos ya
+cerrados quedan en memoria para no volver a llamar a Pagos; tras un reinicio
+Redis ya está limpio y el evento no reaparece. Un torneo cancelado (<4
+inscritos) o un Motor sin Redis no tienen fichas: el worker no hace nada.
+
+**Dependencias.** El cierre espera a que **todos** los mercados del evento estén
+`liquidado`, y los estáticos los liquida HU2-07 (en curso): mientras eso no
+exista, el torneo no se cierra solo. Igual con la largada: la llamada a
+`POST /internal/events/{id}/start` y `InicializarTorneo` también son de
+HU2-07; sin ellas no hay torneo en Redis que cerrar.
 Ver [`../../documentation/hu2-12-reparto-botin.md`](../../documentation/hu2-12-reparto-botin.md).
 
 ## Apuestas dinámicas (HU2-08)

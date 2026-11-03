@@ -19,6 +19,7 @@ package estaticas
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 )
@@ -35,7 +36,7 @@ type faseSim struct {
 	id       string
 	abierto  bool // evento creado y mercado abierto
 	largado  bool // mercado cerrado, inscripciones cerradas, fichas creadas
-	resuelto bool // mercado resuelto
+	resuelto bool // mercado resuelto (gano alguien) o fallo (queda sin resolver)
 }
 
 // Worker orquesta el ciclo de los mercados estaticos de la simulacion actual.
@@ -100,11 +101,17 @@ func (w *Worker) Procesar(ctx context.Context) error {
 		w.fase.largado = true
 	}
 
-	// Fase 3: la carrera termino -> resolver el ganador.
+	// Fase 3: la carrera termino.
+	//   - finalizada -> resolver con el ganador real.
+	//   - fallida     -> no hay resultado fiable: el mercado queda cerrado (ya
+	//                    se cerro en la largada) sin resolver. No se paga nada.
 	if sim.Termino() && !w.fase.resuelto {
 		if err := w.resolver(ctx, sim); err != nil {
 			return err
 		}
+		w.fase.resuelto = true
+	} else if sim.Fallo() && !w.fase.resuelto {
+		log.Printf("HU2-07: simulacion %s fallida; el mercado estatico del evento %s queda cerrado SIN resolver (no se paga)", sim.ID, sim.ID)
 		w.fase.resuelto = true
 	}
 	return nil
@@ -192,8 +199,11 @@ func (w *Worker) resolver(ctx context.Context, sim Simulacion) error {
 	}
 	codigo, ok := ganador(posiciones, datos.Pilotos)
 	if !ok {
-		log.Printf("HU2-07: ATENCION no se pudo determinar el ganador de la carrera %s; el mercado estatico queda sin resolver", sim.CarreraID)
-		return nil
+		// Sin ganador claro no se marca la fase como resuelta (el caller
+		// devuelve el error y NO pone resuelto=true): se reintenta el proximo
+		// tick. Si no, el mercado quedaria cerrado sin winning_option para
+		// siempre y el reparto del torneo (HU2-12) nunca correria.
+		return fmt.Errorf("no se pudo determinar el ganador de la carrera %s (%d posiciones): se reintentara", sim.CarreraID, len(posiciones))
 	}
 	if err := w.Pagos.Resolver(ctx, IDMercado(sim.ID, PlantillaGanador), codigo); err != nil {
 		return err

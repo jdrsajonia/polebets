@@ -47,9 +47,10 @@ HU2-06 (Michael, Pagos)        HU2-09 (Michael, Motor)        HU2-11 (esta HU)
   «las fichas viven en Redis; `players` de la largada dice a quién crearle
   `initial_chips`».
 - **HU2-09 (apostar):** al confirmar una apuesta de torneo, el flujo de apuestas
-  llama a `Almacen.ReservarApuesta` para descontar las fichas antes de registrar
-  la apuesta en Pagos. Esta HU **expone** esa operación; quien implemente HU2-09
-  la consume.
+  primero la registra en Pagos (`POST /internal/bets/torneo`, que aplica una por
+  mercado y mercado abierto) y después llama a `Almacen.ReservarApuesta` para
+  descontar las fichas. Los dos pasos son idempotentes por `bet_id`: un
+  reintento del front completa lo que haya quedado a medias.
 - **HU2-12 (reparto):** lee el estado final de las fichas y lo persiste en
   `event_entries`, y al terminar llama a `Almacen.Limpiar` (RF-16: «Redis se
   limpia»).

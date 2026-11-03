@@ -6,13 +6,14 @@
   POST /internal/markets/{market_id}/resolve           guardar winning_option de un mercado cerrado
   GET  /internal/markets?status=cerrado&resuelto=true  mercados listos para liquidar (HU2-10)
   GET  /internal/markets/{market_id}                   estado, opciones y multiplicadores (HU2-09)
-  GET  /internal/markets/{market_id}/bets              apuestas del mercado (HU2-10)
+  GET  /internal/markets/{market_id}/bets              apuestas del mercado (HU2-10; ?user_id= para HU2-13)
   POST /internal/markets/{market_id}/liquidated        marcar el mercado como liquidado (HU2-10)
 
 Los mercados los crean HU2-07 (estaticas) y HU2-08 (dinamicas) y quien conoce
 el resultado de la carrera escribe winning_option. Aqui no se decide ningun
-resultado: el Motor lee, paga cada apuesta con POST /internal/settlements y al
-final marca el mercado.
+resultado: el Motor lee, paga cada apuesta (individuales con POST
+/internal/settlements, torneo con POST /internal/bets/torneo/{id}/settlement)
+y al final marca el mercado.
 """
 import uuid
 from typing import Literal
@@ -23,7 +24,6 @@ from sqlalchemy.exc import IntegrityError
 
 from app.deps import DbSession, ServicioInterno
 from app.models import (
-    BET_INDIVIDUAL,
     BET_PENDING,
     MARKET_ABIERTO,
     MARKET_CERRADO,
@@ -92,8 +92,9 @@ def _bloquear(db: DbSession, market_id: uuid.UUID) -> Market:
     return mercado
 
 
-def _pendientes_individuales(market_id: uuid.UUID):
-    return exists().where(Bet.market_id == market_id, Bet.mode == BET_INDIVIDUAL, Bet.status == BET_PENDING)
+def _pendientes(market_id: uuid.UUID):
+    """Apuestas sin liquidar de cualquier modo: individuales (tokens) y de torneo (fichas)."""
+    return exists().where(Bet.market_id == market_id, Bet.status == BET_PENDING)
 
 
 @router.get("", response_model=list[MarketOut])
@@ -132,6 +133,7 @@ def apuestas(
     response: Response,
     modo: Literal["individual", "torneo"] | None = Query(None, alias="mode"),
     estado: Literal["pending", "won", "lost"] | None = Query(None, alias="status"),
+    user_id: uuid.UUID | None = None,  # HU2-13: la apuesta de un jugador (a lo sumo una, uq_bets_user_market)
 ) -> list[MarketBetOut]:
     if db.get(Market, market_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NO_EXISTE)
@@ -140,6 +142,8 @@ def apuestas(
         consulta = consulta.where(Bet.mode == modo)
     if estado is not None:
         consulta = consulta.where(Bet.status == estado)
+    if user_id is not None:
+        consulta = consulta.where(Bet.user_id == user_id)
     response.headers["Cache-Control"] = "no-store"
     return [
         MarketBetOut(
@@ -161,7 +165,7 @@ def apuestas(
     response_model=MarketLiquidatedOut,
     responses={
         404: {"description": NO_EXISTE},
-        409: {"description": "El mercado no esta cerrado con ganador o aun tiene apuestas individuales pendientes"},
+        409: {"description": "El mercado no esta cerrado con ganador o aun tiene apuestas pendientes (de cualquier modo)"},
     },
 )
 def marcar_liquidado(market_id: uuid.UUID, db: DbSession) -> MarketLiquidatedOut:
@@ -173,8 +177,8 @@ def marcar_liquidado(market_id: uuid.UUID, db: DbSession) -> MarketLiquidatedOut
         return MarketLiquidatedOut(market_id=mercado.id, status=mercado.status, nueva=False)
     if mercado.status != MARKET_CERRADO or mercado.winning_option is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El mercado no está cerrado con ganador")
-    if db.scalar(select(_pendientes_individuales(market_id))):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Quedan apuestas individuales pendientes")
+    if db.scalar(select(_pendientes(market_id))):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Quedan apuestas pendientes")
     mercado.status = MARKET_LIQUIDADO
     db.commit()
     return MarketLiquidatedOut(market_id=mercado.id, status=mercado.status, nueva=True)

@@ -51,6 +51,7 @@ Todas las respuestas de error tienen el mismo cuerpo:
 | 403 | `solo_jugadores` | `X-User-Rol` distinto de `player` |
 | 404 | `evento_no_existe` | El evento no existe |
 | 404 | `mercado_no_existe` | El mercado no existe |
+| 404 | `sin_apuesta` | El jugador no apostó en ese mercado (§3.7) |
 | 409 | `correo_registrado` | «Este correo ya está registrado» |
 | 409 | `inscripciones_cerradas` | La carrera ya largó |
 | 409 | `mercado_cerrado` | «Mercado cerrado» (RF-13) |
@@ -306,6 +307,29 @@ Errores: 400 `cuerpo_invalido` / `falta_idempotency_key`, 404 `mercado_no_existe
 Lo que hace el Motor (HU2-09, Michael): valida mercado abierto en tiempo de carrera (RF-13, RNF-19), opción, modo, tope de [500] tokens en individual y fichas suficientes en torneo; en individual pide a Pagos debitar y registrar en una sola transacción; en torneo escribe el delta en Redis y Pagos registra la apuesta. Deriva el `bet_id` del par (usuario, clave), como hoy en `services/motor/internal/apuestas/servicio.go`, así que la misma clave da la misma apuesta. Si un paso interno del Motor falla, lo deshace el Motor.
 
 **Si falla:** timeout o 5xx del Motor → el Orquestador reintenta con la misma clave. 4xx → se traduce a la tabla de errores común sin reintentar.
+
+### 3.7 Mi apuesta en un mercado (RF-17, HU2-13)
+
+`GET /api/mercados/{mercado_id}/mi-apuesta` — sesión de jugador. La usa el panel de dinámicas al montarse (p. ej. tras recargar la página) para volver a mostrar lo que apostó el jugador y, si ya se liquidó, el resultado. También la repite si el mercado se resolvió y no llegó `resultado_apuesta` por WebSocket.
+
+```json
+// 200
+{ "apuesta_id": "7f1e…", "mercado_id": "…", "opcion": "si", "monto": 200,
+  "modo": "torneo", "multiplicador": 1.8, "status": "won", "payout": 360 }
+```
+
+`status` y `payout` son los de `bets` tal cual: `pending` \| `won` \| `lost`; `payout` es `null` mientras está `pending`, 0 si perdió, y está en tokens o fichas según el `modo`. Respuesta con `Cache-Control: no-store`.
+
+Errores: 404 `sin_apuesta` (no apostó), 404 `mercado_no_existe` (no existe o el id no es un uuid), 503.
+
+**Pasos**
+
+| # | Llama a | Ruta | Espera |
+| --- | --- | --- | --- |
+| 1 | — | — | Valida headers y rol |
+| 2 | Pagos | `GET /internal/markets/{mercado_id}/bets?user_id={user_id}` | 200 con a lo sumo una apuesta (único `user_id`, `market_id`); lista vacía → `sin_apuesta` |
+
+No trae saldo, fichas ni puesto: el saldo lo da `GET /api/billetera` y las fichas y el puesto el ranking del torneo por WebSocket.
 
 ## 4. Llamadas salientes
 

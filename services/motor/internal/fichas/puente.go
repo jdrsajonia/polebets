@@ -37,7 +37,7 @@ func (a *Almacen) LiquidarYUbicar(ctx context.Context, eventoID, apuestaID strin
 	}
 	fichasGanadas := int64(0)
 	if gano {
-		fichasGanadas = int64(float64(reserva.Monto) * mult)
+		fichasGanadas = FichasPagadas(reserva.Monto, mult)
 	}
 
 	estado, err := a.Liquidar(ctx, eventoID, apuestaID, gano)

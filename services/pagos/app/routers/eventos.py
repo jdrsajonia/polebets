@@ -6,6 +6,7 @@ Solo para servicios (header X-Internal-Service-Token):
   POST /internal/events/{event_id}/registrations        Orquestador: inscribe y cobra el buy_in (Idempotency-Key)
   GET  /internal/events/{event_id}/registrations/{uid}  Orquestador: ¿esta inscrito? (404 = no)
   POST /internal/events/{event_id}/start                Motor: largada; cierra inscripciones y devuelve si faltan jugadores
+  GET  /internal/events/{event_id}/pendientes           Motor: ¿queda algo sin liquidar antes de cerrar el torneo? (HU2-12)
 
 El rol (player/admin) lo valida el Orquestador con X-User-Rol; Pagos no.
 El token de servicio lo exige la dependencia ServicioInterno del router.
@@ -15,14 +16,16 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Header, HTTPException, Query, Response, status
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.deps import DbSession, ServicioInterno
-from app.models import TORNEO_CANCELADO, Event, EventEntry
+from app.models import BET_PENDING, BET_TORNEO, MARKET_LIQUIDADO, TORNEO_CANCELADO, Bet, Event, EventEntry, Market
 from app.routers.markets import _salida as _mercado_out
 from app.schemas.eventos import (
     EventCreateIn,
     EventOut,
+    EventPendientesOut,
     EventStartOut,
     RegistrationIn,
     RegistrationOut,
@@ -194,6 +197,23 @@ def consultar_inscripcion(event_id: uuid.UUID, user_id: uuid.UUID, db: DbSession
     if i is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "El jugador no está inscrito")
     return _inscripcion_out(evento, i)
+
+
+@router.get("/{event_id}/pendientes", response_model=EventPendientesOut, responses={404: {"description": NO_EXISTE}})
+def pendientes(event_id: uuid.UUID, db: DbSession, response: Response) -> EventPendientesOut:
+    """Cuenta lo que impide cerrar el torneo: mercados no liquidados y apuestas de torneo pending."""
+    if db.get(Event, event_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, NO_EXISTE)
+    mercados = db.scalar(
+        select(func.count()).select_from(Market).where(Market.event_id == event_id, Market.status != MARKET_LIQUIDADO)
+    )
+    apuestas = db.scalar(
+        select(func.count())
+        .select_from(Bet)
+        .where(Bet.event_id == event_id, Bet.mode == BET_TORNEO, Bet.status == BET_PENDING)
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return EventPendientesOut(event_id=event_id, mercados_sin_liquidar=mercados, apuestas_torneo_pending=apuestas)
 
 
 @router.post("/{event_id}/start", response_model=EventStartOut, responses={404: {"description": NO_EXISTE}})

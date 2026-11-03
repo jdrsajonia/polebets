@@ -88,9 +88,9 @@ export default function Layout() {
             <>
               {usuario.rol === "player" && (
                 // HU-03: saldo real; se actualiza solo al comprar tokens.
-                <Link to="/billetera" className={estilos.saldo} aria-label={`Saldo: ${saldo === null ? "sin cargar" : `${numero.format(saldo)} PBT`}`}>
+                <Link to="/billetera" className={estilos.saldo} aria-label={`Saldo: ${saldo === null ? "sin cargar" : `${numero.format(saldo)} PoleCoins`}`}>
                   <span className={estilos.saldoRombo} aria-hidden="true" />
-                  {saldo === null ? "—" : numero.format(saldo)} PBT
+                  {saldo === null ? "—" : numero.format(saldo)} PoleCoins
                 </Link>
               )}
               <span className={estilos.avatar} title={usuario.nombre}>

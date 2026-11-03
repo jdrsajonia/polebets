@@ -27,6 +27,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -103,6 +104,9 @@ type Store interface {
 	Estados(ctx context.Context, eventoID string) ([]Estado, error)
 	// Limpiar borra todas las claves del evento (lo usa HU2-12 al cerrar).
 	Limpiar(ctx context.Context, eventoID string) error
+	// Eventos lista los eventos con torneo inicializado (los que largaron y
+	// aun no se limpiaron). Lo usa el cierre del evento (HU2-12).
+	Eventos(ctx context.Context) ([]string, error)
 }
 
 // Almacen es la logica de fichas de HU2-11. No conoce Redis: depende de Store.
@@ -213,8 +217,7 @@ func (a *Almacen) Liquidar(ctx context.Context, eventoID, apuestaID string, gano
 
 	pagadas := int64(0)
 	if gano {
-		// monto x multiplicador, truncado a entero: las fichas son enteras.
-		pagadas = int64(float64(reserva.Monto) * reserva.Multiplic)
+		pagadas = FichasPagadas(reserva.Monto, reserva.Multiplic)
 	}
 	if _, err := a.store.GuardarResultado(ctx, eventoID, apuestaID, ResultadoApuesta{
 		Gano:          gano,
@@ -223,6 +226,14 @@ func (a *Almacen) Liquidar(ctx context.Context, eventoID, apuestaID string, gano
 		return Estado{}, fmt.Errorf("guardar resultado de fichas: %w", err)
 	}
 	return a.store.Recalcular(ctx, eventoID, reserva.UsuarioID)
+}
+
+// FichasPagadas es monto x multiplicador truncado a entero, igual que Pagos
+// (bets.payout): el multiplicador tiene 2 decimales, asi que se pasa a
+// centesimas enteras y se calcula monto*centesimas/100. Con float, 100 x 1.13
+// daba 112 en vez de 113.
+func FichasPagadas(monto int64, multiplicador float64) int64 {
+	return monto * int64(math.Round(multiplicador*100)) / 100
 }
 
 // EstadoDe devuelve el estado actual de un jugador (saldo y apostado).
@@ -239,6 +250,13 @@ func (a *Almacen) Estados(ctx context.Context, eventoID string) ([]Estado, error
 		return nil, ErrPeticionInvalida
 	}
 	return a.store.Estados(ctx, eventoID)
+}
+
+// EventosActivos devuelve los eventos con torneo en Redis: largaron con
+// inscritos y aun no se cerraron. Un torneo cancelado nunca aparece (no se le
+// crean fichas).
+func (a *Almacen) EventosActivos(ctx context.Context) ([]string, error) {
+	return a.store.Eventos(ctx)
 }
 
 // Limpiar borra el estado del torneo en Redis. Lo llama HU2-12 cuando ya

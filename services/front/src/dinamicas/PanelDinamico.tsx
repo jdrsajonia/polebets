@@ -7,21 +7,35 @@
 // La cuenta regresiva usa closes_at y es solo informativa: el motor cierra
 // el mercado con el tiempo de carrera (RNF-19) y rechaza lo que llegue tarde.
 
-import { useState } from "react";
-import type { MensajeDinamico, ModoApuesta, RespuestaApuesta } from "../api/tipos";
+import { useEffect, useState } from "react";
+import {
+  TIPOS_WS,
+  type MensajeDinamico,
+  type MiApuesta,
+  type ModoApuesta,
+  type RespuestaApuesta,
+  type ResultadoDinamico,
+} from "../api/tipos";
+import { useWs } from "../api/WsContexto";
 import { useBilletera } from "../billetera/BilleteraContexto";
 import { formatoReloj, segundosHasta } from "../mercados/mercado";
 import { useRelojServidor } from "../mercados/useMercado";
-import { apostar } from "./api";
-import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta, textoApuesta, type ClaveIntento } from "./apuesta";
+import { apostar, obtenerMiApuesta } from "./api";
+import { bloqueaElMercado, claveParaIntento, mensajeErrorApuesta, textoApuesta, textoMiApuesta, type ClaveIntento } from "./apuesta";
 import { faseDinamica, pagoSiAcierta, TEXTO_FASE_DINAMICA, validarMonto, type FaseDinamica } from "./dinamico";
 import { TEXTO_MODO, unidad } from "./modo";
 import estilos from "./PanelDinamico.module.css";
+import { esResultadoDinamico, estaLiquidada, textoLiquidada, textoResultado } from "./resultado";
 import SelectorMonto from "./SelectorMonto";
 import { useMercadoDinamico } from "./useMercadoDinamico";
 import { useModoEvento } from "./useModoEvento";
 
 const MONTO_INICIAL = "10";
+
+// Resuelto sin resultado_apuesta: cada cuanto y cuantas veces se vuelve a
+// pedir mi-apuesta. Exportados para las pruebas.
+export const ESPERA_RESULTADO_MS = 5000;
+export const REINTENTOS_RESULTADO = 3;
 
 export default function PanelDinamico() {
   const mercado = useMercadoDinamico();
@@ -58,6 +72,7 @@ function textoCuenta(fase: FaseDinamica, segundos: number, ganadora: string | nu
 function MercadoDinamico({ mercado, modo }: Props) {
   const ahora = useRelojServidor(0);
   const { recargar: recargarSaldo } = useBilletera();
+  const { suscribir } = useWs();
   const [opcion, setOpcion] = useState<string | null>(null);
   const [texto, setTexto] = useState(MONTO_INICIAL);
   const [clave, setClave] = useState<ClaveIntento | null>(null);
@@ -65,11 +80,65 @@ function MercadoDinamico({ mercado, modo }: Props) {
   const [apuesta, setApuesta] = useState<RespuestaApuesta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bloqueado, setBloqueado] = useState(false);
+  const [resultado, setResultado] = useState<ResultadoDinamico | null>(null);
+  // Lo que devolvio mi-apuesta (al montar o al reintentar tras resolverse).
+  const [previa, setPrevia] = useState<MiApuesta | null>(null);
+
+  useEffect(() => {
+    const control = new AbortController();
+    obtenerMiApuesta(mercado.market_id, control.signal)
+      .then((a) => a && setPrevia(a))
+      .catch(() => {}); // sin dato: se puede apostar; el motor rechaza si ya aposto
+    return () => control.abort();
+  }, [mercado.market_id]);
+
+  // El de otro mercado (o el del P1, sin modo) se ignora. El saldo del header
+  // lo recarga RecargaPorResultado.
+  useEffect(
+    () =>
+      suscribir<unknown>(TIPOS_WS.resultadoApuesta, (payload) => {
+        if (esResultadoDinamico(payload) && payload.mercado_id === mercado.market_id) setResultado(payload);
+      }),
+    [suscribir, mercado.market_id],
+  );
 
   const fase = faseDinamica(mercado);
+  const liquidada = previa !== null && estaLiquidada(previa);
+  const tieneApuesta = apuesta !== null || previa !== null;
+  const esperandoLiquidacion = fase === "resuelto" && tieneApuesta && !resultado && !liquidada;
+
+  useEffect(() => {
+    if (!esperandoLiquidacion) return;
+    const control = new AbortController();
+    let intentos = 0;
+    let temporizador: ReturnType<typeof setTimeout>;
+    const programar = () => {
+      temporizador = setTimeout(() => void intentar(), ESPERA_RESULTADO_MS);
+    };
+    async function intentar() {
+      intentos++;
+      try {
+        const a = await obtenerMiApuesta(mercado.market_id, control.signal);
+        if (a && estaLiquidada(a)) {
+          setPrevia(a);
+          if (a.modo === "individual") recargarSaldo(); // tampoco llego al header
+          return;
+        }
+      } catch {
+        if (control.signal.aborted) return;
+      }
+      if (intentos < REINTENTOS_RESULTADO) programar();
+    }
+    programar();
+    return () => {
+      clearTimeout(temporizador);
+      control.abort();
+    };
+  }, [esperandoLiquidacion, mercado.market_id, recargarSaldo]);
+
   const segundos = segundosHasta(mercado.closes_at, ahora);
   const abierto = fase === "abierto" && segundos > 0;
-  const editable = abierto && !apuesta && !bloqueado && !enviando;
+  const editable = abierto && !tieneApuesta && !resultado && !bloqueado && !enviando;
   const monto = validarMonto(texto);
   const elegida = mercado.options.find((o) => o.opcion === opcion) ?? null;
   const puedeConfirmar = editable && elegida !== null && monto.ok;
@@ -110,14 +179,15 @@ function MercadoDinamico({ mercado, modo }: Props) {
       <div className={estilos.opciones} role="group" aria-label="Opciones">
         {mercado.options.map((o) => {
           const clases = [estilos.opcion];
-          if (o.opcion === (apuesta?.opcion ?? opcion)) clases.push(estilos.opcionElegida);
+          const mia = resultado?.opcion ?? apuesta?.opcion ?? previa?.opcion ?? opcion;
+          if (o.opcion === mia) clases.push(estilos.opcionElegida);
           if (o.opcion === mercado.winning_option) clases.push(estilos.opcionGanadora);
           return (
             <button
               key={o.opcion}
               type="button"
               className={clases.join(" ")}
-              aria-pressed={o.opcion === (apuesta?.opcion ?? opcion)}
+              aria-pressed={o.opcion === mia}
               onClick={() => setOpcion(o.opcion)}
               disabled={!editable}
             >
@@ -128,7 +198,7 @@ function MercadoDinamico({ mercado, modo }: Props) {
         })}
       </div>
 
-      {abierto && !apuesta && (
+      {abierto && !tieneApuesta && !resultado && (
         <>
           <SelectorMonto valor={texto} onCambio={setTexto} deshabilitado={!editable} />
           {!monto.ok && (
@@ -155,14 +225,24 @@ function MercadoDinamico({ mercado, modo }: Props) {
           {error}
         </p>
       )}
-      {apuesta && (
-        <p
-          className={fase === "resuelto" && apuesta.opcion !== mercado.winning_option ? estilos.error : estilos.ok}
-          role="status"
-          data-testid="apuesta-dinamica"
-        >
-          {textoApuesta(apuesta, fase === "resuelto" ? mercado.winning_option : null)}
+      {resultado ? (
+        <p className={resultado.gano ? estilos.ok : estilos.error} role="status" data-testid="resultado-dinamica">
+          {textoResultado(resultado)}
         </p>
+      ) : previa && liquidada ? (
+        <p className={previa.status === "won" ? estilos.ok : estilos.error} role="status" data-testid="resultado-dinamica">
+          {textoLiquidada(previa)}
+        </p>
+      ) : apuesta ? (
+        <p className={estilos.ok} role="status" data-testid="apuesta-dinamica">
+          {textoApuesta(apuesta, fase !== "abierto")}
+        </p>
+      ) : (
+        previa && (
+          <p className={estilos.ok} role="status" data-testid="apuesta-dinamica">
+            {textoMiApuesta(previa, fase !== "abierto")}
+          </p>
+        )
       )}
     </div>
   );
