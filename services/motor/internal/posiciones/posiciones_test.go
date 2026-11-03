@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -217,6 +218,28 @@ func TestDifusorDifundeLaFotoCompleta(t *testing.T) {
 	// El tablero guarda la foto sin emitido_en: eso es de cada envio.
 	if foto, _ := d.tablero.Foto(); !foto.EmitidoEn.IsZero() {
 		t.Fatalf("el tablero no debe guardar emitido_en: %+v", foto)
+	}
+}
+
+func TestDifusorReenviaLaFotoActual(t *testing.T) {
+	hub := &hubFalso{}
+	d := NuevoDifusor(tableroPrueba(), hub)
+	d.Reenviar() // sin carrera: nada que reenviar
+	if len(hub.mensajes) != 0 {
+		t.Fatalf("mensajes = %d", len(hub.mensajes))
+	}
+	d.Iniciar("2024_monza", pilotosPrueba(), map[int]int{1: 1, 4: 2})
+	reenvio := instante.Add(5 * time.Second)
+	d.ahora = func() time.Time { return reenvio }
+	d.Reenviar()
+	if len(hub.mensajes) != 2 {
+		t.Fatalf("mensajes = %d, quiero 2 (foto inicial + reenvio)", len(hub.mensajes))
+	}
+	inicial, _ := hub.mensajes[0].Payload.(FotoPosiciones)
+	otra, ok := hub.mensajes[1].Payload.(FotoPosiciones)
+	if hub.mensajes[1].Type != ws.TipoPosiciones || !ok || !otra.EmitidoEn.Equal(reenvio) ||
+		!otra.ActualizadoEn.Equal(inicial.ActualizadoEn) || !reflect.DeepEqual(numeros(otra), numeros(inicial)) {
+		t.Fatalf("reenvio = %+v", otra)
 	}
 }
 

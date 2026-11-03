@@ -1,0 +1,115 @@
+/* Panel de la apuesta dinamica (HU2-08). */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cabecera {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.etiquetaApagada {
+  background: var(--border-strong);
+}
+
+.cuenta {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pregunta {
+  margin: 0;
+  font-size: 20px;
+  line-height: 26px;
+}
+
+/* Botones de opcion: grandes, uno al lado del otro */
+.opciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.opcion {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--tap);
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.opcion:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.opcionElegida {
+  border-color: var(--accent-border);
+  background: var(--accent-surface);
+}
+
+.opcionGanadora {
+  border-color: var(--ok);
+}
+
+.opcionNombre {
+  font-weight: 700;
+  font-size: 18px;
+}
+
+.multiplicador {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Monto con - y + */
+.monto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.campoMonto {
+  width: 120px;
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.resumen {
+  margin: 0;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.error {
+  margin: 0;
+  color: var(--warn);
+}
+
+.ok {
+  margin: 0;
+  color: var(--ok);
+}

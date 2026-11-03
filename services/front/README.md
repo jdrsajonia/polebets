@@ -28,6 +28,7 @@ src/
   posiciones/             # HU-05: posiciones en vivo
   mercados/               # HU-11: mercado actual, panel del admin y estado en /carrera
   apuestas/               # HU-06: apostar (JavaScript)
+  dinamicas/              # HU2-08: apuesta dinámica en vivo en /carrera
 ```
 
 ## Rutas
@@ -194,6 +195,31 @@ docker run --rm -it --name polebet-mock --network container:polebet-front \
 ```
 
 Abre http://localhost:5173. Para ver la reconexión, detén la terminal 2 con Ctrl+C y vuelve a correr su comando. Al terminar, detén primero el mock y luego el front.
+
+## Apuestas dinámicas (HU2-08)
+
+En `/carrera`, el panel «Apuesta en vivo» (`dinamicas/PanelDinamico.tsx`)
+escucha el mensaje `mercado_dinamico` del motor (`useMercadoDinamico`). Convive
+con el mercado del P1 (`mercado_abierto/cerrado/liquidado`), que no cambia.
+
+- **Fases:** abierto (se apuesta), cerrado (observación) y resuelto
+  (`winning_option`). El cierre de un mercado que no se vio abierto se ignora.
+- **Quien entra con un mercado ya abierto:** no hay ruta REST del mercado
+  dinámico actual, pero el motor reenvía el abierto cada 5 s; quien entra o
+  recarga la página lo ve en a lo sumo 5 s. Recibir el mismo mercado abierto
+  varias veces no cambia nada (opción elegida, monto ni apuesta hecha).
+- **Cuenta regresiva** con `closes_at`: solo informativa; el motor cierra con el
+  tiempo de carrera (RNF-19) y rechaza lo que llegue tarde.
+- **Antes de confirmar (RF-09):** «si aciertas recibes monto × multiplicador»
+  (truncado como el motor y Pagos) y el modo. El modo sale de
+  `GET /api/eventos/{event_id}` (inscrito con torneo `activo` = torneo, si no
+  individual; `documentation/orquestador-api.md` §3.4). Si esa ruta aún no
+  existe (HU2-05), dice «el modo se confirma al apostar»: el punto de conexión
+  es `dinamicas/api.ts` (`obtenerEvento`) y no hay que cambiar nada más.
+- **Apostar:** `POST /api/apuestas {mercado_id, opcion, monto}` (§3.6) con una
+  `Idempotency-Key` por intento (`dinamicas/apuesta.ts`): los reintentos la
+  reutilizan y solo se renueva tras un éxito o si cambian mercado, opción o
+  monto. Los errores del contrato se leen por `codigo` (`ErrorHttp.codigo`).
 
 ## Página del usuario con SSR (HU2-03)
 

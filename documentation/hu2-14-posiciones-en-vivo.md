@@ -12,7 +12,7 @@ lleva también `vuelta` y `total_vueltas`: el Front muestra «Vuelta X/Y» (RF-1
 ## Contrato con el Ingestor (el único que escribe en Mongo, RNF-18)
 | Colección | Campos que lee el Motor |
 |---|---|
-| `simulaciones` | `_id`, `carrera_id`, `estado` (`en_curso` / `finalizada`), `t_carrera_ms`, `iniciada_en`, `vuelta_actual`, `total_vueltas` |
+| `simulaciones` | `_id`, `carrera_id`, `estado` (`en_curso` / `finalizada` / `fallida`), `t_carrera_ms`, `iniciada_en`, `vuelta_actual`, `total_vueltas` |
 | `carreras` | `carrera_id`, `pilotos[{numero, codigo, nombre, equipo, color}]` |
 | `eventos_carrera` | `carrera_id`, `tipo: "posicion"`, `t_carrera_ms`, `datos.raw.driver_number`, `datos.raw.position` |
 
@@ -21,13 +21,17 @@ eventos de ese tramo. El Motor lee los eventos con `t_carrera_ms` en
 `(último leído, simulaciones.t_carrera_ms]`, así nunca toma un tramo a medias.
 
 ## Flujo (cada 500 ms, `services/motor/internal/carrera`)
-1. Simulación más reciente `en_curso` o `finalizada` (por `iniciada_en`).
+1. Simulación más reciente `en_curso`, `finalizada` o `fallida` (por `iniciada_en`); con `fallida` el tablero sigue a la última aunque haya fallado y no se queda en una anterior.
 2. Si es nueva: lee los pilotos de `carreras` y reinicia el tablero. La primera lectura incluye
    la parrilla (eventos con `t_carrera_ms` negativo, antes de la largada).
 3. Lee los cambios de posición del tramo, se queda con el último de cada carro y difunde **una**
    foto por paso, con la vuelta actual. Si solo cambió la vuelta, también se difunde.
 4. Si el Motor se reinicia a mitad de carrera, la primera lectura trae todo hasta el instante
    actual: el tablero queda al día.
+5. Mientras la simulación esté `en_curso`, si en 5 s de hora real no salió ninguna foto, se
+   reenvía la actual aunque no haya cambios. Así quien entra o recarga la página ve la tabla sin
+   esperar al siguiente cambio de posición: el front pide `GET /api/motor/posiciones` al cargar,
+   pero el Gateway manda `/api/` al Orquestador (404). La hora real solo decide cuándo reenviar.
 
 ## Pendiente
 - Diferencias de tiempo (`intervalo`): los datos ya están en Mongo; el tablero hoy muestra

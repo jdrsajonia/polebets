@@ -25,6 +25,10 @@ func NuevaMongoFuente(db *mongo.Database) *MongoFuente {
 	}
 }
 
+// estadosSimulacion son los estados que sigue el tablero: tambien fallida, para
+// que una simulacion que fallo despues de otra no deje el tablero en la anterior.
+var estadosSimulacion = bson.A{"en_curso", "finalizada", "fallida"}
+
 func (m *MongoFuente) SimulacionActual(ctx context.Context) (Simulacion, bool, error) {
 	var doc struct {
 		ID         string `bson:"_id"`
@@ -35,7 +39,7 @@ func (m *MongoFuente) SimulacionActual(ctx context.Context) (Simulacion, bool, e
 		Total      int    `bson:"total_vueltas"`
 	}
 	err := m.simulaciones.FindOne(ctx,
-		bson.M{"estado": bson.M{"$in": bson.A{"en_curso", "finalizada"}}},
+		bson.M{"estado": bson.M{"$in": estadosSimulacion}},
 		options.FindOne().SetSort(bson.D{{Key: "iniciada_en", Value: -1}}),
 	).Decode(&doc)
 	if errors.Is(err, mongo.ErrNoDocuments) {
