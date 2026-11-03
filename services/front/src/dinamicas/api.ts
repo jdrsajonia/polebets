@@ -1,7 +1,7 @@
 // REST de HU2-08 contra el Orquestador (por el API Gateway, /api).
 
 import { http } from "../api/http";
-import type { DetalleEvento } from "../api/tipos";
+import type { DetalleEvento, PeticionApuesta, RespuestaApuesta } from "../api/tipos";
 
 // GET /api/eventos/{evento_id} (§3.4). Punto de conexion con HU2-05: si la
 // ruta aun no existe o falla, devuelve null y el panel dice "el modo se
@@ -14,4 +14,11 @@ export async function obtenerEvento(eventoId: string, signal?: AbortSignal): Pro
     if (causa instanceof DOMException && causa.name === "AbortError") throw causa;
     return null;
   }
+}
+
+// POST /api/apuestas (§3.6) con la Idempotency-Key del intento. 201 nueva,
+// 200 reenvio con la misma clave (no se debita de nuevo). Lanza ErrorHttp con
+// el codigo del contrato si falla.
+export function apostar(peticion: PeticionApuesta, clave: string): Promise<RespuestaApuesta> {
+  return http.post<RespuestaApuesta>("api", "/apuestas", peticion, { headers: { "Idempotency-Key": clave } });
 }
