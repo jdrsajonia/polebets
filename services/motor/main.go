@@ -160,7 +160,7 @@ func main() {
 	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
 	tablero := posiciones.NuevoTablero()
-	posiciones.Register(mux, tablero, autenticador.ExigirSesion) // HU-05
+	posiciones.Register(mux, tablero, autenticador.ExigirSesion, cfg.InternalAPIToken) // HU-05 / HU2-14
 	// HU2-14: lee de Mongo la carrera que reproduce el Ingestor y alimenta el
 	// tablero; cada cambio sale por WebSocket ("posiciones").
 	go carrera.NuevoLector(

@@ -267,7 +267,7 @@ func (validadorFalso) Validar(token string) (auth.Sesion, error) {
 
 func pedir(tab *Tablero, conCookie bool) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
-	Register(mux, tab, auth.NuevoAutenticador(validadorFalso{}).ExigirSesion)
+	Register(mux, tab, auth.NuevoAutenticador(validadorFalso{}).ExigirSesion, "")
 	r := httptest.NewRequest(http.MethodGet, "/posiciones", nil)
 	if conCookie {
 		r.AddCookie(&http.Cookie{Name: auth.NombreCookie, Value: "ok"})
@@ -317,6 +317,62 @@ func TestGetPosiciones(t *testing.T) {
 		}
 		if strings.Contains(w.Body.String(), "emitido_en") || strings.Contains(w.Body.String(), "vuelta") {
 			t.Fatalf("GET no lleva emitido_en ni vuelta: %s", w.Body.String())
+		}
+	})
+}
+
+// --- GET /internal/posiciones (token de servicio, lo llama el Orquestador) ---
+
+func pedirInterno(tab *Tablero, token, cabecera string) *httptest.ResponseRecorder {
+	mux := http.NewServeMux()
+	Register(mux, tab, auth.NuevoAutenticador(validadorFalso{}).ExigirSesion, token)
+	r := httptest.NewRequest(http.MethodGet, "/internal/posiciones", nil)
+	if cabecera != "" {
+		r.Header.Set("X-Internal-Service-Token", cabecera)
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	return w
+}
+
+func TestGetPosicionesInterno(t *testing.T) {
+	const token = "token-interno-de-prueba-con-mas-de-32-caracteres"
+
+	t.Run("sin token: 401", func(t *testing.T) {
+		tab := tableroPrueba()
+		tab.Iniciar("2024_monza", pilotosPrueba(), map[int]int{1: 1})
+		if w := pedirInterno(tab, token, ""); w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d", w.Code)
+		}
+	})
+	t.Run("token incorrecto: 401", func(t *testing.T) {
+		tab := tableroPrueba()
+		tab.Iniciar("2024_monza", pilotosPrueba(), map[int]int{1: 1})
+		if w := pedirInterno(tab, token, "otro-token"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("status = %d", w.Code)
+		}
+	})
+	t.Run("con token y carrera: 200 con la foto", func(t *testing.T) {
+		tab := tableroPrueba()
+		tab.Iniciar("2024_monza", pilotosPrueba(), map[int]int{1: 2, 4: 1})
+		w := pedirInterno(tab, token, token)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "2024_monza") {
+			t.Fatalf("status=%d cuerpo=%s", w.Code, w.Body.String())
+		}
+	})
+	t.Run("sin carrera: 404", func(t *testing.T) {
+		w := pedirInterno(tableroPrueba(), token, token)
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d", w.Code)
+		}
+	})
+	t.Run("token vacio en Register: la ruta no existe (404)", func(t *testing.T) {
+		tab := tableroPrueba()
+		tab.Iniciar("2024_monza", pilotosPrueba(), map[int]int{1: 1})
+		// Con token "" no se monta /internal/posiciones: el mux responde 404.
+		w := pedirInterno(tab, "", "")
+		if w.Code != http.StatusNotFound {
+			t.Fatalf("status = %d (se esperaba 404: ruta no montada)", w.Code)
 		}
 	})
 }
