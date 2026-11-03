@@ -1,0 +1,19 @@
+[package]
+name = "polebet-cli"
+version = "0.1.0"
+edition = "2021"
+description = "CLI del administrador de PoleBet (HU2-17): terminal al estilo lazydocker sobre Admin"
+publish = false
+
+[dependencies]
+# Interfaz de terminal; trae crossterm re-exportado (ratatui::crossterm).
+ratatui = "0.29"
+# Las peticiones a Admin corren en tareas aparte para no congelar la interfaz.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+# Solo HTTP: Admin vive en la LAN (puerto 8003), no hace falta TLS.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+strip = true

@@ -24,6 +24,7 @@ jobs:
       pagos: ${{ steps.filtro.outputs.pagos }}
       front: ${{ steps.filtro.outputs.front }}
       admin: ${{ steps.filtro.outputs.admin }}
+      cli: ${{ steps.filtro.outputs.cli }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -41,6 +42,9 @@ jobs:
               - '.github/workflows/ci.yml'
             admin:
               - 'services/admin/**'
+              - '.github/workflows/ci.yml'
+            cli:
+              - 'services/cli/**'
               - '.github/workflows/ci.yml'
 
   # ---------------------------------------------------------------------------
@@ -120,6 +124,28 @@ jobs:
           cache-dependency-path: services/admin/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
       - run: pytest -v
+
+  # ---------------------------------------------------------------------------
+  # CLI del administrador (Rust): formato, lint y tests (sin servicios).
+  # ---------------------------------------------------------------------------
+  cli:
+    needs: cambios
+    if: needs.cambios.outputs.cli == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/cli
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: services/cli
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked
+      - run: cargo test --locked
 
   # ---------------------------------------------------------------------------
   # Front (React/Vite): instala, corre tests y compila.

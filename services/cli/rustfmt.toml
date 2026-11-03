@@ -1,0 +1,2 @@
+# Lineas largas como en el resto del repo (Go y Python del proyecto).
+max_width = 120

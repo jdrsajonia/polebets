@@ -42,7 +42,8 @@ services/
 ├── pagos/        # FastAPI: billeteras, eventos, mercados, apuestas, ledger
 ├── motor/        # Go: mercados, apuestas, liquidación, difusión WebSocket
 ├── ingestor/     # Go: descarga OpenF1 y reproduce la carrera en MongoDB      [stub → HU2-16/19]
-└── admin/        # FastAPI: atiende la CLI, publica en el Broker              [stub → HU2-18/19]
+├── admin/        # FastAPI: atiende la CLI, publica en el Broker              [stub → HU2-18/19]
+└── cli/          # Rust: CLI del administrador (no es servicio; perfil "cli")  [HU2-17]
 ```
 
 ## Requisitos
@@ -84,6 +85,17 @@ docker compose down -v       # además borra los volúmenes de datos (BD)
 > Si cambias el esquema de alguna base o los scripts de `db/`, recrea los
 > volúmenes con `docker compose down -v` antes de volver a levantar.
 
+### CLI del administrador (HU2-17)
+
+Con el stack arriba, la terminal del administrador se abre con:
+
+```bash
+docker compose run --rm cli    # entra con ADMIN_EMAIL / ADMIN_PASSWORD del .env
+```
+
+No cuenta entre los 14 contenedores (perfil `cli`). Teclas, paneles y cómo correrla con
+Rust instalado: [`services/cli/README.md`](services/cli/README.md).
+
 ## Estado por servicio
 
 | Servicio          | Estado | Dueño / Historia         |
@@ -97,6 +109,7 @@ docker compose down -v       # además borra los volúmenes de datos (BD)
 | `motor`           | real                          | HU2-08/09… · Daniel/Michael |
 | `ingestor`        | **stub**                      | HU2-16/19 · Iván |
 | `admin`           | **stub**                      | HU2-18/19 · Iván |
+| `cli` (perfil `cli`) | real (Rust, ratatui)       | HU2-17 · William |
 | Infra (2×PostgreSQL, MongoDB, Redis, RabbitMQ) | real (imágenes oficiales) | — |
 
 Cada stub tiene su propio `README.md` dentro de `services/<nombre>/` con la
