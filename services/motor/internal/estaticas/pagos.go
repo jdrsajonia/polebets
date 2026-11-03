@@ -70,6 +70,10 @@ type Pagos interface {
 	Resolver(ctx context.Context, mercadoID, opcion string) error
 	// Largar cierra las inscripciones y devuelve los jugadores del torneo.
 	Largar(ctx context.Context, eventoID string) (Largada, error)
+	// Finalizar cierra la carrera de un evento con torneo cancelado (sin
+	// reparto): POST /internal/events/{id}/close con players vacios. Solo se
+	// usa cuando la largada no dejo torneo (HU2-12 cierra los torneos activos).
+	Finalizar(ctx context.Context, eventoID string) error
 }
 
 // PagosHTTP implementa Pagos con las rutas /internal/* y el token de servicio.
@@ -176,6 +180,34 @@ func (p *PagosHTTP) Largar(ctx context.Context, eventoID string) (Largada, error
 		return Largada{}, fmt.Errorf("%w: respuesta de start invalida: %v", ErrReintentable, err)
 	}
 	return Largada{Jugadores: r.Players, FichasIniciales: r.InitialChips}, nil
+}
+
+// Finalizar cierra la carrera de un evento con torneo cancelado: POST
+// /internal/events/{id}/close con players vacios. Pagos reconoce el torneo
+// cancelado y solo marca el evento finalizado, sin repartir (HU2-12). Exige
+// Idempotency-Key = event-close:{id} (la misma clave que usa el cierre con
+// reparto): asi repetirlo es inofensivo y nunca paga.
+func (p *PagosHTTP) Finalizar(ctx context.Context, eventoID string) error {
+	cuerpo, err := json.Marshal(map[string]any{"players": []string{}})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		p.BaseURL+"/internal/events/"+url.PathEscape(eventoID)+"/close", bytes.NewReader(cuerpo))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("X-Internal-Service-Token", p.Token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", "event-close:"+eventoID)
+
+	resp, err := p.Cliente.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrReintentable, err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	return clasificar("finalizar "+eventoID, resp.StatusCode, b)
 }
 
 // clasificar: 200 y 201 son exito.
