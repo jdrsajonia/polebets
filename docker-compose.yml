@@ -148,8 +148,11 @@ services:
       - front
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - ./services/gateway/certs:/etc/nginx/certs:ro
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:80/health"]
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -173,7 +176,7 @@ services:
       PORT: "3000"
       # El servidor SSR pide los datos de /mi-pagina al Gateway reenviando la
       # cookie del jugador (HU2-03); el Gateway la valida como cualquier /api/*.
-      GATEWAY_URL: http://gateway:80
+      GATEWAY_URL: http://gateway:8080
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:3000/health"]
       interval: 10s
@@ -271,6 +274,7 @@ services:
     container_name: arqui_usuarios
     restart: unless-stopped
     environment:
+      SESSION_COOKIE_SECURE: "true"
       DATABASE_URL: postgresql+psycopg://${USUARIOS_DB_USER}:${USUARIOS_DB_PASSWORD}@postgres-usuarios:5432/${USUARIOS_DB_NAME}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
