@@ -45,3 +45,7 @@ Contexto_Para_Agentes/
 # Binarios de Go compilados en local (el contenedor compila el suyo)
 *.exe
 services/ingestor/ingestor
+
+
+# Varios
+services/gateway/certs/
