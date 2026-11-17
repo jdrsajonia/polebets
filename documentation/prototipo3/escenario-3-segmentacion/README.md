@@ -150,22 +150,29 @@ Evidencia completa del *después*: [`despues/evidencia-despues.md`](despues/evid
 
 Resumen (mismo plan de pruebas que el *antes*):
 
+**Violaciones cerradas:**
+
 | # | Prueba | Antes | Después |
 |---|---|---|---|
-| 1 | Gateway → RabbitMQ `:15672` | Sirve la consola | `bad address` |
-| 2 | Front → Pagos | `status: ok` | `bad address` |
-| 3 | Front → Orquestador | `estado: ok` | `bad address` |
-| 5 | Front → Usuarios | `status: ok` | `bad address` |
-| 8 | Front → suplantación `/billetera` | `401`→`500` (aceptada) | `bad address` |
-| 7 | Postgres → Internet | Resuelve `github.com` | `SERVFAIL` |
-| 9 | Ingestor → Internet | descarga OpenF1 | descarga OpenF1 (sigue) |
-| A | App completa (login/compra/apuesta/WS) | funciona | funciona |
+| A1 | Gateway → RabbitMQ `:15672` | Sirve la consola | `bad address` |
+| A2 | Front → Pagos | `status: ok` | `bad address` |
+| A3 | Front → Orquestador | `estado: ok` | `bad address` |
+| A4 | Front → Usuarios | `status: ok` | `bad address` |
+| A5 | Postgres → Internet | Resuelve `github.com` | `SERVFAIL` |
+| A6 | Front → suplantación `/billetera` | `401`→`500` (aceptada) | `bad address` |
 
-**Nota sobre las pruebas 4 y 6 del *antes*.** Gateway → Motor (4) y Gateway →
-`/internal/auth` (6) siguen funcionando, y es correcto: la tabla de confianza dice
-que el Gateway **debe** hablar con Motor (WebSocket) y con Usuarios (auth_request).
-No eran violaciones a cerrar; se verifican como enlaces legítimos en la sección A
-del *después*.
+**Enlaces legítimos conservados:**
+
+| # | Prueba | Antes | Después |
+|---|---|---|---|
+| B1 | Gateway → Motor (enlace del WebSocket) | `status: ok` | `status: ok` |
+| B2 | Gateway → `/internal/auth` | `401` (responde) | `401` (responde) |
+| B3 | Ingestor → Internet | descarga OpenF1 | descarga OpenF1 |
+| — | App completa (login/compra/apuesta/WS) | funciona | funciona |
+
+**Nota sobre B1 y B2.** El Gateway debe alcanzar al Motor (por ese enlace de red
+le reenvía el WebSocket `/api/ws`) y a Usuarios (`auth_request`). No eran
+violaciones a cerrar; se verifican como enlaces legítimos.
 
 **Alcance:** la segmentación mitiga el **movimiento lateral** (reduce quién llega a
 cada servicio). No cierra la suplantación *desde un componente que sí debe llegar*

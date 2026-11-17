@@ -44,12 +44,13 @@ done
 
 ---
 
-## Violaciones de alcance (movimiento lateral)
+## A. Violaciones de alcance (movimiento lateral)
 
-Cada prueba: un origen de borde alcanza un destino que no le corresponde
-según la tabla "quién habla con quién" del roadmap
+Cada prueba: un origen de borde alcanza un destino que **no le corresponde**
+según la tabla "quién habla con quién" del roadmap. Son los enlaces que la
+segmentación debe **cerrar**.
 
-### 1. Gateway → consola de RabbitMQ (`:15672`)
+### A1. Gateway → consola de RabbitMQ (`:15672`)
 
 El Gateway no debería ver RabbitMQ; aquí le sirve la consola de administración
 
@@ -61,7 +62,7 @@ docker exec arqui_gateway wget -qO- --timeout=5 http://rabbitmq:15672 | head -c 
 
 ![Gateway alcanza RabbitMQ](img/01-gateway-rabbitmq.png)
 
-### 2. Front → Pagos (`:8000/health`)
+### A2. Front → Pagos (`:8000/health`)
 
 ```bash
 docker exec arqui_front wget -qO- --timeout=5 http://pagos:8000/health
@@ -71,7 +72,7 @@ docker exec arqui_front wget -qO- --timeout=5 http://pagos:8000/health
 
 ![Front alcanza Pagos](img/02-front-pagos.png)
 
-### 3. Front → Orquestador (`:8081/health`)
+### A3. Front → Orquestador (`:8081/health`)
 
 ```bash
 docker exec arqui_front wget -qO- --timeout=5 http://orquestador:8081/health
@@ -81,17 +82,7 @@ docker exec arqui_front wget -qO- --timeout=5 http://orquestador:8081/health
 
 ![Front alcanza Orquestador](img/03-front-orquestador.png)
 
-### 4. Gateway → Motor (`:8080/health`)
-
-```bash
-docker exec arqui_gateway wget -qO- --timeout=5 http://motor:8080/health
-```
-
-**Resultado:** ⚠️ el Gateway alcanza el Motor directo
-
-![Gateway alcanza Motor](img/04-gateway-motor.png)
-
-### 5. Front → Usuarios (`:8001/health`)
+### A4. Front → Usuarios (`:8001/health`)
 
 ```bash
 docker exec arqui_front wget -qO- --timeout=5 http://usuarios:8001/health
@@ -101,21 +92,7 @@ docker exec arqui_front wget -qO- --timeout=5 http://usuarios:8001/health
 
 ![Front alcanza Usuarios](img/05-front-usuarios.png)
 
-### 6. Gateway → `/internal/auth` de Usuarios
-
-`GET /internal/auth` **no pide token**: su única barrera es "solo el Gateway me
-llama". El `401` no es la defensa — prueba que hay conectividad de red (el
-servicio responde)
-
-```bash
-docker exec arqui_gateway wget -S -qO- --timeout=5 http://usuarios:8001/internal/auth 2>&1 | head -5
-```
-
-**Resultado:** ⚠️ el servicio contesta → el Gateway alcanza la ruta interna
-
-![Gateway alcanza /internal/auth](img/06-gateway-internal-auth.png)
-
-### 7. Base de datos → Internet
+### A5. Base de datos → Internet
 
 Ninguna red tiene `internal: true`, así que hasta una base de datos puede salir a
 Internet (riesgo de exfiltración / descarga de herramientas)
@@ -128,7 +105,7 @@ docker exec arqui_pg_usuarios sh -c 'getent hosts github.com || nslookup github.
 
 ![Postgres sale a Internet](img/07-pg-internet.png)
 
-### 8. Front → `/billetera` con `X-User-Id` a mano (suplantación)
+### A6. Front → `/billetera` con `X-User-Id` a mano (suplantación)
 
 El Front no debería llegar al Orquestador. Además, escribiendo `X-User-Id` a mano
 actúa como otro jugador. El contraste lo demuestra: sin el header responde
@@ -156,7 +133,45 @@ docker exec arqui_front wget -S -qO- --timeout=5 \
 
 ![Front suplanta jugador en Orquestador](img/08-front-suplantacion.png)
 
-### 9. Ingestor → Internet (debe seguir funcionando después)
+---
+
+## B. Enlaces legítimos (deben seguir funcionando)
+
+Estos enlaces existen por diseño según la tabla "quién habla con quién": no son
+vulnerabilidades. Se documentan aquí para dejar claro que no son enlaces a
+cortar, sino casos que tras segmentar deben seguir funcionando (ver sección A del
+*después*)
+
+### B1. Gateway → Motor (`:8080/health`)
+
+El Gateway debe poder alcanzar al Motor: por ese mismo enlace de red (host `motor`,
+puerto 8080) el Gateway le reenvía en producción el WebSocket de posiciones en
+vivo (`/api/ws`). La prueba usa `/health` (HTTP) solo para comprobar que la
+conectividad existe
+
+```bash
+docker exec arqui_gateway wget -qO- --timeout=5 http://motor:8080/health
+```
+
+**Resultado:** ✅ el Gateway alcanza al Motor (enlace legítimo)
+
+![Gateway alcanza Motor](img/04-gateway-motor.png)
+
+### B2. Gateway → `/internal/auth` de Usuarios
+
+El Gateway valida cada petición protegida con `auth_request` contra Usuarios, así
+que debe poder alcanzar esta ruta. El `401` sin cookie prueba que el servicio
+responde (hay conectividad legítima)
+
+```bash
+docker exec arqui_gateway wget -S -qO- --timeout=5 http://usuarios:8001/internal/auth 2>&1 | head -5
+```
+
+**Resultado:** ✅ el Gateway alcanza la ruta de validación (enlace legítimo: `auth_request`)
+
+![Gateway alcanza /internal/auth](img/06-gateway-internal-auth.png)
+
+### B3. Ingestor → Internet
 
 El Ingestor es el único que conserva salida a Internet tras la segmentación
 (descarga el histórico de OpenF1). No es una vulnerabilidad: es el caso que debe
@@ -174,23 +189,25 @@ docker exec arqui_ingestor sh -c 'getent hosts api.openf1.org || nslookup api.op
 
 ## Resumen
 
+**Violaciones a cerrar** (sección A):
+
 | # | Origen → Destino | Resultado | Debería |
 |---|---|---|---|
-| 1 | Gateway → RabbitMQ `:15672` | Sirve la consola HTML | No alcanzar |
-| 2 | Front → Pagos `:8000` | `status: ok` | No alcanzar |
-| 3 | Front → Orquestador `:8081` | `estado: ok` | No alcanzar |
-| 4 | Gateway → Motor `:8080` | `status: ok` | *(enlace legítimo)* |
-| 5 | Front → Usuarios `:8001` | `status: ok` | No alcanzar |
-| 6 | Gateway → `/internal/auth` | `401` (responde → alcanza) | *(enlace legítimo)* |
-| 7 | Postgres usuarios → `github.com` | Resuelve `140.82.114.4` | Sin salida a Internet |
-| 8 | Front → `/billetera` con `X-User-Id` a mano | `401` → `500`: identidad falsa aceptada | No alcanzar |
-| 9 | Ingestor → `api.openf1.org` | Resuelve y sale a Internet | Seguir (único con salida) |
+| A1 | Gateway → RabbitMQ `:15672` | Sirve la consola HTML | No alcanzar |
+| A2 | Front → Pagos `:8000` | `status: ok` | No alcanzar |
+| A3 | Front → Orquestador `:8081` | `estado: ok` | No alcanzar |
+| A4 | Front → Usuarios `:8001` | `status: ok` | No alcanzar |
+| A5 | Postgres usuarios → `github.com` | Resuelve `140.82.114.4` | Sin salida a Internet |
+| A6 | Front → `/billetera` con `X-User-Id` a mano | `401` → `500`: identidad falsa aceptada | No alcanzar |
 
-> **Matiz sobre las pruebas 4 y 6.** Según la tabla de confianza, el Gateway **sí**
-> debe hablar con Motor (WebSocket) y con Usuarios (`auth_request`), así que no son
-> enlaces a cortar: tras segmentar **seguirán funcionando** (sección A del
-> *después*). Se incluyen para documentar el estado de la red plana.
+**Enlaces legítimos a conservar** (sección B):
 
-Las violaciones a cerrar son 1, 2, 3, 5, 7 y 8; la 9 es el caso que debe seguir
-funcionando. La fase *después* repite exactamente estas pruebas con la
-segmentación aplicada.
+| # | Origen → Destino | Resultado | Debería |
+|---|---|---|---|
+| B1 | Gateway → Motor `:8080` | `status: ok` | Seguir (enlace del WebSocket) |
+| B2 | Gateway → `/internal/auth` | `401` (responde → alcanza) | Seguir (`auth_request`) |
+| B3 | Ingestor → `api.openf1.org` | Resuelve y sale a Internet | Seguir (único con salida) |
+
+La fase *después* repite exactamente estas pruebas con la segmentación aplicada:
+las de la sección A deben fallar (el nombre ni siquiera resuelve) y las de la
+sección B deben seguir funcionando
