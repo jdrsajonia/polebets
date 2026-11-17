@@ -173,9 +173,11 @@ docker exec arqui_gateway wget -S -qO- --timeout=5 http://usuarios:8001/internal
 
 ### B3. Ingestor → Internet
 
-El Ingestor es el único que conserva salida a Internet tras la segmentación
-(descarga el histórico de OpenF1). No es una vulnerabilidad: es el caso que debe
-mantenerse para no romper la app
+El Ingestor es el único servicio de backend que conserva salida a Internet tras
+la segmentación (descarga el histórico de OpenF1). No es una vulnerabilidad: es el
+caso que debe mantenerse para no romper la app. (Los nodos de borde —Gateway,
+Front, Admin— también salen a Internet, porque sus redes publican puertos al host
+y no pueden ser `internal`; eso es aceptable para componentes expuestos.)
 
 ```bash
 docker exec arqui_ingestor sh -c 'getent hosts api.openf1.org || nslookup api.openf1.org'
@@ -206,7 +208,7 @@ docker exec arqui_ingestor sh -c 'getent hosts api.openf1.org || nslookup api.op
 |---|---|---|---|
 | B1 | Gateway → Motor `:8080` | `status: ok` | Seguir (enlace del WebSocket) |
 | B2 | Gateway → `/internal/auth` | `401` (responde → alcanza) | Seguir (`auth_request`) |
-| B3 | Ingestor → `api.openf1.org` | Resuelve y sale a Internet | Seguir (único con salida) |
+| B3 | Ingestor → `api.openf1.org` | Resuelve y sale a Internet | Seguir (único backend con salida) |
 
 La fase *después* repite exactamente estas pruebas con la segmentación aplicada:
 las de la sección A deben fallar (el nombre ni siquiera resuelve) y las de la

@@ -101,8 +101,17 @@ Redes por zona de confianza según las variables de entorno del compose:
 | Usuarios | PG Usuarios |
 | Ingestor | Mongo, RabbitMQ, OpenF1 (Internet) |
 
-Plan: redes por zona de confianza según la tabla; redes de datos con
-`internal: true`; **solo el Ingestor** conserva salida a Internet.
+Plan: redes por zona de confianza según la tabla; redes de datos y de backend con
+`internal: true`; el Ingestor es el único **servicio de backend** que conserva
+salida a Internet.
+
+> **Matiz importante.** Una red con puertos publicados al host **no puede** ser
+> `internal: true` (Docker lo prohíbe). Por eso `borde` (Gateway, Front, 80/443) y
+> `admin_entrada` (Admin, 8003) tienen salida a Internet de forma inevitable. Eso
+> es aceptable: son los nodos de **borde**, los que por diseño reciben tráfico de
+> afuera. Lo que la segmentación garantiza es que **las bases de datos y los
+> servicios de backend internos no salen**, y que el único backend con salida es el
+> Ingestor (OpenF1).
 
 Evidencia completa del *antes*: [`antes/evidencia-antes.md`](antes/evidencia-antes.md).
 
@@ -135,12 +144,17 @@ por zona de confianza, una por cada relación de la tabla de arriba.
 | `datos_pagos` | pagos, pagos-consumer, postgres-pagos | sí |
 | `datos_mongo` | motor, ingestor, mongo | sí |
 | `datos_redis` | motor, redis | sí |
-| `ingestor_salida` | ingestor | **no** (única salida a Internet) |
+| `ingestor_salida` | ingestor | **no** (único backend con salida a Internet) |
 
 Cambios clave: se eliminó la red `interna`; las redes de datos y las internas de
 backend llevan `internal: true` (sin salida a Internet); el Ingestor obtiene una
 red propia `ingestor_salida` no interna para descargar OpenF1. RabbitMQ pasó de la
 red `interna` a `broker`, compartida solo con quienes publican/consumen.
+
+Las redes `borde` y `admin_entrada` **no** son `internal` porque publican puertos
+al host (80/443 y 8003): Docker no permite `internal: true` en una red con puertos
+publicados. Por eso Gateway, Front y Admin —los nodos de borde— sí tienen salida a
+Internet, lo cual es aceptable para componentes que ya reciben tráfico de afuera.
 
 ---
 
@@ -187,6 +201,8 @@ cada servicio). No cierra la suplantación *desde un componente que sí debe lle
   zona de confianza (`gw_backend`, `orq_backend`, `motor_pagos`, `admin_usuarios`,
   `broker`, etc.). RabbitMQ ya no está en una red compartida con Gateway/Front.
 - **Vista de despliegue:** cada contenedor se despliega solo en las redes que
-  necesita; las redes de datos y de backend son `internal` (sin gateway a
-  Internet); solo el Ingestor tiene un enlace a Internet (`ingestor_salida`) para
-  OpenF1. (Aporta a T3-09 y T3-10.)
+  necesita; las redes de datos y de backend son `internal` (sin salida a
+  Internet); el Ingestor es el único backend con un enlace a Internet
+  (`ingestor_salida`) para OpenF1. Los nodos de borde (Gateway, Front, Admin)
+  tienen salida porque sus redes publican puertos al host y no pueden ser
+  `internal`. (Aporta a T3-09 y T3-10.)

@@ -2,7 +2,7 @@
 
 **Rama:** `p3/segmentacion`
 
-**Estado capturado:** redes segmentadas por zona de confianza (`internal: true` en las de datos; salida a Internet solo para el Ingestor)
+**Estado capturado:** redes segmentadas por zona de confianza (`internal: true` en las de datos y backend; el Ingestor es el único backend con salida a Internet)
 
 Mismo plan de pruebas que el *antes*. Todos los comandos son de solo lectura
 
@@ -139,7 +139,9 @@ Gateway → Motor y Gateway → `/internal/auth`)
 
 ### B3. Ingestor → Internet (sigue funcionando)
 
-Único con salida a Internet (red `ingestor_salida`, no `internal`).
+Único servicio de backen con salida a Internet (red `ingestor_salida`, no
+`internal`). Las bases de datos y los demás servicios internos no salen; los nodos
+de borde (Gateway, Front, Admin) sí, porque publican puertos al host.
 
 ```bash
 docker exec arqui_ingestor getent hosts api.openf1.org
