@@ -102,6 +102,84 @@ Redes por zona de confianza según las variables de entorno del compose:
 | Ingestor | Mongo, RabbitMQ, OpenF1 (Internet) |
 
 Plan: redes por zona de confianza según la tabla; redes de datos con
-`internal: true`; **solo el Ingestor** conserva salida a Internet. La evidencia
-"después" repetirá las 7 pruebas; se espera que 1–6 fallen (el nombre ni siquiera
-resuelve) y que 7 falle para las bases pero siga funcionando para el Ingestor.
+`internal: true`; **solo el Ingestor** conserva salida a Internet.
+
+Evidencia completa del *antes*: [`antes/evidencia-antes.md`](antes/evidencia-antes.md).
+
+---
+
+## 3. Táctica y patrón aplicados (la contramedida)
+
+**Patrón:** Network Segmentation. **Tácticas (Bass §11.2):** *Separate entities*
+(separar componentes en redes distintas limita el alcance de un ataque) y
+*Limit exposure* (reducir los servicios alcanzables desde un mismo punto limita el
+daño si ese punto se compromete).
+
+En Docker, cada red está aislada por defecto: un contenedor solo ve a los que
+comparten red con él, así que la **membresía de red funciona como regla de
+filtrado**. Se reemplazó la red `interna` plana (10 servicios juntos) por redes
+por zona de confianza, una por cada relación de la tabla de arriba.
+
+### Implementación (`docker-compose.yml`)
+
+| Red | Miembros | `internal` |
+|---|---|---|
+| `borde` | gateway, front | no (entrada web) |
+| `gw_backend` | gateway, usuarios, orquestador, motor | sí |
+| `orq_backend` | orquestador, usuarios, pagos, motor | sí |
+| `motor_pagos` | motor, pagos | sí |
+| `admin_entrada` | admin, cli | no (entrada de la CLI / host) |
+| `admin_usuarios` | admin, usuarios | sí |
+| `broker` | admin, pagos-consumer, ingestor, rabbitmq | sí |
+| `datos_usuarios` | usuarios, postgres-usuarios | sí |
+| `datos_pagos` | pagos, pagos-consumer, postgres-pagos | sí |
+| `datos_mongo` | motor, ingestor, mongo | sí |
+| `datos_redis` | motor, redis | sí |
+| `ingestor_salida` | ingestor | **no** (única salida a Internet) |
+
+Cambios clave: se eliminó la red `interna`; las redes de datos y las internas de
+backend llevan `internal: true` (sin salida a Internet); el Ingestor obtiene una
+red propia `ingestor_salida` no interna para descargar OpenF1. RabbitMQ pasó de la
+red `interna` a `broker`, compartida solo con quienes publican/consumen.
+
+---
+
+## 4. La misma prueba, con la contramedida funcionando
+
+Evidencia completa del *después*: [`despues/evidencia-despues.md`](despues/evidencia-despues.md).
+
+Resumen (mismo plan de pruebas que el *antes*):
+
+| # | Prueba | Antes | Después |
+|---|---|---|---|
+| 1 | Gateway → RabbitMQ `:15672` | Sirve la consola | `bad address` |
+| 2 | Front → Pagos | `status: ok` | `bad address` |
+| 3 | Front → Orquestador | `estado: ok` | `bad address` |
+| 5 | Front → Usuarios | `status: ok` | `bad address` |
+| 8 | Front → suplantación `/billetera` | `401`→`500` (aceptada) | `bad address` |
+| 7 | Postgres → Internet | Resuelve `github.com` | `SERVFAIL` |
+| 9 | Ingestor → Internet | descarga OpenF1 | descarga OpenF1 (sigue) |
+| A | App completa (login/compra/apuesta/WS) | funciona | funciona |
+
+**Nota sobre las pruebas 4 y 6 del *antes*.** Gateway → Motor (4) y Gateway →
+`/internal/auth` (6) siguen funcionando, y es correcto: la tabla de confianza dice
+que el Gateway **debe** hablar con Motor (WebSocket) y con Usuarios (auth_request).
+No eran violaciones a cerrar; se verifican como enlaces legítimos en la sección A
+del *después*.
+
+**Alcance:** la segmentación mitiga el **movimiento lateral** (reduce quién llega a
+cada servicio). No cierra la suplantación *desde un componente que sí debe llegar*
+(p. ej. el Gateway hacia el Orquestador): esa raíz la aborda el **escenario 4**
+(autenticación entre servicios). Los dos escenarios se complementan.
+
+---
+
+## 5. Qué cambia en las vistas
+
+- **Vista C&C:** desaparece la red `interna` única; aparecen conectores de red por
+  zona de confianza (`gw_backend`, `orq_backend`, `motor_pagos`, `admin_usuarios`,
+  `broker`, etc.). RabbitMQ ya no está en una red compartida con Gateway/Front.
+- **Vista de despliegue:** cada contenedor se despliega solo en las redes que
+  necesita; las redes de datos y de backend son `internal` (sin gateway a
+  Internet); solo el Ingestor tiene un enlace a Internet (`ingestor_salida`) para
+  OpenF1. (Aporta a T3-09 y T3-10.)
