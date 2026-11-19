@@ -58,6 +58,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # Solo con su dueño (usuarios). Red interna: sin salida a Internet.
     networks:
       - datos_usuarios
 
@@ -78,6 +79,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # Solo con sus dueños (pagos y su consumidor). Red interna: sin Internet.
     networks:
       - datos_pagos
 
@@ -99,6 +101,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 10
+    # Dueños: motor (lee) e ingestor (escribe). Red interna: sin Internet.
     networks:
       - datos_mongo
 
@@ -112,6 +115,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    # Solo con su dueño (motor). Red interna: sin Internet.
     networks:
       - datos_redis
 
@@ -128,8 +132,9 @@ services:
       interval: 15s
       timeout: 10s
       retries: 10
+    # Broker: solo con quienes publican/consumen (admin, pagos-consumer, ingestor).
     networks:
-      - interna
+      - broker
 
   # ===========================================================================
   # Entrada (borde)
@@ -158,9 +163,10 @@ services:
       retries: 10
       start_period: 10s
       start_interval: 2s
+    # borde: entrada web + Front (SSR). gw_backend: llega a Usuarios, Orquestador y Motor.
     networks:
       - borde
-      - interna
+      - gw_backend
 
   # Front (Node, HU2-03 Misael): sirve la SPA y renderiza /mi-pagina en el servidor (SSR).
   front:
@@ -184,9 +190,9 @@ services:
       retries: 10
       start_period: 10s
       start_interval: 2s
+    # El Front (SSR) solo habla con el Gateway: basta la red de borde.
     networks:
       - borde
-      - interna
 
   # Admin — STUB (HU2-18/19, Iván). Segunda y última entrada publicada (8003).
   admin:
@@ -212,15 +218,20 @@ services:
       retries: 10
       start_period: 20s
       start_interval: 2s
+    # Admin llega a Usuarios (valida login/token de la CLI) y a RabbitMQ (publica
+    # consultas). admin_entrada es por donde lo alcanza la CLI (y el host, vía 8003)
+    # hasta que el reverse proxy (T3-03) lo ponga detrás del Gateway. No necesita
+    # borde: no habla con Front ni Gateway.
     networks:
-      - borde
-      - interna
+      - admin_entrada
+      - admin_usuarios
+      - broker
 
   # CLI del administrador (HU2-17, Rust). No es un servicio: es la terminal del
   # admin, empaquetada para correrla sin instalar Rust. El perfil "cli" la deja
   # fuera de `docker compose up`; se abre con:
   #   docker compose run --rm cli
-  # Solo comparte la red de borde con Admin, igual que un cliente externo.
+  # Solo comparte con Admin la red admin_entrada, igual que un cliente externo.
   cli:
     build:
       context: ./services/cli
@@ -232,7 +243,7 @@ services:
     environment:
       POLEBET_ADMIN_URL: http://admin:8003
     networks:
-      - borde
+      - admin_entrada
 
   # ===========================================================================
   # Lógica (interna)
@@ -263,8 +274,10 @@ services:
       retries: 10
       start_period: 10s
       start_interval: 2s
+    # gw_backend: lo llama el Gateway. orq_backend: llega a Usuarios, Pagos y Motor.
     networks:
-      - interna
+      - gw_backend
+      - orq_backend
 
   # Usuarios — REAL (HU2-01/02, Misael). Dueño de PG Usuarios: cuentas, login,
   # JWT en cookie y GET /internal/auth para el auth_request del Gateway.
@@ -293,8 +306,11 @@ services:
       retries: 10
       start_period: 20s
       start_interval: 2s
+    # Lo llaman: Gateway (auth_request), Orquestador y Admin. Dueño de PG Usuarios.
     networks:
-      - interna
+      - gw_backend
+      - orq_backend
+      - admin_usuarios
       - datos_usuarios
 
   # Pagos — REAL. Dueño de PG Pagos (tablas del P2, T2-03). Solo rutas
@@ -318,8 +334,10 @@ services:
       retries: 10
       start_period: 20s
       start_interval: 2s
+    # Lo llaman el Orquestador (orq_backend) y el Motor (motor_pagos). Dueño de PG Pagos.
     networks:
-      - interna
+      - orq_backend
+      - motor_pagos
       - datos_pagos
 
   # Consumidor AMQP de Pagos — misma imagen de pagos, proceso aparte.
@@ -341,8 +359,9 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    # Consume de RabbitMQ (broker) y lee/escribe su PG Pagos.
     networks:
-      - interna
+      - broker
       - datos_pagos
 
   # Motor de apuestas — REAL. Lee Mongo (solo lectura), escribe Redis.
@@ -382,8 +401,12 @@ services:
       retries: 10
       start_period: 15s
       start_interval: 2s
+    # Lo llaman Gateway (WebSocket, gw_backend) y Orquestador (orq_backend).
+    # Llega a Pagos (motor_pagos), lee Mongo (datos_mongo) y escribe Redis (datos_redis).
     networks:
-      - interna
+      - gw_backend
+      - orq_backend
+      - motor_pagos
       - datos_mongo
       - datos_redis
 
@@ -412,26 +435,64 @@ services:
       retries: 10
       start_period: 10s
       start_interval: 2s
+    # Único que escribe Mongo (datos_mongo) y habla con el Broker (broker). Es el
+    # ÚNICO con salida a Internet: la red ingestor_salida no es `internal`, así
+    # descarga el histórico de OpenF1. El resto de redes de datos sí son internas.
     networks:
-      - interna
       - datos_mongo
+      - broker
+      - ingestor_salida
 
 # =============================================================================
-# Redes (Vista C&C): borde / interna / datos (una por base, para que cada base
-# comparta red SOLO con su servicio dueño — RNF-18).
+# Redes (Vista C&C) — segmentación por zona de confianza (Escenario 3, T3-02).
+#
+# Cada red reúne SOLO a quienes deben hablar entre sí (tabla "quién habla con
+# quién"). Docker aísla redes distintas por defecto, así que la membresía de red
+# funciona como regla de filtrado y contiene el movimiento lateral.
+#
+#   borde           entrada web + Front(SSR) <-> Gateway
+#   gw_backend      Gateway -> Usuarios, Orquestador, Motor
+#   orq_backend     Orquestador -> Usuarios, Pagos, Motor
+#   motor_pagos     Motor -> Pagos
+#   admin_entrada   CLI / host -> Admin (reemplaza el reverse proxy, T3-03)
+#   admin_usuarios  Admin -> Usuarios
+#   broker          Admin, Pagos-consumer, Ingestor -> RabbitMQ
+#   datos_*         cada base con su(s) dueño(s) — internal: true (sin Internet)
+#   ingestor_salida ÚNICA red con salida a Internet (solo el Ingestor: OpenF1)
 # =============================================================================
 networks:
   borde:
     driver: bridge
-  interna:
+  gw_backend:
     driver: bridge
+    internal: true
+  orq_backend:
+    driver: bridge
+    internal: true
+  motor_pagos:
+    driver: bridge
+    internal: true
+  admin_entrada:
+    driver: bridge
+  admin_usuarios:
+    driver: bridge
+    internal: true
+  broker:
+    driver: bridge
+    internal: true
   datos_usuarios:
     driver: bridge
+    internal: true
   datos_pagos:
     driver: bridge
+    internal: true
   datos_mongo:
     driver: bridge
+    internal: true
   datos_redis:
+    driver: bridge
+    internal: true
+  ingestor_salida:
     driver: bridge
 
 volumes:
