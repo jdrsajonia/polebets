@@ -19,7 +19,7 @@
 #     pagos-consumer REAL  (misma imagen de pagos, comando placeholder) -> HU2-18 consumidor AMQP
 #     motor          REAL  (Go)           -> ya existía; lee Mongo, escribe Redis
 #     ingestor       REAL  (Go)           -> HU2-16/19 Iván; descarga OpenF1, reproduce; único que escribe Mongo
-#     admin          REAL  (FastAPI)      -> HU2-18/19/23 Iván; única otra entrada (8003)
+#     admin          REAL  (FastAPI)      -> HU2-18/19/23 Iván; detrás del Gateway en /api/admin/ (T3-03)
 #
 #   Cliente fuera del conteo (perfil "cli", no lo levanta `docker compose up`):
 #     cli            Rust (ratatui)       -> HU2-17 William; `docker compose run --rm cli`
@@ -27,11 +27,13 @@
 #   Infra (imágenes oficiales, ya funcionan):
 #     postgres-usuarios, postgres-pagos, mongo, redis, rabbitmq
 #
-# Puertos publicados al host: SOLO 80 (gateway) y 8003 (admin). Todo lo demás es
-# interno a las redes de Docker (RNF-17: no se exponen los puertos internos).
+# Puertos publicados al host: SOLO 80 y 443, los dos del Gateway. Todo lo demás
+# es interno a las redes de Docker (RNF-17: no se exponen los puertos internos).
+# Admin ya no se publica: se alcanza por el Gateway en /api/admin/ (escenario 2,
+# T3-03, reverse proxy).
 #
-# Redes (Vista C&C): borde / interna / datos. Cada base comparte red SOLO con su
-# servicio dueño; por eso hay una red de datos por base.
+# Redes (Vista C&C): una por relación "quién habla con quién" (escenario 3), ver
+# la tabla al final. Cada base comparte red SOLO con su servicio dueño.
 #
 # Configuración en .env (ver .env.example).
 
@@ -140,7 +142,8 @@ services:
   # Entrada (borde)
   # ===========================================================================
 
-  # API Gateway — STUB (T2-01, Tomás). Única entrada web de los jugadores.
+  # API Gateway (T2-01). Única entrada al sistema: jugadores (web) y, desde el
+  # escenario 2 (T3-03), también el administrador (CLI) por /api/admin/.
   gateway:
     build:
       context: ./services/gateway
@@ -151,6 +154,7 @@ services:
       - orquestador
       - motor
       - front
+      - admin
     ports:
       - "80:80"
       - "443:443"
@@ -164,9 +168,11 @@ services:
       start_period: 10s
       start_interval: 2s
     # borde: entrada web + Front (SSR). gw_backend: llega a Usuarios, Orquestador y Motor.
+    # gw_admin: llega a Admin (reverse proxy de /api/admin/, escenario 2).
     networks:
       - borde
       - gw_backend
+      - gw_admin
 
   # Front (Node, HU2-03 Misael): sirve la SPA y renderiza /mi-pagina en el servidor (SSR).
   front:
@@ -194,7 +200,8 @@ services:
     networks:
       - borde
 
-  # Admin — STUB (HU2-18/19, Iván). Segunda y última entrada publicada (8003).
+  # Admin (HU2-17/18/19/23, Iván). Sin puerto publicado: solo lo alcanza el
+  # Gateway por gw_admin, que lo expone en /api/admin/ (escenario 2, T3-03).
   admin:
     build:
       context: ./services/admin
@@ -205,8 +212,6 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
-    ports:
-      - "8003:8003"
     environment:
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
       # HU2-17 (RF-21): valida el login de la CLI y su token contra Usuarios.
@@ -218,12 +223,11 @@ services:
       retries: 10
       start_period: 20s
       start_interval: 2s
-    # Admin llega a Usuarios (valida login/token de la CLI) y a RabbitMQ (publica
-    # consultas). admin_entrada es por donde lo alcanza la CLI (y el host, vía 8003)
-    # hasta que el reverse proxy (T3-03) lo ponga detrás del Gateway. No necesita
-    # borde: no habla con Front ni Gateway.
+    # gw_admin: único camino de entrada (desde el Gateway). Admin llega a Usuarios
+    # (valida login/token de la CLI) y a RabbitMQ (publica consultas). Ninguna de
+    # sus redes sale a Internet ni publica puertos.
     networks:
-      - admin_entrada
+      - gw_admin
       - admin_usuarios
       - broker
 
@@ -231,7 +235,8 @@ services:
   # admin, empaquetada para correrla sin instalar Rust. El perfil "cli" la deja
   # fuera de `docker compose up`; se abre con:
   #   docker compose run --rm cli
-  # Solo comparte con Admin la red admin_entrada, igual que un cliente externo.
+  # PENDIENTE (T3-06): pasarla al Gateway por HTTPS. Mientras tanto queda en
+  # borde y ya no alcanza a Admin (admin_entrada desapareció en T3-03).
   cli:
     build:
       context: ./services/cli
@@ -243,7 +248,7 @@ services:
     environment:
       POLEBET_ADMIN_URL: http://admin:8003
     networks:
-      - admin_entrada
+      - borde
 
   # ===========================================================================
   # Lógica (interna)
@@ -454,7 +459,7 @@ services:
 #   gw_backend      Gateway -> Usuarios, Orquestador, Motor
 #   orq_backend     Orquestador -> Usuarios, Pagos, Motor
 #   motor_pagos     Motor -> Pagos
-#   admin_entrada   CLI / host -> Admin (reemplaza el reverse proxy, T3-03)
+#   gw_admin        Gateway -> Admin (reverse proxy de /api/admin/, escenario 2, T3-03)
 #   admin_usuarios  Admin -> Usuarios
 #   broker          Admin, Pagos-consumer, Ingestor -> RabbitMQ
 #   datos_*         cada base con su(s) dueño(s) — internal: true (sin Internet)
@@ -472,8 +477,9 @@ networks:
   motor_pagos:
     driver: bridge
     internal: true
-  admin_entrada:
+  gw_admin:
     driver: bridge
+    internal: true
   admin_usuarios:
     driver: bridge
     internal: true
