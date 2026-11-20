@@ -10,8 +10,10 @@ publish = false
 ratatui = "0.29"
 # Las peticiones a Admin corren en tareas aparte para no congelar la interfaz.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-# Solo HTTP: Admin vive en la LAN (puerto 8003), no hace falta TLS.
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+# HTTPS hacia el Gateway (escenario 2, T3-06). rustls con ring: no depende de
+# OpenSSL ni de cmake, y trae las raíces de Mozilla (webpki-roots) para cuando
+# haya un certificado real. El autofirmado se confía con POLEBET_CA_CERT.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
