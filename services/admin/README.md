@@ -49,37 +49,40 @@ Todas menos `/health` y `/login` exigen `Authorization: Bearer <token>` de un ad
 | `POST /simulacion` | `ingestor.commands` (`start_simulation`) | 200 `{simulacion_id, hora_largada}`, 409 si ya hay una programada o en curso, 404 si la carrera no está descargada |
 | `POST /consultas` | `admin.consultas` (consumidor de Pagos) | 200 con `data`, `filtros_aplicados` y `filtros_no_aplicados` |
 
-Con el stack levantado. `-k` acepta el certificado autofirmado del Gateway (solo en
-pruebas con curl); para verificarlo, usa `--cacert services/gateway/certs/polebet.crt`.
+Con el stack levantado. `--cacert` verifica el certificado del Gateway con su CA local
+(`services/gateway/certs/ca.crt`, de `scripts/generar-certs.sh`).
 
 ```bash
 # Login con el admin inicial del .env (ADMIN_EMAIL / ADMIN_PASSWORD)
 A=https://localhost/api/admin
-TOKEN=$(curl -sk -X POST $A/login -H 'Content-Type: application/json' \
+CA=services/gateway/certs/ca.crt
+TOKEN=$(curl -s --cacert $CA -X POST $A/login -H 'Content-Type: application/json' \
   -d '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
 AUTH="Authorization: Bearer $TOKEN"
 
-curl -sk $A/carreras -H "$AUTH"
-curl -sk -X POST $A/simulacion -H "$AUTH" -H 'Content-Type: application/json' \
+curl -s --cacert $CA $A/carreras -H "$AUTH"
+curl -s --cacert $CA -X POST $A/simulacion -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"race_id":"9165","minutos_anticipacion":10}'
-curl -sk -X POST $A/consultas -H "$AUTH" -H 'Content-Type: application/json' \
+curl -s --cacert $CA -X POST $A/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"rentabilidad","params":{"tipo_apuesta":"estatica","top_n":5}}'
-curl -sk -X POST $A/consultas -H "$AUTH" -H 'Content-Type: application/json' \
+curl -s --cacert $CA -X POST $A/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"resumen_financiero","params":{"modo":"torneo"}}'
-curl -sk -X POST $A/consultas -H "$AUTH" -H 'Content-Type: application/json' \
+curl -s --cacert $CA -X POST $A/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"participacion","params":{}}'
 ```
 
 ```powershell
 # PowerShell 7+
 $A = "https://localhost/api/admin"
-$TOKEN = (Invoke-RestMethod -SkipCertificateCheck -Method Post "$A/login" -ContentType application/json `
-  -Body '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}').token
+$CA = "services\gateway\certs\ca.crt"
+$R = curl.exe -s --cacert $CA -X POST "$A/login" -H "Content-Type: application/json" `
+  -d '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}'
+$TOKEN = ($R | ConvertFrom-Json).token
 $AUTH = "Authorization: Bearer $TOKEN"
 
-curl.exe -sk "$A/carreras" -H $AUTH
-curl.exe -sk -X POST "$A/consultas" -H $AUTH -H "Content-Type: application/json" `
+curl.exe -s --cacert $CA "$A/carreras" -H $AUTH
+curl.exe -s --cacert $CA -X POST "$A/consultas" -H $AUTH -H "Content-Type: application/json" `
   -d '{"query":"resumen_financiero","params":{"modo":"torneo"}}'
 ```
 

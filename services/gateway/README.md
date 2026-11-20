@@ -22,10 +22,12 @@ Gateway). Es el único servicio con puertos publicados al host.
 | `endurecimiento.conf` | `conf.d/` (nivel http) | `server_tokens off` (no revelar la versión) | 2 (Daniel) |
 | `limites-zonas.conf` | `conf.d/` (nivel http) | zonas de `limit_req` / `limit_conn` | 5 (Michael) |
 
-`certs/` (en `.gitignore`) tiene `polebet.crt` y `polebet.key`, que se montan en
-`/etc/nginx/certs`. Se generan con `scripts/generar-certs.sh --force` o
-`.\scripts\generar-certs.ps1 -Force` (SAN `localhost`, `gateway`, `127.0.0.1`;
-`CA:FALSE` + `serverAuth`, que es lo que exige la CLI).
+`certs/` (en `.gitignore`) lo llena `scripts/generar-certs.sh --forzar` (T3-06; en
+Windows, desde Git Bash): una CA local (`ca.crt`, `ca.key`) que firma el certificado
+del Gateway (`polebet.crt`, `polebet.key`; EC P-256, SAN `localhost`, `gateway`,
+`127.0.0.1`, 365 días). Al Gateway **solo** se le montan `polebet.crt` y `polebet.key`
+en `/etc/nginx/certs` (dos binds de solo lectura): `ca.key` no entra al contenedor.
+Los clientes confían en `ca.crt`.
 
 ## Rutas
 
@@ -65,14 +67,16 @@ No toca ninguna base de datos.
 ## Probar
 
 ```bash
-curl -s --cacert services/gateway/certs/polebet.crt https://localhost/health
-curl -sk https://localhost/api/admin/health
-curl -kI https://localhost/        # Server: nginx (sin versión)
+curl -s --cacert services/gateway/certs/ca.crt https://localhost/health
+curl -s --cacert services/gateway/certs/ca.crt https://localhost/api/admin/health
+curl -sI --cacert services/gateway/certs/ca.crt https://localhost/   # Server: nginx (sin versión)
+docker compose exec gateway ls /etc/nginx/certs                      # solo polebet.crt y polebet.key
 ```
 ```powershell
-curl.exe -s --cacert services\gateway\certs\polebet.crt https://localhost/health
-curl.exe -sk https://localhost/api/admin/health
-curl.exe -kI https://localhost/
+curl.exe -s --cacert services\gateway\certs\ca.crt https://localhost/health
+curl.exe -s --cacert services\gateway\certs\ca.crt https://localhost/api/admin/health
+curl.exe -sI --cacert services\gateway\certs\ca.crt https://localhost/
+docker compose exec gateway ls /etc/nginx/certs
 ```
 
 ## Sesión (HU2-02)
