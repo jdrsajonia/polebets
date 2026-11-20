@@ -5,9 +5,11 @@
 //! La URL de Admin sale de `--url`, de POLEBET_ADMIN_URL o, si no, de
 //! https://localhost/api/admin: Admin está detrás del Gateway (escenario 2,
 //! T3-03). Con HTTPS (T3-06), `--ca` o POLEBET_CA_CERT dicen en qué CA confiar
-//! además de las públicas: la local del Gateway, que crea scripts/generar-certs.sh. El bucle dibuja, lee el teclado cada 100 ms y
-//! recoge las respuestas de Admin; las peticiones corren en tareas de tokio,
-//! así una consulta lenta nunca congela la pantalla (RF-30).
+//! además de las públicas: la local del Gateway, que crea scripts/generar-certs.sh.
+//!
+//! El bucle dibuja, lee el teclado cada 100 ms y recoge las respuestas de Admin;
+//! las peticiones corren en tareas de tokio, así una consulta lenta nunca
+//! congela la pantalla (RF-30).
 
 use std::io;
 use std::path::PathBuf;
