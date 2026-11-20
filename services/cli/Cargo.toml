@@ -10,10 +10,18 @@ publish = false
 ratatui = "0.29"
 # Las peticiones a Admin corren en tareas aparte para no congelar la interfaz.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-# Solo HTTP: Admin vive en la LAN (puerto 8003), no hace falta TLS.
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+# T3-06: HTTPS con rustls (Rust puro, sin OpenSSL en la imagen). El Gateway solo
+# atiende HTTPS (escenario 1) y Admin queda detrás de él (escenario 2).
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# El mismo rustls que usa reqwest: solo para reconocer los errores de certificado
+# y explicarlos en pantalla (CA desconocida, nombre que no coincide, vencido).
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[dev-dependencies]
+# Servidor HTTPS de prueba (api.rs) con los certificados de tests/certs.
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 
 [profile.release]
 strip = true

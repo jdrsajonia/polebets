@@ -1,11 +1,17 @@
 //! Cliente REST de Admin (puerto 8003). Es la única puerta de la CLI: nunca
 //! habla con Pagos, el Ingestor ni OpenF1 (Vista C&C).
 //!
+//! Habla HTTP o HTTPS según la URL (T3-06). Con HTTPS siempre verifica el
+//! certificado: confía en las CA públicas y, si se le pasa, en la CA local del
+//! Gateway (scripts/generar-certs.sh). Nunca apaga la verificación.
+//!
 //! Cada error se traduce a `ErrorApi` con un mensaje listo para mostrar.
 
+use std::path::Path;
 use std::time::Duration;
 
-use reqwest::{Client, RequestBuilder};
+use reqwest::{Certificate, Client, RequestBuilder};
+use rustls::CertificateError;
 use serde::de::DeserializeOwned;
 use serde_json::{json, Map, Value};
 
@@ -82,18 +88,37 @@ pub struct ClienteAdmin {
     base: String,
 }
 
+/// Lee la CA (PEM) en la que la CLI debe confiar, p. ej. services/gateway/certs/ca.crt.
+pub fn leer_ca(ruta: &Path) -> Result<Vec<Certificate>, String> {
+    let pem = std::fs::read(ruta).map_err(|e| format!("No se pudo leer la CA {}: {e}", ruta.display()))?;
+    let certificados = Certificate::from_pem_bundle(&pem)
+        .map_err(|_| format!("{} no es un certificado PEM válido", ruta.display()))?;
+    if certificados.is_empty() {
+        return Err(format!("{} no contiene ningún certificado PEM", ruta.display()));
+    }
+    Ok(certificados)
+}
+
 impl ClienteAdmin {
-    /// Crea el cliente para la URL de Admin (p. ej. http://localhost:8003).
-    pub fn nuevo(base: &str) -> Self {
-        let http = Client::builder()
+    /// Crea el cliente para la URL de Admin (p. ej. https://localhost/admin).
+    /// Con `ca`, además de las CA públicas confía en esa (la local del Gateway).
+    pub fn nuevo(base: &str, ca: Option<&Path>) -> Result<Self, String> {
+        let mut builder = Client::builder()
             .timeout(TIMEOUT)
-            .connect_timeout(Duration::from_secs(3))
+            .connect_timeout(Duration::from_secs(3));
+        if let Some(ruta) = ca {
+            for certificado in leer_ca(ruta)? {
+                builder = builder.add_root_certificate(certificado);
+            }
+        }
+        // Aquí rustls valida la CA: un PEM con un certificado roto falla al construir.
+        let http = builder
             .build()
-            .expect("cliente HTTP");
-        ClienteAdmin {
+            .map_err(|e| format!("No se pudo preparar el cliente HTTPS: {}", causa_raiz(&e)))?;
+        Ok(ClienteAdmin {
             http,
             base: base.trim_end_matches('/').to_string(),
-        }
+        })
     }
 
     /// URL de Admin que usa este cliente.
@@ -154,22 +179,79 @@ impl ClienteAdmin {
         })
     }
 
-    /// Error sin respuesta de Admin: timeout (RF-30) o no hay conexión.
+    /// Error sin respuesta de Admin: timeout (RF-30), TLS rechazado o no hay conexión.
     fn error_de_red(&self, e: &reqwest::Error) -> ErrorApi {
         if e.is_timeout() {
             ErrorApi::TardoDemasiado(format!(
                 "La consulta tardó demasiado: Admin no respondió en {} s",
                 TIMEOUT.as_secs()
             ))
+        } else if let Some(tls) = error_tls(e) {
+            ErrorApi::SinConexion(mensaje_tls(tls, &self.base))
         } else {
             ErrorApi::SinConexion(format!("No se pudo conectar con Admin en {}", self.base))
         }
     }
 }
 
+/// Busca el error de rustls dentro de la cadena de causas de reqwest. Viaja
+/// envuelto en io::Error anidados (hyper → io::Error → io::Error → rustls), y el
+/// `source()` de un io::Error se salta el error que guarda: por eso en cada
+/// io::Error se sigue por `get_ref()`.
+fn error_tls<'a>(e: &'a (dyn std::error::Error + 'static)) -> Option<&'a rustls::Error> {
+    let mut actual = Some(e);
+    while let Some(error) = actual {
+        if let Some(tls) = error.downcast_ref::<rustls::Error>() {
+            return Some(tls);
+        }
+        actual = match error.downcast_ref::<std::io::Error>() {
+            Some(io) => io
+                .get_ref()
+                .map(|interno| interno as &(dyn std::error::Error + 'static)),
+            None => error.source(),
+        };
+    }
+    None
+}
+
+/// Explica por qué no se aceptó el HTTPS de Admin y qué hacer.
+fn mensaje_tls(error: &rustls::Error, base: &str) -> String {
+    match error {
+        rustls::Error::InvalidCertificate(CertificateError::UnknownIssuer) => format!(
+            "El certificado de {base} no es de una CA de confianza: pasa la CA del Gateway con --ca o POLEBET_CA_CERT"
+        ),
+        rustls::Error::InvalidCertificate(
+            CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
+        ) => {
+            format!("El certificado de {base} no vale para ese nombre: usa uno de los que tiene (localhost o gateway)")
+        }
+        rustls::Error::InvalidCertificate(CertificateError::Expired | CertificateError::ExpiredContext { .. }) => {
+            format!("El certificado de {base} está vencido: regenéralo con scripts/generar-certs.sh --forzar")
+        }
+        otro => format!("No se pudo establecer HTTPS con {base}: {otro}"),
+    }
+}
+
+/// Última causa de un error, que es la que explica qué pasó.
+fn causa_raiz(e: &(dyn std::error::Error + 'static)) -> String {
+    let mut actual = e;
+    while let Some(siguiente) = actual.source() {
+        actual = siguiente;
+    }
+    actual.to_string()
+}
+
 #[cfg(test)]
 mod pruebas {
     use super::*;
+
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 
     #[test]
     fn el_401_y_el_403_conservan_el_mensaje_de_admin() {
@@ -212,11 +294,110 @@ mod pruebas {
     #[tokio::test]
     async fn sin_admin_avisa_que_no_hay_conexion() {
         // Puerto 9 (discard): nadie escucha ahí.
-        let cliente = ClienteAdmin::nuevo("http://127.0.0.1:9/");
+        let cliente = ClienteAdmin::nuevo("http://127.0.0.1:9/", None).unwrap();
         let e = cliente.carreras("x.y.z").await.unwrap_err();
         assert_eq!(
             e,
             ErrorApi::SinConexion("No se pudo conectar con Admin en http://127.0.0.1:9".into())
         );
+    }
+
+    // ---- T3-06: HTTPS ----
+
+    /// Archivo de tests/certs: una CA y un certificado para localhost, solo para pruebas.
+    fn cert_de_prueba(nombre: &str) -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/certs").join(nombre)
+    }
+
+    /// Levanta un servidor HTTPS de una sola conexión en 127.0.0.1, con el
+    /// certificado de prueba, que responde a cualquier petición con `{"carreras":[]}`.
+    /// Devuelve el puerto.
+    fn servidor_https() -> u16 {
+        let certificados = CertificateDer::pem_file_iter(cert_de_prueba("servidor.crt"))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let llave = PrivateKeyDer::from_pem_file(cert_de_prueba("servidor.key")).unwrap();
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(certificados, llave)
+            .unwrap();
+        let config = Arc::new(config);
+        let escucha = TcpListener::bind("127.0.0.1:0").unwrap();
+        let puerto = escucha.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let Ok((tcp, _)) = escucha.accept() else { return };
+            let mut tls = rustls::StreamOwned::new(rustls::ServerConnection::new(config).unwrap(), tcp);
+            // Lee hasta el fin de las cabeceras. Si el cliente rechazó el
+            // certificado, el handshake falla aquí y no hay nada que responder.
+            let mut leido = Vec::new();
+            let mut trozo = [0u8; 1024];
+            while !leido.windows(4).any(|w| w == b"\r\n\r\n") {
+                match tls.read(&mut trozo) {
+                    Ok(0) | Err(_) => return,
+                    Ok(n) => leido.extend_from_slice(&trozo[..n]),
+                }
+            }
+            let cuerpo = r#"{"carreras":[]}"#;
+            let _ = write!(
+                tls,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{cuerpo}",
+                cuerpo.len()
+            );
+            tls.conn.send_close_notify();
+            let _ = tls.flush();
+        });
+        puerto
+    }
+
+    #[tokio::test]
+    async fn con_la_ca_del_gateway_habla_https() {
+        let base = format!("https://localhost:{}", servidor_https());
+        let cliente = ClienteAdmin::nuevo(&base, Some(&cert_de_prueba("ca.crt"))).unwrap();
+        assert_eq!(cliente.carreras("x.y.z").await, Ok(vec![]));
+    }
+
+    #[tokio::test]
+    async fn sin_la_ca_rechaza_el_certificado_y_dice_que_hacer() {
+        // Sin --ca la CLI solo confía en las CA públicas, y la del Gateway no lo es.
+        let base = format!("https://localhost:{}", servidor_https());
+        let cliente = ClienteAdmin::nuevo(&base, None).unwrap();
+        assert_eq!(
+            cliente.carreras("x.y.z").await.unwrap_err(),
+            ErrorApi::SinConexion(format!(
+                "El certificado de {base} no es de una CA de confianza: pasa la CA del Gateway con --ca o POLEBET_CA_CERT"
+            ))
+        );
+    }
+
+    #[tokio::test]
+    async fn un_nombre_que_no_esta_en_el_certificado_se_rechaza() {
+        // El certificado de prueba solo vale para localhost, no para 127.0.0.1.
+        let base = format!("https://127.0.0.1:{}", servidor_https());
+        let cliente = ClienteAdmin::nuevo(&base, Some(&cert_de_prueba("ca.crt"))).unwrap();
+        assert_eq!(
+            cliente.carreras("x.y.z").await.unwrap_err(),
+            ErrorApi::SinConexion(format!(
+                "El certificado de {base} no vale para ese nombre: usa uno de los que tiene (localhost o gateway)"
+            ))
+        );
+    }
+
+    #[test]
+    fn una_ca_que_no_existe_no_deja_crear_el_cliente() {
+        let error = ClienteAdmin::nuevo("https://localhost", Some(Path::new("no-existe/ca.crt")))
+            .err()
+            .unwrap();
+        assert!(error.starts_with("No se pudo leer la CA no-existe/ca.crt"), "{error}");
+    }
+
+    #[test]
+    fn una_llave_no_sirve_como_ca() {
+        // Error fácil de cometer: pasar polebet.key en lugar de ca.crt.
+        let ruta = cert_de_prueba("servidor.key");
+        let error = ClienteAdmin::nuevo("https://localhost", Some(&ruta)).err().unwrap();
+        assert_eq!(error, format!("{} no contiene ningún certificado PEM", ruta.display()));
     }
 }

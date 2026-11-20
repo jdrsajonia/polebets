@@ -3,8 +3,13 @@
 //!   POLEBET_ADMIN_URL=http://localhost:8003 POLEBET_ADMIN_PASSWORD=... \
 //!     cargo test --test en_vivo -- --ignored --nocapture
 //!
+//! Por el Gateway (HTTPS, T3-06) se añade la CA local:
+//!   POLEBET_CA_CERT=../gateway/certs/ca.crt
+//!
 //! Maneja la app con las mismas teclas que el administrador y dibuja cada
 //! pantalla en una terminal falsa de 120×32 (se imprime con --nocapture).
+
+use std::path::Path;
 
 use polebet_cli::api::ClienteAdmin;
 use polebet_cli::app::{App, Envio, Pantalla, Respuesta};
@@ -16,6 +21,12 @@ use ratatui::Terminal;
 /// Variable de entorno o valor por defecto.
 fn entorno(nombre: &str, defecto: &str) -> String {
     std::env::var(nombre).unwrap_or_else(|_| defecto.into())
+}
+
+/// Cliente de Admin; confía en la CA de POLEBET_CA_CERT si está puesta.
+fn nuevo_cliente(url: &str) -> ClienteAdmin {
+    let ca = std::env::var("POLEBET_CA_CERT").ok().filter(|v| !v.trim().is_empty());
+    ClienteAdmin::nuevo(url, ca.as_deref().map(Path::new)).expect("cliente de Admin")
 }
 
 /// Corre las peticiones contra Admin y las que salgan de sus respuestas.
@@ -61,7 +72,7 @@ async fn ingresar(app: &mut App, cliente: &ClienteAdmin, email: &str, password: 
 async fn el_admin_entra_y_recorre_los_paneles() {
     let url = entorno("POLEBET_ADMIN_URL", "http://localhost:8003");
     let password = std::env::var("POLEBET_ADMIN_PASSWORD").expect("falta POLEBET_ADMIN_PASSWORD");
-    let cliente = ClienteAdmin::nuevo(&url);
+    let cliente = nuevo_cliente(&url);
     let mut app = App::nuevo(url);
 
     ingresar(
@@ -105,7 +116,7 @@ async fn un_jugador_no_entra() {
     let url = entorno("POLEBET_ADMIN_URL", "http://localhost:8003");
     let email = std::env::var("POLEBET_JUGADOR_EMAIL").expect("falta POLEBET_JUGADOR_EMAIL");
     let password = std::env::var("POLEBET_JUGADOR_PASSWORD").expect("falta POLEBET_JUGADOR_PASSWORD");
-    let cliente = ClienteAdmin::nuevo(&url);
+    let cliente = nuevo_cliente(&url);
     let mut app = App::nuevo(url);
 
     ingresar(&mut app, &cliente, &email, &password).await;
