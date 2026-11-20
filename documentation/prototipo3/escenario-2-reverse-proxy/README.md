@@ -1,10 +1,17 @@
-# Escenario 2 — Reverse Proxy (T3-03) y TLS en la CLI (T3-06)
+# Escenario 2 — Reverse Proxy (T3-03)
 
 **Dueño:** Daniel
 **Patrón:** Reverse Proxy
 **Táctica (Bass, §11.2):** *Limit access* (categoría **resistir**)
 **Atributos de calidad:** Confidencialidad, integridad
 **Rama de trabajo:** `p3/reverse-proxy`
+
+> **Relación con T3-06.** El TLS de la CLI y el script de certificados (CA local
+> que firma el certificado del Gateway) los implementó William en T3-06
+> (PR #56). Este escenario pone a Admin detrás del Gateway y **conecta esa CLI
+> al Gateway** (`https://gateway/api/admin`). También le hace tres correcciones:
+> `ca.key` fuera del Gateway, certificados de 365 días y regenerar si falta
+> `ca.crt`.
 
 > Estructura del roadmap:
 > 1. El problema, justificado sobre la vista C&C y la de despliegue.
@@ -59,8 +66,9 @@ desordenar simulaciones con un token robado).
 
 ## 2. Evidencia de la vulnerabilidad (antes)
 
-Capturada sobre `main` en `37c7b3f` (antes de esta rama), con el stack recién
-levantado:
+Capturada sobre `main` en `37c7b3f`, con el stack recién levantado. En el main
+actual (con T3-06) lo que mide este escenario sigue igual: el 8003 está
+publicado, `/docs` es visible y Admin está en `admin_entrada`.
 
 ```bash
 docker compose down
@@ -231,24 +239,39 @@ cambia es que **Admin pasa a estar detrás de él**.
 **Táctica: *Limit access* (resistir).** Se reduce quién y por dónde puede llegar
 a Admin: ya no tiene puerto en el host, su única red de entrada es interna y
 solo la comparte con el Gateway. Además se oculta lo que no hace falta mostrar
-(el mapa de la API y la versión de Nginx), y el canal de la CLI pasa a ir
-cifrado y con el servidor verificado (confidencialidad e integridad en
+(el mapa de la API y la versión de Nginx), y la CLI entra por el mismo HTTPS
+verificado que el resto de clientes (confidencialidad e integridad en
 tránsito).
 
 ### Archivos cambiados y por qué
+
+**Escenario 2 (esta rama):**
 
 | Archivo | Cambio | Por qué |
 | --- | --- | --- |
 | `services/gateway/admin.conf` | `location /api/admin/` → `http://admin:8003`, quitando el prefijo | Admin solo se publica a través del Gateway |
 | `services/gateway/endurecimiento.conf` | `server_tokens off;` | Ocultar la versión de Nginx |
 | `services/gateway/Dockerfile` | copia `endurecimiento.conf` a `conf.d/`; `EXPOSE 80 443` | Nivel http; documentar el 443 |
-| `docker-compose.yml` | Admin sin `ports`; redes `gw_admin`, `admin_usuarios`, `broker`; nueva red `gw_admin` (`internal: true`); se elimina `admin_entrada`; Gateway en `gw_admin` y depende de Admin; la CLI va en `borde` hacia `https://gateway/api/admin` con solo el `.crt` montado | Una sola puerta, Admin fuera del borde |
+| `docker-compose.yml` (admin, gateway, redes) | Admin sin `ports`; redes `gw_admin`, `admin_usuarios`, `broker`; nueva red `gw_admin` (`internal: true`); se elimina `admin_entrada`; Gateway en `gw_admin` y depende de Admin | Una sola puerta, Admin fuera del borde |
 | `services/admin/app/main.py` | `docs_url=None, redoc_url=None, openapi_url=None` | No publicar el mapa de la API |
 | `services/admin/tests/test_ocultamiento.py` | `/docs`, `/redoc`, `/openapi.json` → 404 | Que no vuelva a aparecer |
-| `services/cli/Cargo.toml`, `Cargo.lock` | `reqwest` con `rustls-tls` (ring, sin OpenSSL ni aws-lc-rs) | HTTPS en la CLI sin dependencias de sistema |
-| `services/cli/src/*.rs`, `tests/en_vivo.rs` | URL por defecto `https://localhost/api/admin`; `POLEBET_CA_CERT`; aviso si la URL es `http://`; error de certificado distinto del de conexión | T3-06 |
-| `services/cli/Dockerfile` | `POLEBET_ADMIN_URL=https://gateway/api/admin`, `POLEBET_CA_CERT=/certs/polebet.crt` | La CLI es un cliente externo más |
-| `scripts/generar-certs.sh`, `scripts/generar-certs.ps1` | Certificado autofirmado con SAN `localhost`, `gateway`, `127.0.0.1`, `CA:FALSE` y `serverAuth` | La CLI en Docker llama a `gateway`; rustls exige un certificado de servidor |
+
+**Conexión de la CLI de T3-06 al Gateway:**
+
+| Archivo | Cambio | Por qué |
+| --- | --- | --- |
+| `services/cli/src/main.rs`, `tests/en_vivo.rs` (y etiquetas de prueba en `api.rs`, `app.rs`, `ui.rs`) | URL por defecto `https://localhost/api/admin` | Admin ya no está en `localhost:8003` |
+| `services/cli/Dockerfile` | `POLEBET_ADMIN_URL=https://gateway/api/admin`, `POLEBET_CA_CERT=/certs/ca.crt` | La CLI es un cliente externo más |
+| `docker-compose.yml` (cli) | red `borde`, `depends_on: gateway`, `POLEBET_ADMIN_URL=https://gateway/api/admin`; se mantiene el bind de solo `ca.crt` de William | Entra por el Gateway, no comparte red con Admin |
+
+**Correcciones a T3-06:**
+
+| Archivo | Cambio | Por qué |
+| --- | --- | --- |
+| `docker-compose.yml` (gateway) | En vez de montar la carpeta `certs/`, dos binds de solo lectura: `polebet.crt` y `polebet.key` (`create_host_path: false`) | `ca.key`, que firma certificados, quedaba dentro del Gateway |
+| `scripts/generar-certs.sh` | `CERT_DIAS` por defecto 365 (antes 30) | Los de 30 días vencerían antes del fin del semestre |
+| `scripts/generar-certs.sh` | Solo se salta si existen `polebet.crt`, `polebet.key` **y** `ca.crt`; si falta `ca.crt`, avisa y regenera. `:z` en el volumen del fallback con Docker | Quien tenía los certificados del Lab 5 o del escenario 1 se quedaba sin `ca.crt` |
+| `README.md`, `services/cli/README.md` | Admin en `https://localhost/api/admin`; CLI por el Gateway con `ca.crt`; 365 días | Estaban con el 8003 y `admin_entrada` |
 
 ### Decisiones
 
@@ -276,32 +299,35 @@ tránsito).
   `admin.conf` solo aplicaría al server 443/8080, y el server del 80 (la
   redirección a HTTPS) seguiría mostrando la versión. `nginx.conf` es del
   escenario 1 y no se tocó.
-- **`POLEBET_CA_CERT` en vez de saltarse la verificación.** La CLI agrega el
-  certificado autofirmado como raíz de confianza
-  (`ClientBuilder::add_root_certificate`). Nunca se usa
-  `danger_accept_invalid_certs`. Si la variable no está definida, la CLI usa las
-  raíces públicas de Mozilla (`webpki-roots`), lo que sirve para un certificado
-  real en el futuro. Si el archivo no existe o no es un certificado, la CLI sale
-  con un error claro antes de abrir la interfaz.
-- **SAN `DNS:gateway`.** Dentro de Docker la CLI llama a `https://gateway`; sin
-  ese nombre en el certificado, la verificación fallaría con `NotValidForName`.
-- **`CA:FALSE` + `serverAuth`.** `openssl req -x509` marca el certificado como
-  CA por defecto. curl y los navegadores lo aceptan, pero rustls (la CLI) lo
-  rechaza con `CaUsedAsEndEntity`. El script genera un certificado de servidor.
-- **Solo el certificado público entra a la CLI.** El compose monta
-  `polebet.crt`, nunca la carpeta `certs/`: la llave privada no sale del Gateway.
+- **Certificados: CA local + certificado del Gateway (de T3-06).**
+  `scripts/generar-certs.sh` crea una CA local (`ca.crt`/`ca.key`) que firma
+  `polebet.crt`, en EC P-256, con SAN `localhost`, `gateway` y `127.0.0.1`. Los
+  clientes confían en **`ca.crt`**: curl con `--cacert`, la CLI con `--ca` o
+  `POLEBET_CA_CERT=/certs/ca.crt`. La CLI nunca apaga la verificación. El SAN
+  `gateway` es lo que permite a la CLI en Docker llamar a `https://gateway`.
+- **El Gateway solo monta `polebet.crt` y `polebet.key`.** Con la carpeta
+  completa, `ca.key` quedaba dentro del contenedor de borde. Si alguien
+  compromete el Gateway con esa llave, puede firmar certificados válidos para
+  cualquier nombre en los que la CLI y los navegadores que importaron `ca.crt`
+  confiarían. Ahora `ca.key` no entra a ningún contenedor; la CLI recibe solo
+  `ca.crt`, que es público.
 
 ---
 
 ## 4. La misma prueba, con la contramedida funcionando (después)
 
-Capturada sobre `p3/reverse-proxy`:
+Capturada sobre `p3/reverse-proxy` (rehecha sobre el main con T3-06), con
+certificados de `scripts/generar-certs.sh --forzar`:
 
 ```bash
 docker compose down
 git switch p3/reverse-proxy
+scripts/generar-certs.sh --forzar
 docker compose up --build -d
 ```
+
+> En PowerShell los `curl` se escriben `curl.exe`. `--cacert` verifica el
+> certificado contra la CA local; nunca se usa `-k`.
 
 ### 4.1 El 8003 ya no existe en el host
 
@@ -320,18 +346,16 @@ curl: (7) Failed to connect to localhost port 8003 after 0 ms: Could not connect
 
 ![captura](despues/img/01-8003-cerrado.png)
 
-### 4.2 Admin responde a través del Gateway, por HTTPS
+### 4.2 Admin responde a través del Gateway, por HTTPS verificado con la CA local
 
 ```bash
 docker compose exec gateway nginx -t
-curl -sk -i https://localhost/api/admin/health
-curl -s --cacert services/gateway/certs/polebet.crt https://localhost/api/admin/health
+curl -s --cacert services/gateway/certs/ca.crt -i https://localhost/api/admin/health
 curl -s https://localhost/api/admin/health; echo "exit=$?"
 ```
 ```powershell
 docker compose exec gateway nginx -t
-curl.exe -sk -i https://localhost/api/admin/health
-curl.exe -s --cacert services\gateway\certs\polebet.crt https://localhost/api/admin/health
+curl.exe -s --cacert services\gateway\certs\ca.crt -i https://localhost/api/admin/health
 curl.exe -s https://localhost/api/admin/health; "exit=$LASTEXITCODE"
 ```
 ```
@@ -341,33 +365,33 @@ nginx: configuration file /etc/nginx/nginx.conf test is successful
 HTTP/1.1 200 OK
 Server: nginx
 Content-Type: application/json
+Content-Length: 34
 
 {"estado":"ok","servicio":"admin"}
 
-{"estado":"ok","servicio":"admin"}      <- verificando el certificado con --cacert
-
-exit=60                                 <- sin el certificado: curl no confía (correcto)
+exit=60        <- sin la CA, curl no confía en el Gateway (correcto)
 ```
 
-> `-k` solo se usa en estas pruebas manuales con curl. La CLI nunca se salta
-> la verificación.
+![captura](despues/img/02-admin-por-gateway.png)
 
 ### 4.3 Login, carreras y consultas por `/api/admin/`
 
 ```bash
-TOKEN=$(curl -sk -X POST https://localhost/api/admin/login -H 'Content-Type: application/json' \
+CA=services/gateway/certs/ca.crt
+TOKEN=$(curl -s --cacert $CA -X POST https://localhost/api/admin/login -H 'Content-Type: application/json' \
   -d '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}' \
   | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
-curl -sk https://localhost/api/admin/carreras -H "Authorization: Bearer $TOKEN"
-curl -sk -X POST https://localhost/api/admin/consultas -H "Authorization: Bearer $TOKEN" \
+curl -s --cacert $CA https://localhost/api/admin/carreras -H "Authorization: Bearer $TOKEN"
+curl -s --cacert $CA -X POST https://localhost/api/admin/consultas -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' -d '{"query":"resumen_financiero","params":{}}'
 ```
 ```powershell
-# PowerShell 7+
-$TOKEN = (Invoke-RestMethod -SkipCertificateCheck -Method Post https://localhost/api/admin/login `
-  -ContentType application/json -Body '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}').token
-curl.exe -sk https://localhost/api/admin/carreras -H "Authorization: Bearer $TOKEN"
-curl.exe -sk -X POST https://localhost/api/admin/consultas -H "Authorization: Bearer $TOKEN" `
+$CA = "services\gateway\certs\ca.crt"
+$R = curl.exe -s --cacert $CA -X POST https://localhost/api/admin/login -H "Content-Type: application/json" `
+  -d '{"email":"admin@arqui.local","password":"cambiar-esta-clave-solo-dev"}'
+$TOKEN = ($R | ConvertFrom-Json).token
+curl.exe -s --cacert $CA https://localhost/api/admin/carreras -H "Authorization: Bearer $TOKEN"
+curl.exe -s --cacert $CA -X POST https://localhost/api/admin/consultas -H "Authorization: Bearer $TOKEN" `
   -H "Content-Type: application/json" -d '{"query":"resumen_financiero","params":{}}'
 ```
 ```
@@ -385,14 +409,18 @@ notas). El 200 confirma la ruta completa: Gateway → Admin → Broker → Inges
 ### 4.4 Sin mapa de la API y sin versión de Nginx
 
 ```bash
-for p in docs redoc openapi.json; do curl -sk -o /dev/null -w "$p %{http_code}\n" https://localhost/api/admin/$p; done
-curl -kI https://localhost/
-curl -I http://localhost/
+for p in docs redoc openapi.json; do
+  curl -s --cacert services/gateway/certs/ca.crt -o /dev/null -w "$p %{http_code}\n" https://localhost/api/admin/$p
+done
+curl -sI --cacert services/gateway/certs/ca.crt https://localhost/
+curl -sI http://localhost/
 ```
 ```powershell
-"docs","redoc","openapi.json" | ForEach-Object { curl.exe -sk -o NUL -w "$_ %{http_code}`n" "https://localhost/api/admin/$_" }
-curl.exe -kI https://localhost/
-curl.exe -I http://localhost/
+"docs","redoc","openapi.json" | ForEach-Object {
+  curl.exe -s --cacert services\gateway\certs\ca.crt -o NUL -w "$_ %{http_code}`n" "https://localhost/api/admin/$_"
+}
+curl.exe -sI --cacert services\gateway\certs\ca.crt https://localhost/
+curl.exe -sI http://localhost/
 ```
 ```
 docs 404
@@ -407,7 +435,7 @@ Server: nginx
 Location: https://localhost/
 ```
 
-![captura](despues/img/02-sin-docs-sin-version.png)
+![captura](despues/img/03-sin-docs-sin-version.png)
 
 ### 4.5 La contraseña ya no viaja en claro
 
@@ -418,16 +446,16 @@ login:
 docker run --rm --net container:arqui_gateway nicolaka/netshoot \
   tcpdump -i any -A -s 0 -c 30 'tcp dst port 443' > sniff.txt
 # en otra terminal:
-curl -sk -X POST https://localhost/api/admin/login -H 'Content-Type: application/json' \
-  -d '{"email":"admin@arqui.local","password":"clave-que-viaja-en-claro"}'
+curl -s --cacert services/gateway/certs/ca.crt -X POST https://localhost/api/admin/login \
+  -H 'Content-Type: application/json' -d '{"email":"admin@arqui.local","password":"clave-que-viaja-en-claro"}'
 grep -c clave-que-viaja-en-claro sniff.txt
 ```
 ```powershell
 docker run --rm --net container:arqui_gateway nicolaka/netshoot `
   tcpdump -i any -A -s 0 -c 30 "tcp dst port 443" > sniff.txt
 # en otra terminal:
-curl.exe -sk -X POST https://localhost/api/admin/login -H "Content-Type: application/json" `
-  -d '{"email":"admin@arqui.local","password":"clave-que-viaja-en-claro"}'
+curl.exe -s --cacert services\gateway\certs\ca.crt -X POST https://localhost/api/admin/login `
+  -H "Content-Type: application/json" -d '{"email":"admin@arqui.local","password":"clave-que-viaja-en-claro"}'
 (Select-String -Path sniff.txt -Pattern "clave-que-viaja-en-claro").Count
 ```
 ```
@@ -436,20 +464,22 @@ apariciones de 'clave-que-viaja-en-claro': 0
 apariciones de 'POST /login': 0
 ```
 
-![captura](despues/img/03-sniff-443.png)
+![captura](despues/img/04-sniff-443.png)
 
 ### 4.6 Fuerza bruta: ahora pasa por un único punto
 
 ```bash
 for i in $(seq 1 10); do
-  curl -sk -o /dev/null -w "intento $i -> %{http_code}\n" -X POST https://localhost/api/admin/login \
-    -H "Content-Type: application/json" -d "{\"email\":\"admin@arqui.local\",\"password\":\"mala-$i\"}"
+  curl -s --cacert services/gateway/certs/ca.crt -o /dev/null -w "intento $i -> %{http_code}\n" \
+    -X POST https://localhost/api/admin/login -H "Content-Type: application/json" \
+    -d "{\"email\":\"admin@arqui.local\",\"password\":\"mala-$i\"}"
 done
 ```
 ```powershell
 1..10 | ForEach-Object {
-  curl.exe -sk -o NUL -w "intento $_ -> %{http_code}`n" -X POST https://localhost/api/admin/login `
-    -H "Content-Type: application/json" -d ('{"email":"admin@arqui.local","password":"mala-' + $_ + '"}')
+  curl.exe -s --cacert services\gateway\certs\ca.crt -o NUL -w "intento $_ -> %{http_code}`n" `
+    -X POST https://localhost/api/admin/login -H "Content-Type: application/json" `
+    -d ('{"email":"admin@arqui.local","password":"mala-' + $_ + '"}')
 }
 ```
 ```
@@ -503,9 +533,38 @@ arquisoft-prototipo2_orq_backend
 Internal=true Contenedores=arqui_gateway arqui_admin
 ```
 
-![captura](despues/img/04-puertos-y-redes.png)
+![captura](despues/img/05-puertos-y-redes.png)
 
-### 4.8 La CLI funciona por el Gateway con HTTPS
+### 4.8 La llave de la CA no entra al Gateway
+
+```bash
+ls -l services/gateway/certs
+docker compose exec gateway ls -l /etc/nginx/certs
+```
+```powershell
+Get-ChildItem services\gateway\certs
+docker compose exec gateway ls -l /etc/nginx/certs
+```
+```
+# en el host (lo que genera scripts/generar-certs.sh)
+-rw-r--r--. 1 danielcely23 danielcely23 574 ca.crt
+-rw-------. 1 danielcely23 danielcely23 241 ca.key
+-rw-r--r--. 1 danielcely23 danielcely23 684 polebet.crt
+-rw-------. 1 danielcely23 danielcely23 241 polebet.key
+
+# dentro del Gateway
+-rw-r--r--    1 1000     1000           684 polebet.crt
+-rw-------    1 1000     1000           241 polebet.key
+```
+
+Antes de esta corrección, el mismo `ls` dentro del Gateway listaba también
+`ca.crt` y `ca.key`. Si falta uno de los dos archivos, el Gateway no se crea y
+Docker lo dice claro:
+`bind source path does not exist: …/services/gateway/certs/polebet.key`.
+
+![captura](despues/img/06-certs-gateway.png)
+
+### 4.9 La CLI funciona por el Gateway con HTTPS
 
 ```bash
 docker compose run --rm cli
@@ -514,7 +573,7 @@ docker compose run --rm cli
 docker compose run --rm cli
 ```
 
-Login (la URL que usa es `https://gateway/api/admin`):
+Login (la URL que usa es `https://gateway/api/admin`, y confía en `/certs/ca.crt`):
 
 ```
 ╭ PoleBet · Administrador ─────────────────────────────────────╮
@@ -550,47 +609,50 @@ Panel Resumen financiero (consulta a Pagos: CLI → Gateway → Admin → Broker
 ╰────────────────────────────╯╰──────────────────────────────────────────────────────────────────────────────╯
 ```
 
-Lo que registró el Gateway (172.30.0.0/16 es la red `borde`, donde vive la CLI):
+Lo que registró el Gateway (172.26.0.0/16 es la red `borde`, donde vive la CLI):
 
 ```bash
 docker compose logs gateway | grep api/admin
 ```
 ```
-"POST /api/admin/login HTTP/1.1" 200 356
-"GET /api/admin/carreras HTTP/1.1" 200 29
-"POST /api/admin/consultas HTTP/1.1" 200 321
+172.26.0.4 "POST /api/admin/login HTTP/1.1" 200 356
+172.26.0.4 "GET /api/admin/carreras HTTP/1.1" 200 29
+172.26.0.4 "POST /api/admin/consultas HTTP/1.1" 200 321
 ```
 
-![captura](despues/img/05-cli-resumen.png)
+![captura](despues/img/07-cli-resumen.png)
 
-Desde el host, la CLI sin el certificado se niega a conectar, y con él entra:
+Desde el host, con la CA entra (cabecera `… · https://localhost/api/admin`), y
+sin ella la CLI se niega a conectar:
 
 ```bash
 cd services/cli
-cargo run --release                                            # falla: certificado no confiable
-POLEBET_CA_CERT=../gateway/certs/polebet.crt cargo run --release   # entra
+cargo run --release -- --ca ../gateway/certs/ca.crt   # entra
+cargo run --release                                   # falla: CA no confiable
 ```
 ```powershell
 cd services\cli
-cargo run --release                                            # falla: certificado no confiable
-$env:POLEBET_CA_CERT = "..\gateway\certs\polebet.crt"; cargo run --release   # entra
+cargo run --release -- --ca ..\gateway\certs\ca.crt   # entra
+cargo run --release                                   # falla: CA no confiable
 ```
-Salida sin `POLEBET_CA_CERT`. La capturé con la imagen de la CLI y
-`--network host`, que equivale a correrla en el host:
+
+Salida sin la CA. La capturé con la imagen de la CLI y `--network host`, que
+equivale a correrla en el host:
 `docker run --rm -it --network host -e POLEBET_ADMIN_URL=https://localhost/api/admin -e POLEBET_CA_CERT= arquisoft-prototipo2-cli`.
 
 ```
-✗ El certificado de https://localhost/api/admin no es de confianza (invalid peer certificate: UnknownIssuer).
-  Si es el autofirmado del Gateway, define POLEBET_CA_CERT con la ruta de polebet.crt
+│  ✗ El certificado de https://localhost/api/admin no es de    │
+│  una CA de confianza: pasa la CA del Gateway con --ca o      │
+│  POLEBET_CA_CERT                                             │
 ```
 
-![captura](despues/img/06-cli-sin-certificado.png)
+![captura](despues/img/08-cli-sin-ca.png)
 
-### 4.9 La app de los jugadores sigue igual
+### 4.10 La app de los jugadores sigue igual
 
 ```bash
-curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/admin          # SPA (Front), no Admin
-curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/api/billetera  # auth_request sigue activo
+curl -s --cacert services/gateway/certs/ca.crt -o /dev/null -w "%{http_code}\n" https://localhost/admin          # SPA (Front), no Admin
+curl -s --cacert services/gateway/certs/ca.crt -o /dev/null -w "%{http_code}\n" https://localhost/api/billetera  # auth_request sigue activo
 ```
 ```
 200
@@ -607,8 +669,9 @@ curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/api/billetera  # aut
 | 4 | Login de Admin | HTTP plano, contraseña visible | HTTPS, 0 apariciones en la captura |
 | 5 | Puertos del host | 80, 443, 8003 | 80, 443 |
 | 6 | Red de entrada de Admin | `admin_entrada`, no interna | `gw_admin`, interna, solo Gateway y Admin |
-| 7 | CLI → Admin | `http://admin:8003` directo | `https://gateway/api/admin` con certificado verificado |
+| 7 | CLI → Admin | `http://admin:8003` directo | `https://gateway/api/admin`, verificando con `ca.crt` |
 | 8 | Intentos de login | por dos puertas, sin freno | por una sola, el Gateway (S5 pone el límite) |
+| 9 | Llaves dentro del Gateway | `ca.key` y `polebet.key` (main con T3-06) | solo `polebet.key` |
 
 ---
 
@@ -617,8 +680,8 @@ curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/api/billetera  # aut
 ### Vista C&C
 
 - **Admin queda detrás del Gateway.** El conector `CLI → Admin` (REST/HTTP)
-  pasa a ser `CLI → Gateway` (**REST/HTTPS**) + `Gateway → Admin` (REST/HTTP
-  dentro de la red interna `gw_admin`).
+  pasa a ser `CLI → Gateway` (**REST/HTTPS**, verificado con la CA local) +
+  `Gateway → Admin` (REST/HTTP dentro de la red interna `gw_admin`).
 - **Desaparece la excepción del prototipo 2:** ya no hay ningún cliente que
   entre al sistema sin pasar por el Gateway.
 - El Gateway gana un puerto de salida hacia Admin (`/api/admin/*`), sin
@@ -637,7 +700,10 @@ Después: CLI ──HTTPS─▶ Gateway ──HTTP(gw_admin)──▶ Admin
 - **Se elimina `admin_entrada`.** Admin queda en `gw_admin`, `admin_usuarios` y
   `broker`, las tres internas: sin salida a Internet y fuera del borde.
 - **La CLI va en `borde`**, como cualquier cliente externo, y monta solo
-  `polebet.crt`.
+  `ca.crt`.
+- **Artefactos de certificados:** el nodo Gateway recibe solo `polebet.crt` y
+  `polebet.key`. `ca.key` se queda en el host del desarrollador y no se
+  despliega en ningún contenedor.
 - Actualiza la tabla de redes del escenario 3: `admin_entrada` → `gw_admin`, y
   los nodos de borde con salida a Internet pasan a ser solo Gateway y Front.
 
@@ -645,11 +711,18 @@ Después: CLI ──HTTPS─▶ Gateway ──HTTP(gw_admin)──▶ Admin
 
 ## Riesgos y notas para el equipo
 
+- **Regenerar los certificados.** Todos deben correr
+  `scripts/generar-certs.sh --forzar` (en Windows, desde **Git Bash**) y luego
+  `docker compose up -d` o `docker compose restart gateway`. Los nuevos duran
+  365 días. **El comando de la guía del lab 5 genera un certificado
+  autofirmado sin CA local, que la CLI rechaza** (no hay `ca.crt` en el que
+  confiar). Desde esta rama, el script también regenera solo si encuentra
+  `polebet.*` pero no `ca.crt`.
 - **Listener 8080 del Gateway (Juan Diego, escenario 1).** El server
   `listen 443 ssl; listen 8080;` incluye `admin.conf`, así que
   `http://gateway:8080/api/admin/` también llega a Admin, sin TLS. Lo verifiqué
-  desde el Front: `wget -qO- http://gateway:8080/api/admin/health` →
-  `{"estado":"ok","servicio":"admin"}`. El 8080 no se publica al host y solo es
+  desde el Front: `docker exec arqui_front wget -qO- http://gateway:8080/api/admin/health`
+  → `{"estado":"ok","servicio":"admin"}`. El 8080 no se publica al host y solo es
   alcanzable desde la red `borde` (lo usa el SSR del Front), pero lo ideal es
   que el server del 8080 no incluya `admin.conf`. Ese cambio es en
   `nginx.conf` y no lo hice.
@@ -657,13 +730,6 @@ Después: CLI ──HTTPS─▶ Gateway ──HTTP(gw_admin)──▶ Admin
   `limit_req` que se pongan en `location /api/` **no** lo cubren. Necesita su
   propia zona, sobre todo para `/api/admin/login`, que hoy acepta intentos sin
   límite (sección 4.6).
-- **Regenerar los certificados.** Todos deben correr
-  `scripts/generar-certs.sh --force` (bash/Git Bash) o
-  `.\scripts\generar-certs.ps1 -Force` (PowerShell) y luego
-  `docker compose restart gateway`. El certificado nuevo lleva el SAN
-  `gateway` y `CA:FALSE` + `serverAuth`. **El comando de la guía del lab 5
-  genera un certificado `CA:TRUE` que la CLI rechaza** (`CaUsedAsEndEntity`),
-  aunque curl y el navegador lo acepten.
 - **`nginx.conf`.** Su comentario de "Archivos" no menciona
   `endurecimiento.conf` (nivel http, `server_tokens off`). Hay que agregarlo
   cuando alguien toque ese archivo; yo no lo toqué.
