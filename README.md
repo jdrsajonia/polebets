@@ -30,8 +30,9 @@ por contrato (REST, WebSocket o AMQP).
 | **Admin**         | Lógica        | Python / FastAPI     | —                   |
 | **Broker**        | Asíncrono     | RabbitMQ             | —                   |
 
-Las dos únicas puertas al host son **Gateway (80)** y **Admin (8003)**; todos
-los demás puertos existen solo dentro de las redes de Docker (RNF-17).
+La única puerta al host es el **Gateway** (443 HTTPS; el 80 solo redirige a
+HTTPS). Admin queda detrás de él en `/api/admin/` (P3, escenario 2); todos los
+demás puertos existen solo dentro de las redes de Docker (RNF-17).
 
 ```
 services/
@@ -62,6 +63,8 @@ scripts/generar-certs.sh     # solo la primera vez: certificados TLS del Gateway
 docker compose up --build
 ```
 
+En Windows, los mismos tres comandos desde **Git Bash** (el script es de bash).
+
 Para desarrollo local los valores por defecto de `.env.example` ya funcionan.
 Antes de un entorno compartido, cambia `JWT_SECRET`, `INTERNAL_API_TOKEN`
 (mínimo 32 caracteres) y `ADMIN_PASSWORD`.
@@ -70,15 +73,19 @@ El Gateway solo atiende HTTPS (escenario 1). Sus certificados no se suben al
 repo: `scripts/generar-certs.sh` crea en `services/gateway/certs/` una CA local
 (`ca.crt`) y el certificado del Gateway firmado por ella, válido para
 `localhost`, `127.0.0.1` y `gateway`. Sin ellos Nginx no arranca. Los clientes
-confían en el Gateway con `ca.crt` (`curl --cacert`, o importándola en el
-navegador). Duran 30 días; para renovarlos, `scripts/generar-certs.sh --forzar`
-y `docker compose restart gateway`.
+confían en el Gateway con `ca.crt` (`curl --cacert`, la CLI con `--ca` o
+`POLEBET_CA_CERT`, o importándola en el navegador). Al Gateway solo se le montan
+`polebet.crt` y `polebet.key`: la llave de la CA (`ca.key`) no entra a ningún
+contenedor. Duran 365 días (`CERT_DIAS` para cambiarlo); para renovarlos,
+`scripts/generar-certs.sh --forzar` y `docker compose restart gateway`.
 
-Cuando el stack esté arriba, las dos entradas públicas:
+Cuando el stack esté arriba, todo entra por el Gateway:
 
-- **Gateway (jugadores):** https://localhost/health
+- **Jugadores:** https://localhost/
   (`curl --cacert services/gateway/certs/ca.crt https://localhost/health`)
-- **Admin (CLI del administrador):** http://localhost:8003/health
+- **Admin (CLI del administrador):** https://localhost/api/admin/health, detrás
+  del Gateway. La CLI se abre con `docker compose run --rm cli` (ver
+  [`services/cli/README.md`](services/cli/README.md))
 
 Comprobar que los 14 contenedores están sanos:
 
