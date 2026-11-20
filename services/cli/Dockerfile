@@ -22,8 +22,12 @@ FROM debian:bookworm-slim
 
 COPY --from=build /app/target/release/polebet-cli /usr/local/bin/polebet-cli
 
-# Dentro de Docker Compose, Admin se alcanza por su nombre en la red "borde".
-ENV POLEBET_ADMIN_URL=http://admin:8003
+# Dentro de Docker Compose la CLI es un cliente externo más: entra por HTTPS al
+# Gateway (red "borde"), que la lleva a Admin en /api/admin (escenario 2).
+# El certificado autofirmado del Gateway se monta en /certs/polebet.crt (solo el
+# público, nunca la llave) y la CLI lo agrega como raíz de confianza.
+ENV POLEBET_ADMIN_URL=https://gateway/api/admin \
+    POLEBET_CA_CERT=/certs/polebet.crt
 
 # Sin root: la CLI solo necesita la terminal.
 USER nobody

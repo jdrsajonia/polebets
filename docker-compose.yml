@@ -235,8 +235,11 @@ services:
   # admin, empaquetada para correrla sin instalar Rust. El perfil "cli" la deja
   # fuera de `docker compose up`; se abre con:
   #   docker compose run --rm cli
-  # PENDIENTE (T3-06): pasarla al Gateway por HTTPS. Mientras tanto queda en
-  # borde y ya no alcanza a Admin (admin_entrada desapareció en T3-03).
+  # Es un cliente externo más (escenario 2, T3-03/T3-06): entra por HTTPS al
+  # Gateway, que la lleva a Admin en /api/admin. Solo ve la red borde, como el
+  # tráfico que llega desde afuera; no comparte red con Admin.
+  # Se monta SOLO el certificado público para confiar en el autofirmado del
+  # Gateway: la llave privada nunca entra a este contenedor.
   cli:
     build:
       context: ./services/cli
@@ -244,9 +247,12 @@ services:
     stdin_open: true
     tty: true
     depends_on:
-      - admin
+      - gateway
     environment:
-      POLEBET_ADMIN_URL: http://admin:8003
+      POLEBET_ADMIN_URL: https://gateway/api/admin
+      POLEBET_CA_CERT: /certs/polebet.crt
+    volumes:
+      - ./services/gateway/certs/polebet.crt:/certs/polebet.crt:ro
     networks:
       - borde
 
