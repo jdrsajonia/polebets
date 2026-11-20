@@ -1,10 +1,13 @@
 //! CLI del administrador de PoleBet (HU2-17): terminal al estilo lazydocker.
 //!
-//!   polebet-cli [--url http://localhost:8003]
+//!   polebet-cli [--url https://localhost/api/admin]
 //!
 //! La URL de Admin sale de `--url`, de POLEBET_ADMIN_URL o, si no, de
-//! http://localhost:8003. El bucle dibuja, lee el teclado cada 100 ms y
-//! recoge las respuestas de Admin; las peticiones corren en tareas de tokio,
+//! https://localhost/api/admin: Admin está detrás del Gateway (escenario 2) y
+//! se habla con él por HTTPS. Si el certificado es el autofirmado del proyecto,
+//! POLEBET_CA_CERT dice dónde está polebet.crt para confiar en él.
+//!
+//! El bucle dibuja, lee el teclado cada 100 ms y recoge las respuestas de Admin; las peticiones corren en tareas de tokio,
 //! así una consulta lenta nunca congela la pantalla (RF-30).
 
 use std::io;
@@ -18,14 +21,19 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::DefaultTerminal;
 use tokio::runtime::Runtime;
 
-const URL_POR_DEFECTO: &str = "http://localhost:8003";
+const URL_POR_DEFECTO: &str = "https://localhost/api/admin";
 
 const AYUDA: &str = "CLI del administrador de PoleBet (HU2-17)
 
 Uso: polebet-cli [--url URL_DE_ADMIN]
 
-  --url URL   dónde está Admin (por defecto POLEBET_ADMIN_URL o http://localhost:8003)
-  -h, --help  muestra esta ayuda";
+  --url URL   dónde está Admin (por defecto POLEBET_ADMIN_URL o https://localhost/api/admin)
+  -h, --help  muestra esta ayuda
+
+Variables de entorno:
+  POLEBET_ADMIN_URL  URL de Admin (la misma que --url)
+  POLEBET_CA_CERT    ruta de un certificado PEM en el que confiar, p. ej. el
+                     autofirmado del Gateway: services/gateway/certs/polebet.crt";
 
 /// Arranca la terminal, corre la CLI y la deja como estaba al salir.
 fn main() -> io::Result<()> {
@@ -36,8 +44,23 @@ fn main() -> io::Result<()> {
             return Ok(());
         }
     };
+    // Errores de configuración (certificado ilegible, etc.): mensaje y salida,
+    // antes de tomar la terminal.
+    let cliente = match ClienteAdmin::desde_entorno(&url) {
+        Ok(c) => c,
+        Err(texto) => {
+            eprintln!("polebet-cli: {texto}");
+            std::process::exit(2);
+        }
+    };
+    if cliente.sin_cifrar() {
+        eprintln!(
+            "AVISO: {url} es HTTP plano; la contraseña y el token viajan SIN CIFRAR. \
+             Úsalo solo para pruebas (lo normal es https://.../api/admin)."
+        );
+        std::thread::sleep(Duration::from_secs(2));
+    }
     let runtime = Runtime::new()?;
-    let cliente = ClienteAdmin::nuevo(&url);
     let mut app = App::nuevo(cliente.base().to_string());
 
     // ratatui::init deja un panic hook que restaura la terminal si algo falla.

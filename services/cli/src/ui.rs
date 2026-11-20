@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Cell, Clear, Padding, Paragra
 use ratatui::Frame;
 use serde_json::Value;
 
+use crate::api::sin_cifrar;
 use crate::app::{App, CampoFiltro, CampoLogin, Estado, Filtros, Foco, Panel, Pantalla, Popup, MINUTOS_MAX};
 use crate::formato::{con_signo, fecha_hora_colombia, miles};
 use crate::modelos::{Carrera, Consulta, FilaPlantilla, Horarios, Participacion, Rentabilidad, ResumenFinanciero};
@@ -23,6 +24,8 @@ const AMBAR: Color = Color::Rgb(245, 158, 11);
 const GRIS: Color = Color::Rgb(161, 161, 170);
 const TENUE: Color = Color::Rgb(90, 90, 100);
 const FONDO_SEL: Color = Color::Rgb(60, 18, 20);
+/// Se muestra junto a la URL cuando la CLI habla con Admin por HTTP (sin TLS).
+const AVISO_SIN_CIFRAR: &str = "⚠ SIN CIFRAR (HTTP) ";
 const SPINNER: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// Dibuja la pantalla que toque.
@@ -156,7 +159,7 @@ fn segundos(desde: Instant) -> u64 {
 
 /// Cuadro de inicio de sesión centrado.
 fn dibujar_login(f: &mut Frame, app: &App) {
-    let area = centrado(f.area(), 64, 14);
+    let area = centrado(f.area(), 64, 14 + u16::from(sin_cifrar(&app.url)));
     let l = &app.login;
     let campo = |etiqueta: &str, valor: String, activo: bool| {
         Line::from(vec![
@@ -178,7 +181,7 @@ fn dibujar_login(f: &mut Frame, app: &App) {
         (None, Some(e)) => Line::styled(format!("✗ {e}"), Style::new().fg(ROJO_CLARO).bold()),
         (None, None) => Line::raw(""),
     };
-    let lineas = vec![
+    let mut lineas = vec![
         Line::styled("Inicia sesión con una cuenta de administrador.", Style::new().fg(GRIS)),
         Line::raw(""),
         campo("Correo", l.email.clone(), l.campo == CampoLogin::Correo),
@@ -193,6 +196,13 @@ fn dibujar_login(f: &mut Frame, app: &App) {
         atajos(&[("Enter", "ingresar"), ("Tab", "cambiar campo"), ("Esc", "salir")]),
         Line::styled(format!(" Admin: {}", app.url), Style::new().fg(TENUE)),
     ];
+    // Por HTTP plano la contraseña viajaría en claro: se avisa en rojo, en su propia línea.
+    if sin_cifrar(&app.url) {
+        lineas.push(Line::styled(
+            format!(" {AVISO_SIN_CIFRAR}"),
+            Style::new().fg(ROJO_CLARO).bold(),
+        ));
+    }
     let mut titulo = marca();
     titulo.push(Span::raw(" · Administrador "));
     let bloque = Block::bordered()
@@ -251,11 +261,14 @@ fn dibujar_cabecera(f: &mut Frame, area: Rect, app: &App) {
     izquierda.push(Span::styled("  CLI del administrador", Style::new().fg(GRIS)));
     f.render_widget(Paragraph::new(Line::from(izquierda)), area);
     if let Some(s) = &app.sesion {
-        let derecha = format!("{} · {} · {} ", s.usuario.nombre, s.usuario.email, app.url);
-        f.render_widget(
-            Paragraph::new(Line::styled(derecha, Style::new().fg(GRIS))).alignment(Alignment::Right),
-            area,
-        );
+        let mut derecha = vec![Span::styled(
+            format!("{} · {} · {} ", s.usuario.nombre, s.usuario.email, app.url),
+            Style::new().fg(GRIS),
+        )];
+        if sin_cifrar(&app.url) {
+            derecha.push(Span::styled(AVISO_SIN_CIFRAR, Style::new().fg(ROJO_CLARO).bold()));
+        }
+        f.render_widget(Paragraph::new(Line::from(derecha)).alignment(Alignment::Right), area);
     }
 }
 
@@ -891,7 +904,7 @@ mod pruebas {
     }
 
     fn app_dentro() -> App {
-        let mut app = App::nuevo("http://localhost:8003".into());
+        let mut app = App::nuevo("https://localhost/api/admin".into());
         app.pantalla = Pantalla::Principal;
         app.sesion = Some(Sesion {
             token: "a.b.c".into(),
@@ -907,13 +920,24 @@ mod pruebas {
 
     #[test]
     fn el_login_oculta_la_contrasena() {
-        let mut app = App::nuevo("http://localhost:8003".into());
+        let mut app = App::nuevo("https://localhost/api/admin".into());
         app.login.email = "admin@arqui.local".into();
         app.login.password = "secreta".into();
         let texto = pantalla(&app);
         assert!(texto.contains("admin@arqui.local"));
         assert!(texto.contains("•••••••"));
         assert!(!texto.contains("secreta"));
+    }
+
+    #[test]
+    fn con_https_no_hay_aviso_y_con_http_si() {
+        let app = App::nuevo("https://localhost/api/admin".into());
+        assert!(!pantalla(&app).contains("SIN CIFRAR"));
+        let app = App::nuevo("http://localhost:8080/api/admin".into());
+        assert!(pantalla(&app).contains("SIN CIFRAR (HTTP)"));
+        let mut dentro = app_dentro();
+        dentro.url = "http://localhost:8080/api/admin".into();
+        assert!(pantalla(&dentro).contains("SIN CIFRAR (HTTP)"));
     }
 
     #[test]
