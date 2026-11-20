@@ -106,10 +106,11 @@ Plan: redes por zona de confianza según la tabla; redes de datos y de backend c
 salida a Internet.
 
 > **Matiz importante.** Una red con puertos publicados al host **no puede** ser
-> `internal: true` (Docker lo prohíbe). Por eso `borde` (Gateway, Front, 80/443) y
-> `admin_entrada` (Admin, 8003) tienen salida a Internet de forma inevitable. Eso
-> es aceptable: son los nodos de **borde**, los que por diseño reciben tráfico de
-> afuera. Lo que la segmentación garantiza es que **las bases de datos y los
+> `internal: true` (Docker lo prohíbe). Por eso solo `borde` (Gateway, Front,
+> 80/443) tiene salida a Internet de forma inevitable. Eso es aceptable: son los
+> nodos de **borde**, los que por diseño reciben tráfico de afuera. Admin dejó de
+> ser nodo de borde en el escenario 2 (T3-03): ya no publica el 8003 y solo se
+> alcanza por el Gateway. Lo que la segmentación garantiza es que **las bases de datos y los
 > servicios de backend internos no salen**, y que el único backend con salida es el
 > Ingestor (OpenF1).
 
@@ -133,11 +134,11 @@ por zona de confianza, una por cada relación de la tabla de arriba.
 
 | Red | Miembros | `internal` |
 |---|---|---|
-| `borde` | gateway, front | no (entrada web) |
+| `borde` | gateway, front, cli (cliente externo) | no (entrada web) |
 | `gw_backend` | gateway, usuarios, orquestador, motor | sí |
 | `orq_backend` | orquestador, usuarios, pagos, motor | sí |
 | `motor_pagos` | motor, pagos | sí |
-| `admin_entrada` | admin, cli | no (entrada de la CLI / host) |
+| `gw_admin` | gateway, admin | sí |
 | `admin_usuarios` | admin, usuarios | sí |
 | `broker` | admin, pagos-consumer, ingestor, rabbitmq | sí |
 | `datos_usuarios` | usuarios, postgres-usuarios | sí |
@@ -146,15 +147,21 @@ por zona de confianza, una por cada relación de la tabla de arriba.
 | `datos_redis` | motor, redis | sí |
 | `ingestor_salida` | ingestor | **no** (único backend con salida a Internet) |
 
+> Actualizado con el escenario 2 (T3-03): `admin_entrada` (Admin publicado en
+> 8003) se reemplazó por `gw_admin`; Admin solo se alcanza por el Gateway. La
+> evidencia de esta carpeta es anterior a ese cambio.
+
 Cambios clave: se eliminó la red `interna`; las redes de datos y las internas de
 backend llevan `internal: true` (sin salida a Internet); el Ingestor obtiene una
 red propia `ingestor_salida` no interna para descargar OpenF1. RabbitMQ pasó de la
 red `interna` a `broker`, compartida solo con quienes publican/consumen.
 
-Las redes `borde` y `admin_entrada` **no** son `internal` porque publican puertos
-al host (80/443 y 8003): Docker no permite `internal: true` en una red con puertos
-publicados. Por eso Gateway, Front y Admin —los nodos de borde— sí tienen salida a
-Internet, lo cual es aceptable para componentes que ya reciben tráfico de afuera.
+Solo la red `borde` **no** es `internal`, porque publica puertos al host
+(80/443): Docker no permite `internal: true` en una red con puertos publicados.
+Por eso Gateway y Front —los nodos de borde— sí tienen salida a Internet, lo cual
+es aceptable para componentes que ya reciben tráfico de afuera. Admin ya no: desde
+el escenario 2 sus redes (`gw_admin`, `admin_usuarios`, `broker`) son todas
+internas.
 
 ---
 
@@ -203,6 +210,6 @@ cada servicio). No cierra la suplantación *desde un componente que sí debe lle
 - **Vista de despliegue:** cada contenedor se despliega solo en las redes que
   necesita; las redes de datos y de backend son `internal` (sin salida a
   Internet); el Ingestor es el único backend con un enlace a Internet
-  (`ingestor_salida`) para OpenF1. Los nodos de borde (Gateway, Front, Admin)
-  tienen salida porque sus redes publican puertos al host y no pueden ser
-  `internal`. (Aporta a T3-09 y T3-10.)
+  (`ingestor_salida`) para OpenF1. Los nodos de borde (Gateway y Front; Admin
+  dejó de serlo en el escenario 2) tienen salida porque su red publica puertos al
+  host y no puede ser `internal`. (Aporta a T3-09 y T3-10.)
