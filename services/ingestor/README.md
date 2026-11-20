@@ -88,14 +88,14 @@ a uno y se confirman (ack) después de responder.
   se reinicia con una en curso, queda `fallida` con `motivo_fallo` (RNF-16); si Mongo
   falla más de 30 s seguidos, también.
 
-## Probar con Admin (puerto 8003)
+## Probar con Admin (por el Gateway, `/api/admin/`)
 
 Admin exige el token de un administrador (HU2-17); cómo obtenerlo en `$AUTH` está en
 [`../admin/README.md`](../admin/README.md#rutas).
 
 ```bash
-curl localhost:8003/carreras -H "$AUTH"
-curl -X POST localhost:8003/simulacion -H "$AUTH" -H 'Content-Type: application/json' \
+curl -sk https://localhost/api/admin/carreras -H "$AUTH"
+curl -sk -X POST https://localhost/api/admin/simulacion -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"race_id":"9165","minutos_anticipacion":1}'      # 200; otra vez → 409; carrera no descargada → 404
 ```
 

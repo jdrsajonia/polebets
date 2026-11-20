@@ -30,8 +30,9 @@ por contrato (REST, WebSocket o AMQP).
 | **Admin**         | Lógica        | Python / FastAPI     | —                   |
 | **Broker**        | Asíncrono     | RabbitMQ             | —                   |
 
-Las dos únicas puertas al host son **Gateway (80)** y **Admin (8003)**; todos
-los demás puertos existen solo dentro de las redes de Docker (RNF-17).
+La única puerta al host es el **Gateway** (443 HTTPS; el 80 solo redirige a
+HTTPS). Admin queda detrás de él en `/api/admin/` (P3, escenario 2); todos los
+demás puertos existen solo dentro de las redes de Docker (RNF-17).
 
 ```
 services/
@@ -57,18 +58,27 @@ services/
 Un solo comando desde la raíz del repositorio:
 
 ```bash
-cp .env.example .env     # solo la primera vez
+cp .env.example .env              # solo la primera vez
+scripts/generar-certs.sh          # solo la primera vez: certificado TLS del Gateway
 docker compose up --build
 ```
+
+En PowerShell: `Copy-Item .env.example .env`, `.\scripts\generar-certs.ps1` y
+`docker compose up --build`. Sin el certificado (`services/gateway/certs/`, no se
+sube al repo) Nginx no arranca.
 
 Para desarrollo local los valores por defecto de `.env.example` ya funcionan.
 Antes de un entorno compartido, cambia `JWT_SECRET`, `INTERNAL_API_TOKEN`
 (mínimo 32 caracteres) y `ADMIN_PASSWORD`.
 
-Cuando el stack esté arriba, las dos entradas públicas:
+Cuando el stack esté arriba, todo entra por el Gateway:
 
-- **Gateway (jugadores):** http://localhost/health
-- **Admin (CLI del administrador):** http://localhost:8003/health
+- **Jugadores:** https://localhost/ (healthcheck: https://localhost/health)
+- **Admin (CLI del administrador):** https://localhost/api/admin/health; la CLI
+  se abre con `docker compose run --rm cli` (ver `services/cli/README.md`)
+
+El certificado es autofirmado: `curl --cacert services/gateway/certs/polebet.crt …`
+(o `-k` solo para pruebas).
 
 Comprobar que los 14 contenedores están sanos:
 
