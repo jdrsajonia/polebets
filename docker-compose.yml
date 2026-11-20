@@ -158,8 +158,23 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # Solo el certificado y la llave del Gateway, nunca la carpeta: la CA local
+    # (ca.key, que firma certificados) no debe entrar a ningún contenedor.
+    # create_host_path: false hace que falle claro si faltan
+    # (generarlos con scripts/generar-certs.sh).
     volumes:
-      - ./services/gateway/certs:/etc/nginx/certs:ro
+      - type: bind
+        source: ./services/gateway/certs/polebet.crt
+        target: /etc/nginx/certs/polebet.crt
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./services/gateway/certs/polebet.key
+        target: /etc/nginx/certs/polebet.key
+        read_only: true
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/health"]
       interval: 10s
