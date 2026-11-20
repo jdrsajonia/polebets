@@ -54,10 +54,11 @@ services/
 
 ## Levantar el sistema
 
-Un solo comando desde la raíz del repositorio:
+Desde la raíz del repositorio:
 
 ```bash
-cp .env.example .env     # solo la primera vez
+cp .env.example .env         # solo la primera vez
+scripts/generar-certs.sh     # solo la primera vez: certificados TLS del Gateway
 docker compose up --build
 ```
 
@@ -65,9 +66,18 @@ Para desarrollo local los valores por defecto de `.env.example` ya funcionan.
 Antes de un entorno compartido, cambia `JWT_SECRET`, `INTERNAL_API_TOKEN`
 (mínimo 32 caracteres) y `ADMIN_PASSWORD`.
 
+El Gateway solo atiende HTTPS (escenario 1). Sus certificados no se suben al
+repo: `scripts/generar-certs.sh` crea en `services/gateway/certs/` una CA local
+(`ca.crt`) y el certificado del Gateway firmado por ella, válido para
+`localhost`, `127.0.0.1` y `gateway`. Sin ellos Nginx no arranca. Los clientes
+confían en el Gateway con `ca.crt` (`curl --cacert`, o importándola en el
+navegador). Duran 30 días; para renovarlos, `scripts/generar-certs.sh --forzar`
+y `docker compose restart gateway`.
+
 Cuando el stack esté arriba, las dos entradas públicas:
 
-- **Gateway (jugadores):** http://localhost/health
+- **Gateway (jugadores):** https://localhost/health
+  (`curl --cacert services/gateway/certs/ca.crt https://localhost/health`)
 - **Admin (CLI del administrador):** http://localhost:8003/health
 
 Comprobar que los 14 contenedores están sanos:

@@ -29,8 +29,9 @@ docker compose run --rm cli
 ```
 
 El servicio `cli` tiene el perfil `cli`, así que `docker compose up` no lo levanta y siguen
-siendo 14 contenedores. Dentro de Docker llega a Admin por la red `borde`
-(`http://admin:8003`).
+siendo 14 contenedores. Dentro de Docker llega a Admin por la red `admin_entrada`
+(`http://admin:8003`). Necesita `services/gateway/certs/ca.crt` (lo crea
+`scripts/generar-certs.sh`): el compose lo monta en `/certs/ca.crt`.
 
 Con Rust instalado (1.87 o superior), sin Docker:
 
@@ -38,10 +39,32 @@ Con Rust instalado (1.87 o superior), sin Docker:
 cd services/cli
 cargo run --release                                  # Admin en http://localhost:8003
 cargo run --release -- --url http://otra-maquina:8003
+cargo run --release -- --url https://localhost/RUTA --ca ../gateway/certs/ca.crt
 ```
 
 La URL sale de `--url`, de `POLEBET_ADMIN_URL` o, si no hay ninguna, de
 `http://localhost:8003`.
+
+### HTTPS (T3-06)
+
+La CLI habla HTTP o HTTPS según la URL, con TLS de `rustls` (Rust puro: la imagen no
+lleva OpenSSL). Con HTTPS **siempre verifica el certificado**; no hay opción para
+apagarlo. Confía en las CA públicas y, además, en la que se le pase con `--ca` o
+`POLEBET_CA_CERT`. El Gateway usa la CA local de `scripts/generar-certs.sh`, así que
+para hablar con él hay que pasarle `services/gateway/certs/ca.crt` (la CA, no
+`polebet.crt` ni ninguna llave).
+
+Si el certificado no se acepta, la CLI dice por qué en la pantalla de login:
+
+| Mensaje | Qué hacer |
+| --- | --- |
+| «… no es de una CA de confianza» | Pasar la CA con `--ca` o `POLEBET_CA_CERT` |
+| «… no vale para ese nombre» | Usar `localhost` (desde el host) o `gateway` (dentro de Docker) |
+| «… está vencido» | `scripts/generar-certs.sh --forzar` y `docker compose restart gateway` |
+
+Una CA que no existe o no es un PEM con certificados se avisa antes de abrir la
+interfaz. Mientras Admin no esté detrás del Gateway (T3-03), la URL por defecto sigue
+siendo `http://admin:8003`.
 
 Para entrar se usa una cuenta con rol `admin`. La inicial es `ADMIN_EMAIL` /
 `ADMIN_PASSWORD` del `.env`.
@@ -104,6 +127,7 @@ src/modelos.rs    respuestas de Admin en JSON
 src/ui.rs         dibujo con ratatui
 src/formato.rs    miles con punto y horas de Colombia
 tests/en_vivo.rs  recorrido contra un Admin real (se salta por defecto)
+tests/certs/      CA y certificado para localhost, solo para las pruebas de HTTPS
 ```
 
 ## Pruebas
@@ -114,7 +138,10 @@ cargo fmt --check && cargo clippy --all-targets && cargo test
 ```
 
 Las pruebas no necesitan el stack: la lógica de `app.rs` se prueba con teclas y respuestas
-falsas, y `ui.rs` se dibuja en una terminal en memoria (`TestBackend`).
+falsas, y `ui.rs` se dibuja en una terminal en memoria (`TestBackend`). Las de HTTPS
+(`api.rs`) levantan un servidor TLS local con `tests/certs/` y comprueban que con la CA
+la CLI conecta, que sin ella o con un nombre que no está en el certificado se rechaza, y
+que una CA inválida no deja crear el cliente.
 
 Con el stack arriba, `tests/en_vivo.rs` entra con el admin, recorre los cinco paneles e
 imprime cada pantalla. También comprueba que un jugador no entra:
@@ -123,6 +150,8 @@ imprime cada pantalla. También comprueba que un jugador no entra:
 POLEBET_ADMIN_PASSWORD=... POLEBET_JUGADOR_EMAIL=... POLEBET_JUGADOR_PASSWORD=... \
   cargo test --test en_vivo -- --ignored --nocapture
 ```
+
+Por HTTPS se añaden `POLEBET_ADMIN_URL=https://...` y `POLEBET_CA_CERT=../gateway/certs/ca.crt`.
 
 Sin Rust instalado, lo mismo con Docker (`target/` queda dentro del contenedor; añade
 `--network host` para la prueba en vivo):

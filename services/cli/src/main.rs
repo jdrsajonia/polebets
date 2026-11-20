@@ -1,13 +1,16 @@
 //! CLI del administrador de PoleBet (HU2-17): terminal al estilo lazydocker.
 //!
-//!   polebet-cli [--url http://localhost:8003]
+//!   polebet-cli [--url http://localhost:8003] [--ca services/gateway/certs/ca.crt]
 //!
 //! La URL de Admin sale de `--url`, de POLEBET_ADMIN_URL o, si no, de
-//! http://localhost:8003. El bucle dibuja, lee el teclado cada 100 ms y
+//! http://localhost:8003. Con HTTPS (T3-06), `--ca` o POLEBET_CA_CERT dicen en
+//! qué CA confiar además de las públicas: la local del Gateway, que crea
+//! scripts/generar-certs.sh. El bucle dibuja, lee el teclado cada 100 ms y
 //! recoge las respuestas de Admin; las peticiones corren en tareas de tokio,
 //! así una consulta lenta nunca congela la pantalla (RF-30).
 
 use std::io;
+use std::path::PathBuf;
 use std::sync::mpsc::{self, Sender};
 use std::time::Duration;
 
@@ -22,22 +25,39 @@ const URL_POR_DEFECTO: &str = "http://localhost:8003";
 
 const AYUDA: &str = "CLI del administrador de PoleBet (HU2-17)
 
-Uso: polebet-cli [--url URL_DE_ADMIN]
+Uso: polebet-cli [--url URL_DE_ADMIN] [--ca RUTA]
 
   --url URL   dónde está Admin (por defecto POLEBET_ADMIN_URL o http://localhost:8003)
+  --ca RUTA   CA en la que confiar para el HTTPS del Gateway, además de las públicas
+              (por defecto POLEBET_CA_CERT; la local es services/gateway/certs/ca.crt)
   -h, --help  muestra esta ayuda";
+
+/// Lo que se le pasa a la CLI al arrancarla.
+#[derive(Debug, PartialEq)]
+struct Opciones {
+    url: String,
+    ca: Option<PathBuf>,
+}
 
 /// Arranca la terminal, corre la CLI y la deja como estaba al salir.
 fn main() -> io::Result<()> {
-    let url = match url_de_argumentos(std::env::args().skip(1).collect()) {
-        Ok(url) => url,
+    let entorno = |nombre: &str| std::env::var(nombre).ok();
+    let opciones = match opciones_de_argumentos(std::env::args().skip(1).collect(), entorno) {
+        Ok(opciones) => opciones,
         Err(texto) => {
             println!("{texto}");
             return Ok(());
         }
     };
+    // Una CA que no se puede leer se avisa antes de abrir la interfaz.
+    let cliente = match ClienteAdmin::nuevo(&opciones.url, opciones.ca.as_deref()) {
+        Ok(cliente) => cliente,
+        Err(texto) => {
+            eprintln!("{texto}");
+            std::process::exit(1);
+        }
+    };
     let runtime = Runtime::new()?;
-    let cliente = ClienteAdmin::nuevo(&url);
     let mut app = App::nuevo(cliente.base().to_string());
 
     // ratatui::init deja un panic hook que restaura la terminal si algo falla.
@@ -85,16 +105,79 @@ fn lanzar(runtime: &Runtime, cliente: &ClienteAdmin, tx: &Sender<Respuesta>, env
     });
 }
 
-/// Lee `--url` (o `-h`); si no viene, usa POLEBET_ADMIN_URL o el valor por defecto.
-fn url_de_argumentos(args: Vec<String>) -> Result<String, String> {
+/// Lee `--url`, `--ca` (o `-h`). Lo que no venga sale de POLEBET_ADMIN_URL y
+/// POLEBET_CA_CERT (vía `entorno`) o del valor por defecto.
+fn opciones_de_argumentos(args: Vec<String>, entorno: impl Fn(&str) -> Option<String>) -> Result<Opciones, String> {
+    // Una variable vacía cuenta como no puesta.
+    let variable = |nombre: &str| entorno(nombre).filter(|v| !v.trim().is_empty());
+    let mut url = variable("POLEBET_ADMIN_URL");
+    let mut ca = variable("POLEBET_CA_CERT").map(PathBuf::from);
     let mut args = args.into_iter();
-    let mut url = std::env::var("POLEBET_ADMIN_URL").ok().filter(|u| !u.trim().is_empty());
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-h" | "--help" => return Err(AYUDA.into()),
             "--url" => url = Some(args.next().ok_or("falta la URL después de --url")?),
+            "--ca" => ca = Some(args.next().ok_or("falta la ruta de la CA después de --ca")?.into()),
             otro => return Err(format!("argumento desconocido: {otro}\n\n{AYUDA}")),
         }
     }
-    Ok(url.unwrap_or_else(|| URL_POR_DEFECTO.into()))
+    Ok(Opciones {
+        url: url.unwrap_or_else(|| URL_POR_DEFECTO.into()),
+        ca,
+    })
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    /// Entorno falso con las variables dadas.
+    fn con<'a>(variables: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<String> + 'a {
+        move |nombre| variables.iter().find(|(n, _)| *n == nombre).map(|(_, v)| v.to_string())
+    }
+
+    /// Convierte los argumentos a Vec<String>.
+    fn args(lista: &[&str]) -> Vec<String> {
+        lista.iter().map(|a| a.to_string()).collect()
+    }
+
+    #[test]
+    fn sin_nada_usa_admin_local_y_ninguna_ca() {
+        let opciones = opciones_de_argumentos(vec![], con(&[])).unwrap();
+        assert_eq!(
+            opciones,
+            Opciones {
+                url: URL_POR_DEFECTO.into(),
+                ca: None
+            }
+        );
+    }
+
+    #[test]
+    fn la_ca_sale_de_la_variable_y_el_argumento_manda() {
+        let entorno = con(&[
+            ("POLEBET_CA_CERT", "/certs/ca.crt"),
+            ("POLEBET_ADMIN_URL", "https://gateway"),
+        ]);
+        let opciones = opciones_de_argumentos(vec![], &entorno).unwrap();
+        assert_eq!(opciones.ca, Some(PathBuf::from("/certs/ca.crt")));
+        assert_eq!(opciones.url, "https://gateway");
+
+        let opciones =
+            opciones_de_argumentos(args(&["--ca", "otra.crt", "--url", "https://localhost"]), &entorno).unwrap();
+        assert_eq!(opciones.ca, Some(PathBuf::from("otra.crt")));
+        assert_eq!(opciones.url, "https://localhost");
+    }
+
+    #[test]
+    fn una_variable_vacia_no_cuenta() {
+        let opciones = opciones_de_argumentos(vec![], con(&[("POLEBET_CA_CERT", " ")])).unwrap();
+        assert_eq!(opciones.ca, None);
+    }
+
+    #[test]
+    fn falta_la_ruta_despues_de_ca() {
+        let error = opciones_de_argumentos(args(&["--ca"]), con(&[])).unwrap_err();
+        assert_eq!(error, "falta la ruta de la CA después de --ca");
+    }
 }

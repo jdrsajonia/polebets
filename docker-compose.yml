@@ -242,6 +242,17 @@ services:
       - admin
     environment:
       POLEBET_ADMIN_URL: http://admin:8003
+      # T3-06: la CLI confía en la CA local del Gateway para su HTTPS. Solo se
+      # monta ca.crt (pública), nunca las llaves. Sale de scripts/generar-certs.sh;
+      # si no existe, `docker compose run cli` falla en vez de crear una carpeta.
+      POLEBET_CA_CERT: /certs/ca.crt
+    volumes:
+      - type: bind
+        source: ./services/gateway/certs/ca.crt
+        target: /certs/ca.crt
+        read_only: true
+        bind:
+          create_host_path: false
     networks:
       - admin_entrada
 
