@@ -1,11 +1,12 @@
 # CLI del administrador (Rust) — HU2-17
 
 Interfaz de terminal al estilo lazydocker para el administrador de PoleBet. Habla **solo
-con Admin** (puerto 8003): nunca con Pagos, el Ingestor ni OpenF1. No es un servicio del
+con Admin**, y siempre **a través del API Gateway por HTTPS** (`/api/admin`, escenario 2
+del P3): nunca con Pagos, el Ingestor ni OpenF1. No es un servicio del
 stack sino el cliente del administrador (componente de presentación, RNF-02).
 
 ```
- PoleBet  CLI del administrador                     Administrador · admin@arqui.local · http://admin:8003
+ PoleBet  CLI del administrador                     Administrador · admin@arqui.local · https://gateway/api/admin
 ╭ Paneles ─────────────────╮╭ Rentabilidad ───────────────────────────────────────────────────────────╮
 │  1 Simulación            ││ Filtros activos: Tipo=dinamica                                          │
 │  2 Resumen financiero    ││ No aplican a esta consulta: Modo                                        │
@@ -22,26 +23,76 @@ stack sino el cliente del administrador (componente de presentación, RNF-02).
 
 ## Correr
 
-Con el stack levantado (`docker compose up -d`), desde la raíz del repo:
+Antes, una sola vez (o si tu certificado es el de la guía del lab 5): genera el
+certificado del Gateway y reinícialo. La CLI exige SAN `gateway` y un certificado de
+servidor (`CA:FALSE`).
+
+```bash
+scripts/generar-certs.sh --force && docker compose restart gateway
+```
+```powershell
+.\scripts\generar-certs.ps1 -Force; docker compose restart gateway
+```
+
+### En Docker
+
+Con el stack levantado (`docker compose up -d`), desde la raíz del repo (igual en bash y
+PowerShell):
 
 ```bash
 docker compose run --rm cli
 ```
 
-El servicio `cli` tiene el perfil `cli`, así que `docker compose up` no lo levanta y siguen
-siendo 14 contenedores. Dentro de Docker llega a Admin por la red `borde`
-(`http://admin:8003`).
+El servicio `cli` tiene el perfil `cli`, así que `docker compose up` no lo levanta. Va en
+la red `borde`, como cualquier cliente externo, y entra por `https://gateway/api/admin`.
+El compose le monta **solo** el certificado público
+(`services/gateway/certs/polebet.crt` → `/certs/polebet.crt`) y le pasa
+`POLEBET_CA_CERT=/certs/polebet.crt`. La llave privada nunca entra al contenedor.
 
-Con Rust instalado (1.87 o superior), sin Docker:
+### Desde el host (con Rust 1.87 o superior)
 
 ```bash
 cd services/cli
-cargo run --release                                  # Admin en http://localhost:8003
-cargo run --release -- --url http://otra-maquina:8003
+POLEBET_CA_CERT=../gateway/certs/polebet.crt cargo run --release
+POLEBET_CA_CERT=../gateway/certs/polebet.crt cargo run --release -- --url https://otra-maquina/api/admin
+```
+```powershell
+cd services\cli
+$env:POLEBET_CA_CERT = "..\gateway\certs\polebet.crt"
+cargo run --release
+cargo run --release -- --url https://otra-maquina/api/admin
 ```
 
-La URL sale de `--url`, de `POLEBET_ADMIN_URL` o, si no hay ninguna, de
-`http://localhost:8003`.
+Sin Rust, con la imagen ya construida (`docker compose build cli`) y la red del host
+(en Docker Desktop, `--network host` hay que activarlo en la configuración):
+
+```bash
+docker run --rm -it --network host \
+  -v "$PWD/services/gateway/certs/polebet.crt:/certs/polebet.crt:ro" \
+  -e POLEBET_ADMIN_URL=https://localhost/api/admin -e POLEBET_CA_CERT=/certs/polebet.crt \
+  arquisoft-prototipo2-cli
+```
+```powershell
+docker run --rm -it --network host `
+  -v "${PWD}\services\gateway\certs\polebet.crt:/certs/polebet.crt:ro" `
+  -e POLEBET_ADMIN_URL=https://localhost/api/admin -e POLEBET_CA_CERT=/certs/polebet.crt `
+  arquisoft-prototipo2-cli
+```
+
+### Configuración
+
+| Variable / opción | Qué hace |
+| --- | --- |
+| `--url` o `POLEBET_ADMIN_URL` | URL de Admin. Por defecto `https://localhost/api/admin` |
+| `POLEBET_CA_CERT` | Ruta de un certificado PEM en el que confiar, además de las raíces públicas (Mozilla). Para el autofirmado del Gateway: `services/gateway/certs/polebet.crt` |
+
+- El certificado **siempre** se verifica; la CLI no tiene modo "inseguro". Sin
+  `POLEBET_CA_CERT`, el autofirmado se rechaza con «El certificado de … no es de
+  confianza (invalid peer certificate: UnknownIssuer)», y eso es lo correcto.
+- Si `POLEBET_CA_CERT` apunta a un archivo que no existe o que no trae un certificado
+  (por ejemplo, la llave), la CLI no abre y explica por qué (código de salida 2).
+- Con una URL `http://` la CLI funciona, pero avisa en rojo «SIN CIFRAR (HTTP)»: la
+  contraseña y el token viajarían en claro. Úsalo solo para pruebas.
 
 Para entrar se usa una cuenta con rol `admin`. La inicial es `ADMIN_EMAIL` /
 `ADMIN_PASSWORD` del `.env`.
@@ -99,7 +150,7 @@ un evento se ve en el panel Participación.
 src/main.rs       arranque, terminal y bucle (dibujar → tecla → respuestas)
 src/app.rs        estado y teclas; devuelve las peticiones y recibe las respuestas (sin red ni terminal)
 src/ejecutor.rs   corre cada petición contra Admin
-src/api.rs        cliente REST de Admin y traducción de errores (401, 403, 504, 422…)
+src/api.rs        cliente HTTPS de Admin (POLEBET_CA_CERT) y traducción de errores (401, 403, 504, 422, certificado…)
 src/modelos.rs    respuestas de Admin en JSON
 src/ui.rs         dibujo con ratatui
 src/formato.rs    miles con punto y horas de Colombia
@@ -120,6 +171,7 @@ Con el stack arriba, `tests/en_vivo.rs` entra con el admin, recorre los cinco pa
 imprime cada pantalla. También comprueba que un jugador no entra:
 
 ```bash
+POLEBET_CA_CERT=../gateway/certs/polebet.crt \
 POLEBET_ADMIN_PASSWORD=... POLEBET_JUGADOR_EMAIL=... POLEBET_JUGADOR_PASSWORD=... \
   cargo test --test en_vivo -- --ignored --nocapture
 ```
@@ -128,5 +180,8 @@ Sin Rust instalado, lo mismo con Docker (`target/` queda dentro del contenedor; 
 `--network host` para la prueba en vivo):
 
 ```bash
-docker run --rm -v "$PWD":/app -w /app -e CARGO_TARGET_DIR=/tmp/target rust:1-slim-bookworm cargo test --locked
+docker run --rm -v "$PWD":/app:z -w /app -e CARGO_TARGET_DIR=/tmp/target rust:1-slim-bookworm cargo test --locked
+```
+```powershell
+docker run --rm -v "${PWD}:/app" -w /app -e CARGO_TARGET_DIR=/tmp/target rust:1-slim-bookworm cargo test --locked
 ```
