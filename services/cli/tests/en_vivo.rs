@@ -1,10 +1,11 @@
 //! Prueba contra Admin de verdad (stack levantado). Se salta por defecto:
 //!
-//!   POLEBET_ADMIN_URL=http://localhost:8003 POLEBET_ADMIN_PASSWORD=... \
+//!   POLEBET_CA_CERT=../gateway/certs/ca.crt POLEBET_ADMIN_PASSWORD=... \
 //!     cargo test --test en_vivo -- --ignored --nocapture
 //!
-//! Por el Gateway (HTTPS, T3-06) se añade la CA local:
-//!   POLEBET_CA_CERT=../gateway/certs/ca.crt
+//! Admin está detrás del Gateway (escenario 2): la URL por defecto es
+//! https://localhost/api/admin (otra con POLEBET_ADMIN_URL), y la CA local del
+//! Gateway (T3-06) se pasa con POLEBET_CA_CERT.
 //!
 //! Maneja la app con las mismas teclas que el administrador y dibuja cada
 //! pantalla en una terminal falsa de 120×32 (se imprime con --nocapture).
@@ -70,7 +71,7 @@ async fn ingresar(app: &mut App, cliente: &ClienteAdmin, email: &str, password: 
 #[tokio::test]
 #[ignore = "necesita el stack levantado y POLEBET_ADMIN_PASSWORD"]
 async fn el_admin_entra_y_recorre_los_paneles() {
-    let url = entorno("POLEBET_ADMIN_URL", "http://localhost:8003");
+    let url = entorno("POLEBET_ADMIN_URL", "https://localhost/api/admin");
     let password = std::env::var("POLEBET_ADMIN_PASSWORD").expect("falta POLEBET_ADMIN_PASSWORD");
     let cliente = nuevo_cliente(&url);
     let mut app = App::nuevo(url);
@@ -113,7 +114,7 @@ async fn el_admin_entra_y_recorre_los_paneles() {
 #[tokio::test]
 #[ignore = "necesita el stack levantado y POLEBET_JUGADOR_EMAIL / POLEBET_JUGADOR_PASSWORD"]
 async fn un_jugador_no_entra() {
-    let url = entorno("POLEBET_ADMIN_URL", "http://localhost:8003");
+    let url = entorno("POLEBET_ADMIN_URL", "https://localhost/api/admin");
     let email = std::env::var("POLEBET_JUGADOR_EMAIL").expect("falta POLEBET_JUGADOR_EMAIL");
     let password = std::env::var("POLEBET_JUGADOR_PASSWORD").expect("falta POLEBET_JUGADOR_PASSWORD");
     let cliente = nuevo_cliente(&url);

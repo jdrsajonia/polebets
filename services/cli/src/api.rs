@@ -1,5 +1,6 @@
-//! Cliente REST de Admin (puerto 8003). Es la única puerta de la CLI: nunca
-//! habla con Pagos, el Ingestor ni OpenF1 (Vista C&C).
+//! Cliente REST de Admin. Admin está detrás del Gateway, en /api/admin
+//! (escenario 2, T3-03). Es la única puerta de la CLI: nunca habla con Pagos,
+//! el Ingestor ni OpenF1 (Vista C&C).
 //!
 //! Habla HTTP o HTTPS según la URL (T3-06). Con HTTPS siempre verifica el
 //! certificado: confía en las CA públicas y, si se le pasa, en la CA local del
@@ -100,7 +101,7 @@ pub fn leer_ca(ruta: &Path) -> Result<Vec<Certificate>, String> {
 }
 
 impl ClienteAdmin {
-    /// Crea el cliente para la URL de Admin (p. ej. https://localhost/admin).
+    /// Crea el cliente para la URL de Admin (p. ej. https://localhost/api/admin).
     /// Con `ca`, además de las CA públicas confía en esa (la local del Gateway).
     pub fn nuevo(base: &str, ca: Option<&Path>) -> Result<Self, String> {
         let mut builder = Client::builder()

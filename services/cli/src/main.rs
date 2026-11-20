@@ -1,11 +1,11 @@
 //! CLI del administrador de PoleBet (HU2-17): terminal al estilo lazydocker.
 //!
-//!   polebet-cli [--url http://localhost:8003] [--ca services/gateway/certs/ca.crt]
+//!   polebet-cli [--url https://localhost/api/admin] [--ca services/gateway/certs/ca.crt]
 //!
 //! La URL de Admin sale de `--url`, de POLEBET_ADMIN_URL o, si no, de
-//! http://localhost:8003. Con HTTPS (T3-06), `--ca` o POLEBET_CA_CERT dicen en
-//! qué CA confiar además de las públicas: la local del Gateway, que crea
-//! scripts/generar-certs.sh. El bucle dibuja, lee el teclado cada 100 ms y
+//! https://localhost/api/admin: Admin está detrás del Gateway (escenario 2,
+//! T3-03). Con HTTPS (T3-06), `--ca` o POLEBET_CA_CERT dicen en qué CA confiar
+//! además de las públicas: la local del Gateway, que crea scripts/generar-certs.sh. El bucle dibuja, lee el teclado cada 100 ms y
 //! recoge las respuestas de Admin; las peticiones corren en tareas de tokio,
 //! así una consulta lenta nunca congela la pantalla (RF-30).
 
@@ -21,13 +21,13 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::DefaultTerminal;
 use tokio::runtime::Runtime;
 
-const URL_POR_DEFECTO: &str = "http://localhost:8003";
+const URL_POR_DEFECTO: &str = "https://localhost/api/admin";
 
 const AYUDA: &str = "CLI del administrador de PoleBet (HU2-17)
 
 Uso: polebet-cli [--url URL_DE_ADMIN] [--ca RUTA]
 
-  --url URL   dónde está Admin (por defecto POLEBET_ADMIN_URL o http://localhost:8003)
+  --url URL   dónde está Admin (por defecto POLEBET_ADMIN_URL o https://localhost/api/admin)
   --ca RUTA   CA en la que confiar para el HTTPS del Gateway, además de las públicas
               (por defecto POLEBET_CA_CERT; la local es services/gateway/certs/ca.crt)
   -h, --help  muestra esta ayuda";
@@ -142,12 +142,12 @@ mod pruebas {
     }
 
     #[test]
-    fn sin_nada_usa_admin_local_y_ninguna_ca() {
+    fn sin_nada_usa_admin_por_el_gateway_local_y_ninguna_ca() {
         let opciones = opciones_de_argumentos(vec![], con(&[])).unwrap();
         assert_eq!(
             opciones,
             Opciones {
-                url: URL_POR_DEFECTO.into(),
+                url: "https://localhost/api/admin".into(),
                 ca: None
             }
         );
@@ -157,11 +157,11 @@ mod pruebas {
     fn la_ca_sale_de_la_variable_y_el_argumento_manda() {
         let entorno = con(&[
             ("POLEBET_CA_CERT", "/certs/ca.crt"),
-            ("POLEBET_ADMIN_URL", "https://gateway"),
+            ("POLEBET_ADMIN_URL", "https://gateway/api/admin"),
         ]);
         let opciones = opciones_de_argumentos(vec![], &entorno).unwrap();
         assert_eq!(opciones.ca, Some(PathBuf::from("/certs/ca.crt")));
-        assert_eq!(opciones.url, "https://gateway");
+        assert_eq!(opciones.url, "https://gateway/api/admin");
 
         let opciones =
             opciones_de_argumentos(args(&["--ca", "otra.crt", "--url", "https://localhost"]), &entorno).unwrap();
