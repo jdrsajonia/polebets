@@ -891,7 +891,7 @@ mod pruebas {
     }
 
     fn app_dentro() -> App {
-        let mut app = App::nuevo("http://localhost:8003".into());
+        let mut app = App::nuevo("https://localhost/api/admin".into());
         app.pantalla = Pantalla::Principal;
         app.sesion = Some(Sesion {
             token: "a.b.c".into(),
@@ -907,7 +907,7 @@ mod pruebas {
 
     #[test]
     fn el_login_oculta_la_contrasena() {
-        let mut app = App::nuevo("http://localhost:8003".into());
+        let mut app = App::nuevo("https://localhost/api/admin".into());
         app.login.email = "admin@arqui.local".into();
         app.login.password = "secreta".into();
         let texto = pantalla(&app);

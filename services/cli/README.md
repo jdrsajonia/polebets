@@ -1,11 +1,12 @@
 # CLI del administrador (Rust) — HU2-17
 
 Interfaz de terminal al estilo lazydocker para el administrador de PoleBet. Habla **solo
-con Admin** (puerto 8003): nunca con Pagos, el Ingestor ni OpenF1. No es un servicio del
+con Admin**, siempre **a través del API Gateway por HTTPS** (`/api/admin`, escenario 2 del
+P3): nunca con Pagos, el Ingestor ni OpenF1. No es un servicio del
 stack sino el cliente del administrador (componente de presentación, RNF-02).
 
 ```
- PoleBet  CLI del administrador                     Administrador · admin@arqui.local · http://admin:8003
+ PoleBet  CLI del administrador                     Administrador · admin@arqui.local · https://gateway/api/admin
 ╭ Paneles ─────────────────╮╭ Rentabilidad ───────────────────────────────────────────────────────────╮
 │  1 Simulación            ││ Filtros activos: Tipo=dinamica                                          │
 │  2 Resumen financiero    ││ No aplican a esta consulta: Modo                                        │
@@ -22,28 +23,58 @@ stack sino el cliente del administrador (componente de presentación, RNF-02).
 
 ## Correr
 
-Con el stack levantado (`docker compose up -d`), desde la raíz del repo:
+Antes, una sola vez: los certificados del Gateway (CA local + certificado firmado por ella).
+En Windows, desde Git Bash:
+
+```bash
+scripts/generar-certs.sh --forzar && docker compose restart gateway
+```
+
+### En Docker
+
+Con el stack levantado (`docker compose up -d`), desde la raíz del repo (igual en bash y
+PowerShell):
 
 ```bash
 docker compose run --rm cli
 ```
 
 El servicio `cli` tiene el perfil `cli`, así que `docker compose up` no lo levanta y siguen
-siendo 14 contenedores. Dentro de Docker llega a Admin por la red `admin_entrada`
-(`http://admin:8003`). Necesita `services/gateway/certs/ca.crt` (lo crea
-`scripts/generar-certs.sh`): el compose lo monta en `/certs/ca.crt`.
+siendo 14 contenedores. Va en la red `borde`, como cualquier cliente externo, y entra por
+`https://gateway/api/admin`. El compose le monta **solo** `services/gateway/certs/ca.crt` en
+`/certs/ca.crt` (`POLEBET_CA_CERT=/certs/ca.crt`); si no existe, `docker compose run` falla
+en vez de crear una carpeta.
 
-Con Rust instalado (1.87 o superior), sin Docker:
+### Desde el host
+
+Con Rust instalado (1.87 o superior):
 
 ```bash
 cd services/cli
-cargo run --release                                  # Admin en http://localhost:8003
-cargo run --release -- --url http://otra-maquina:8003
-cargo run --release -- --url https://localhost/RUTA --ca ../gateway/certs/ca.crt
+cargo run --release -- --ca ../gateway/certs/ca.crt          # Admin en https://localhost/api/admin
+POLEBET_CA_CERT=../gateway/certs/ca.crt cargo run --release  # lo mismo, con la variable
+cargo run --release -- --url https://otra-maquina/api/admin --ca ruta/a/ca.crt
+```
+```powershell
+cd services\cli
+cargo run --release -- --ca ..\gateway\certs\ca.crt
+$env:POLEBET_CA_CERT = "..\gateway\certs\ca.crt"; cargo run --release
+```
+
+Sin Rust, con la imagen ya construida (`docker compose build cli`) y la red del host (en
+Docker Desktop, `--network host` hay que activarlo en la configuración):
+
+```bash
+docker run --rm -it --network host -v "$PWD/services/gateway/certs/ca.crt:/certs/ca.crt:ro" \
+  -e POLEBET_ADMIN_URL=https://localhost/api/admin arquisoft-prototipo2-cli
+```
+```powershell
+docker run --rm -it --network host -v "${PWD}\services\gateway\certs\ca.crt:/certs/ca.crt:ro" `
+  -e POLEBET_ADMIN_URL=https://localhost/api/admin arquisoft-prototipo2-cli
 ```
 
 La URL sale de `--url`, de `POLEBET_ADMIN_URL` o, si no hay ninguna, de
-`http://localhost:8003`.
+`https://localhost/api/admin`. La CA, de `--ca` o `POLEBET_CA_CERT`.
 
 ### HTTPS (T3-06)
 
@@ -63,8 +94,7 @@ Si el certificado no se acepta, la CLI dice por qué en la pantalla de login:
 | «… está vencido» | `scripts/generar-certs.sh --forzar` y `docker compose restart gateway` |
 
 Una CA que no existe o no es un PEM con certificados se avisa antes de abrir la
-interfaz. Mientras Admin no esté detrás del Gateway (T3-03), la URL por defecto sigue
-siendo `http://admin:8003`.
+interfaz.
 
 Para entrar se usa una cuenta con rol `admin`. La inicial es `ADMIN_EMAIL` /
 `ADMIN_PASSWORD` del `.env`.
@@ -147,11 +177,12 @@ Con el stack arriba, `tests/en_vivo.rs` entra con el admin, recorre los cinco pa
 imprime cada pantalla. También comprueba que un jugador no entra:
 
 ```bash
+POLEBET_CA_CERT=../gateway/certs/ca.crt \
 POLEBET_ADMIN_PASSWORD=... POLEBET_JUGADOR_EMAIL=... POLEBET_JUGADOR_PASSWORD=... \
   cargo test --test en_vivo -- --ignored --nocapture
 ```
 
-Por HTTPS se añaden `POLEBET_ADMIN_URL=https://...` y `POLEBET_CA_CERT=../gateway/certs/ca.crt`.
+Va contra `https://localhost/api/admin` (otra URL con `POLEBET_ADMIN_URL`).
 
 Sin Rust instalado, lo mismo con Docker (`target/` queda dentro del contenedor; añade
 `--network host` para la prueba en vivo):
@@ -159,3 +190,8 @@ Sin Rust instalado, lo mismo con Docker (`target/` queda dentro del contenedor; 
 ```bash
 docker run --rm -v "$PWD":/app -w /app -e CARGO_TARGET_DIR=/tmp/target rust:1-slim-bookworm cargo test --locked
 ```
+```powershell
+docker run --rm -v "${PWD}:/app" -w /app -e CARGO_TARGET_DIR=/tmp/target rust:1-slim-bookworm cargo test --locked
+```
+
+(En Linux con SELinux, como Fedora, monta con `"$PWD":/app:z`.)

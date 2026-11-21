@@ -25,7 +25,8 @@
 # Usa openssl si está instalado; si no, la imagen alpine/openssl de Docker.
 #
 # Variables opcionales:
-#   CERT_DIAS   días de validez de la CA y del certificado (por defecto 30, como el Lab 5)
+#   CERT_DIAS   días de validez de la CA y del certificado (por defecto 365; el
+#               Lab 5 usa 30, pero vencerían antes de terminar el semestre)
 set -euo pipefail
 
 export MSYS_NO_PATHCONV=1 # Git Bash no debe convertir las rutas de los contenedores
@@ -33,7 +34,7 @@ export MSYS_NO_PATHCONV=1 # Git Bash no debe convertir las rutas de los contened
 cd "$(dirname "$0")/.."
 
 DIR=services/gateway/certs
-DIAS="${CERT_DIAS:-30}"
+DIAS="${CERT_DIAS:-365}"
 NOMBRES="DNS:localhost, DNS:gateway, IP:127.0.0.1"
 
 # Muestra la ayuda (las líneas de comentario del encabezado).
@@ -58,10 +59,15 @@ for arg in "$@"; do
 done
 
 # No reemplaza una CA en uso sin pedirlo: los clientes que ya confían en ella
-# dejarían de aceptar el Gateway.
-if [[ -f "$DIR/polebet.crt" && -f "$DIR/polebet.key" && $forzar -eq 0 ]]; then
-    echo "Ya hay certificados en $DIR. Para reemplazarlos: scripts/generar-certs.sh --forzar"
-    exit 0
+# dejarían de aceptar el Gateway. Solo se salta si están los tres archivos que
+# se usan: con polebet.* pero sin ca.crt (certificados del Lab 5 o del
+# escenario 1) los clientes no tendrían con qué verificar, así que se regeneran.
+if [[ $forzar -eq 0 && -f "$DIR/polebet.crt" && -f "$DIR/polebet.key" ]]; then
+    if [[ -f "$DIR/ca.crt" ]]; then
+        echo "Ya hay certificados en $DIR. Para reemplazarlos: scripts/generar-certs.sh --forzar"
+        exit 0
+    fi
+    echo "Faltan certificados de la CA local; se regeneran."
 fi
 
 mkdir -p "$DIR"
@@ -73,7 +79,8 @@ if command -v openssl >/dev/null 2>&1; then
 else
     echo "openssl no está instalado; se usa la imagen alpine/openssl de Docker."
     ossl() {
-        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/$DIR:/w" -w /w alpine/openssl "$@"
+        # :z reetiqueta la carpeta para SELinux (Fedora); Docker Desktop lo ignora.
+        docker run --rm --user "$(id -u):$(id -g)" -v "$PWD/$DIR:/w:z" -w /w alpine/openssl "$@"
     }
 fi
 

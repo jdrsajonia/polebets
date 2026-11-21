@@ -49,7 +49,9 @@ def _url_broker() -> str:
 
 RABBITMQ_URL = _url_broker()
 
-app = FastAPI(title="Admin API")
+# Escenario 2 (T3-03): sin /docs, /redoc ni /openapi.json. No se publica el mapa
+# completo de la API; el contrato está en services/admin/README.md.
+app = FastAPI(title="Admin API", docs_url=None, redoc_url=None, openapi_url=None)
 
 
 # --- Modelos de petición ---

@@ -1032,7 +1032,7 @@ mod pruebas {
 
     /// App ya dentro, con las carreras cargadas.
     fn app_dentro() -> App {
-        let mut app = App::nuevo("http://admin".into());
+        let mut app = App::nuevo("https://gateway/api/admin".into());
         escribir(&mut app, "admin@arqui.local");
         tecla(&mut app, KeyCode::Tab);
         escribir(&mut app, "clave");
@@ -1053,7 +1053,7 @@ mod pruebas {
     // --- Login (RF-21) ---
     #[test]
     fn el_login_manda_las_credenciales_y_al_entrar_carga_las_carreras() {
-        let mut app = App::nuevo("http://admin".into());
+        let mut app = App::nuevo("https://gateway/api/admin".into());
         escribir(&mut app, "admin@arqui.local");
         assert!(
             tecla(&mut app, KeyCode::Enter).is_empty(),
@@ -1082,7 +1082,7 @@ mod pruebas {
 
     #[test]
     fn un_jugador_ve_el_rechazo_y_sigue_en_el_login() {
-        let mut app = App::nuevo("http://admin".into());
+        let mut app = App::nuevo("https://gateway/api/admin".into());
         escribir(&mut app, "ana@correo.co");
         tecla(&mut app, KeyCode::Tab);
         escribir(&mut app, "clave");
@@ -1103,7 +1103,7 @@ mod pruebas {
 
     #[test]
     fn sin_contrasena_no_se_manda_nada() {
-        let mut app = App::nuevo("http://admin".into());
+        let mut app = App::nuevo("https://gateway/api/admin".into());
         tecla(&mut app, KeyCode::Tab);
         assert!(tecla(&mut app, KeyCode::Enter).is_empty());
         assert_eq!(app.login.error.as_deref(), Some("Escribe el correo y la contraseña"));

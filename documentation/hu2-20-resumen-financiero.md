@@ -72,9 +72,11 @@ Un filtro desconocido o con un valor inválido responde `{"ok": false, "error": 
 
 ## Probar a mano
 
-Con el stack arriba (Admin publica el puerto 8003):
+Con el stack arriba. Admin está detrás del Gateway (P3, escenario 2) y exige el token de un administrador;
+cómo obtenerlo en `$AUTH` (y `$CA`) está en
+[`../services/admin/README.md`](../services/admin/README.md#rutas).
 
 ```bash
-curl -X POST localhost:8003/consultas -H 'Content-Type: application/json' \
+curl -s --cacert $CA -X POST https://localhost/api/admin/consultas -H "$AUTH" -H 'Content-Type: application/json' \
   -d '{"query":"resumen_financiero","params":{"modo":"torneo"}}'
 ```
