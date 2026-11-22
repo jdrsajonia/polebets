@@ -6,7 +6,7 @@ wallets, en PostgreSQL Pagos (T2-03).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, String, Uuid, func
+from sqlalchemy import CheckConstraint, DateTime, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -26,3 +26,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default=ROLE_PLAYER, server_default=ROLE_PLAYER)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    # Bloqueo progresivo del login (tactica "Restrict login", BASS 11.2). No es
+    # parte del Escenario 5 (eso es rate limiting en el Gateway): esto vive en
+    # Usuarios porque solo este servicio sabe si la contrasena fue correcta.
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
