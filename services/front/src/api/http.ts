@@ -25,12 +25,16 @@ const MENSAJES = {
 export class ErrorHttp extends Error implements ErrorApi {
   status: number;
   codigo?: string;
+  // Solo en un 429 (demasiados intentos): segundos que faltan para reintentar,
+  // sacados de la cabecera Retry-After. Lo usa el login para el conteo regresivo.
+  reintentarEnSegundos?: number;
 
-  constructor(status: number, message: string, codigo?: string) {
+  constructor(status: number, message: string, codigo?: string, reintentarEnSegundos?: number) {
     super(message);
     this.name = "ErrorHttp";
     this.status = status;
     this.codigo = codigo;
+    this.reintentarEnSegundos = reintentarEnSegundos;
   }
 }
 
@@ -70,6 +74,13 @@ function codigoDelCuerpo(cuerpo: unknown): string | undefined {
   if (typeof cuerpo !== "object" || cuerpo === null) return undefined;
   const { codigo } = cuerpo as { codigo?: unknown };
   return typeof codigo === "string" && codigo !== "" ? codigo : undefined;
+}
+
+// Cabecera Retry-After del 429 de bloqueo progresivo (Usuarios). undefined si
+// no viene o no es un numero (p. ej. en cualquier otro error).
+function segundosReintentoDe(resp: Response): number | undefined {
+  const valor = Number(resp.headers.get("Retry-After"));
+  return Number.isFinite(valor) && valor > 0 ? valor : undefined;
 }
 
 // Hace la peticion y devuelve el cuerpo JSON ya tipado. Si algo falla lanza
@@ -112,7 +123,12 @@ export async function pedir<T>(servicio: Servicio, ruta: string, opciones: Opcio
     manejadores.accesoDenegado?.(MENSAJES.permiso);
     throw new ErrorHttp(403, MENSAJES.permiso);
   }
-  throw new ErrorHttp(resp.status, mensajeDelCuerpo(cuerpo) ?? MENSAJES.generico, codigoDelCuerpo(cuerpo));
+  throw new ErrorHttp(
+    resp.status,
+    mensajeDelCuerpo(cuerpo) ?? MENSAJES.generico,
+    codigoDelCuerpo(cuerpo),
+    resp.status === 429 ? segundosReintentoDe(resp) : undefined,
+  );
 }
 
 // Atajos para los dos metodos mas usados.

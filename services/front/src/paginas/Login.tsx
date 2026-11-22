@@ -5,9 +5,12 @@
 //     app (el jugador a /carrera, el admin a /admin).
 //   - Credenciales incorrectas: «Correo o contraseña incorrectos», sin decir
 //     cual de los dos fallo.
+//   - Demasiados intentos fallidos seguidos (bloqueo progresivo de Usuarios,
+//     429): se bloquean los campos y se muestra una cuenta regresiva; al
+//     llegar a cero se puede volver a intentar.
 //   - Si ya hay sesion, /login no tiene sentido y se va al inicio.
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ErrorHttp } from "../api/http";
 import { useAuth } from "../auth/AuthContext";
@@ -38,6 +41,26 @@ export default function Login() {
   const [errores, setErrores] = useState<ErroresCampos>({});
   const [errorGeneral, setErrorGeneral] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // > 0 mientras la cuenta esta bloqueada (bloqueo progresivo de Usuarios).
+  const [segundosRestantes, setSegundosRestantes] = useState(0);
+
+  const bloqueado = segundosRestantes > 0;
+
+  // Cuenta regresiva de un segundo en segundo. Al llegar a cero, limpia el
+  // mensaje para que quede claro que ya se puede volver a intentar.
+  useEffect(() => {
+    if (!bloqueado) return;
+    const id = window.setInterval(() => {
+      setSegundosRestantes((actual) => {
+        if (actual <= 1) {
+          setErrorGeneral(null);
+          return 0;
+        }
+        return actual - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [bloqueado]);
 
   // Mientras se averigua si ya hay sesion, no se muestra el formulario.
   if (cargando) return <p role="status">Cargando…</p>;
@@ -47,7 +70,7 @@ export default function Login() {
 
   async function onSubmit(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault();
-    if (enviando) return; // evita doble envio con doble clic
+    if (enviando || bloqueado) return; // evita doble envio, y nada mientras esta bloqueado
 
     const nuevos = validar(email, password);
     setErrores(nuevos);
@@ -59,9 +82,15 @@ export default function Login() {
       const nuevo = await iniciarSesion(email.trim(), password);
       navegar(destinoTrasLogin(nuevo.rol, desde), { replace: true });
     } catch (error) {
-      // ErrorHttp ya trae el mensaje en español: credenciales (401), red
-      // caida (status 0) o error del servidor.
-      setErrorGeneral(error instanceof ErrorHttp ? error.message : "Ocurrió un error inesperado.");
+      // ErrorHttp ya trae el mensaje en español: credenciales (401), cuenta
+      // bloqueada (429, con el conteo regresivo), red caida (status 0) o
+      // error del servidor.
+      if (error instanceof ErrorHttp && error.status === 429) {
+        setErrorGeneral(error.message);
+        setSegundosRestantes(error.reintentarEnSegundos ?? 30);
+      } else {
+        setErrorGeneral(error instanceof ErrorHttp ? error.message : "Ocurrió un error inesperado.");
+      }
       setPassword(""); // no dejar la contraseña escrita tras un fallo
       setEnviando(false);
     }
@@ -75,6 +104,7 @@ export default function Login() {
       {errorGeneral && (
         <p className={estilos.error} role="alert">
           {errorGeneral}
+          {bloqueado && ` (${segundosRestantes}s)`}
         </p>
       )}
 
@@ -91,7 +121,7 @@ export default function Login() {
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={errores.email ? true : undefined}
             aria-describedby={errores.email ? "login-email-error" : undefined}
-            disabled={enviando}
+            disabled={enviando || bloqueado}
           />
           {errores.email && (
             <span id="login-email-error" className={estilos.errorCampo}>
@@ -110,7 +140,7 @@ export default function Login() {
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={errores.password ? true : undefined}
             aria-describedby={errores.password ? "login-password-error" : undefined}
-            disabled={enviando}
+            disabled={enviando || bloqueado}
           />
           {errores.password && (
             <span id="login-password-error" className={estilos.errorCampo}>
@@ -119,8 +149,8 @@ export default function Login() {
           )}
         </div>
 
-        <button type="submit" className="boton" disabled={enviando}>
-          {enviando ? "Ingresando…" : "Ingresar"}
+        <button type="submit" className="boton" disabled={enviando || bloqueado}>
+          {bloqueado ? `Espera ${segundosRestantes}s` : enviando ? "Ingresando…" : "Ingresar"}
         </button>
       </form>
 

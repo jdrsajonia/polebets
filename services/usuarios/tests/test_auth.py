@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import jwt
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.config import settings
 from app.core.security import create_access_token, decode_access_token
@@ -128,3 +128,36 @@ def test_internal_auth_no_pide_token_de_servicio_pero_users_si(client):
     # /internal/auth la llama Nginx, que no tiene el token; /internal/users si lo exige.
     assert client.get("/internal/auth").status_code == 401  # 401 por sesion, no por token
     assert client.get(f"/internal/users/{uuid.uuid4()}").status_code == 401
+
+# ---------------------------------------------------------------------------
+# Bloqueo progresivo (Restrict login, BASS 11.2)
+# ---------------------------------------------------------------------------
+@requires_db
+def test_bloqueo_progresivo_tras_fallos_seguidos(client, jugador):
+    # Los primeros 3 fallos seguidos no bloquean nada: 401 normal, como siempre.
+    for _ in range(3):
+        assert _login(client, jugador["email"], "clave-mala").status_code == 401
+
+    # El 4o fallo tambien responde 401 (el intento en si no se bloquea)...
+    assert _login(client, jugador["email"], "clave-mala").status_code == 401
+
+    # ...pero deja la cuenta bloqueada: el siguiente intento, aunque la
+    # contraseña sea la correcta, recibe 429 con Retry-After y no entra.
+    r = _login(client, jugador["email"], jugador["contrasena"])
+    assert r.status_code == 429
+    assert 0 < int(r.headers["Retry-After"]) <= 30
+
+    # Simulamos que ya paso el tiempo de bloqueo, sin esperar de verdad.
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == jugador["email"]))
+        user.locked_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.commit()
+
+    # Ahora la contraseña correcta entra, y el contador vuelve a cero.
+    assert _login(client, jugador["email"], jugador["contrasena"]).status_code == 200
+
+    with SessionLocal() as db:
+        user = db.scalar(select(User).where(User.email == jugador["email"]))
+        assert user.failed_login_attempts == 0
+        assert user.locked_until is None
+
