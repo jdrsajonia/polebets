@@ -36,6 +36,7 @@ import (
 	"github.com/arquisoft/orquestador/internal/pagina"
 	"github.com/arquisoft/orquestador/internal/posiciones"
 	"github.com/arquisoft/orquestador/internal/registro"
+	"github.com/arquisoft/orquestador/internal/sesion"
 	"github.com/arquisoft/orquestador/internal/traza"
 )
 
@@ -45,12 +46,21 @@ func main() {
 		log.Fatalf("configuracion invalida: %v", err)
 	}
 
+	// Escenario 4: la llave publica de Usuarios para verificar X-User-Token.
+	// Sin ella el orquestador no arranca (no hay forma de saber quien llama).
+	llave, err := sesion.LeerLlavePublica(cfg.IdentidadLlavePublica)
+	if err != nil {
+		log.Fatalf("configuracion invalida: %v", err)
+	}
+	sesion.Configurar(llave)
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	pagos := interno.Nuevo(cfg.PagosBaseURL, cfg.InternalAPIToken)
-	usuarios := interno.Nuevo(cfg.UsuariosBaseURL, cfg.InternalAPIToken)
-	motor := interno.Nuevo(cfg.MotorBaseURL, cfg.InternalAPIToken)
+	// Escenario 4: un token de servicio distinto para cada destino.
+	pagos := interno.Nuevo(cfg.PagosBaseURL, cfg.TokenHaciaPagos)
+	usuarios := interno.Nuevo(cfg.UsuariosBaseURL, cfg.TokenHaciaUsuarios)
+	motor := interno.Nuevo(cfg.MotorBaseURL, cfg.TokenHaciaMotor)
 
 	mux := http.NewServeMux()
 	health.Register(mux)

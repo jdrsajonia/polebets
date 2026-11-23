@@ -21,16 +21,16 @@ Las rutas públicas llevan el prefijo `/api`, que pone el Gateway. En este docum
 
 Solo dos rutas públicas no pasan por `auth_request`: `POST /api/registro` (Orquestador) y el login (Usuarios). Todas las demás exigen sesión.
 
-### Headers del Gateway
+### Identidad del jugador (header del Gateway)
 
 | Header | Valor | Si falta o es inválido |
 | --- | --- | --- |
-| `X-User-Id` | uuid del usuario (`users.id`) | 401 `sin_sesion` |
-| `X-User-Rol` | `player` o `admin` (los valores de `users.role`) | 401 `sin_sesion` |
+| `X-User-Token` | JWT EdDSA (Ed25519) firmado por Usuarios: `sub` (uuid de `users.id`), `rol`, `iss` = `usuarios`, `aud` = `polebet`, `iat`, `exp` (60 s) | 401 `sin_sesion` |
 
-- **Decisión: los valores de `X-User-Rol` son `player` y `admin`**, los mismos de `users.role`. «Rol jugador» en el documento del P2 es solo texto.
-- Todas las rutas con sesión son de jugador: si `X-User-Rol` no es `player`, responde 403 `solo_jugadores`. El administrador usa la CLI, no la web. El rol se valida aquí y no en Pagos.
-- **Requisito para el Gateway (Tomás):** borrar los `X-User-Id` y `X-User-Rol` que mande el cliente y poner solo los que devuelve `auth_request`. Sin eso cualquiera se haría pasar por otro jugador.
+- **Escenario 4 (T3-05):** el Orquestador verifica la firma con la llave pública de Usuarios (`IDENTIDAD_LLAVE_PUBLICA`). Antes leía `X-User-Id` y `X-User-Rol` en texto, y cualquier contenedor que llegara al Orquestador podía escribirlos con el id de otro jugador; ahora esas cabeceras se ignoran.
+- **Decisión: los valores del `rol` son `player` y `admin`**, los mismos de `users.role`. «Rol jugador» en el documento del P2 es solo texto.
+- Todas las rutas con sesión son de jugador: si el `rol` no es `player`, responde 403 `solo_jugadores`. El administrador usa la CLI, no la web. El rol se valida aquí y no en Pagos.
+- **Gateway:** copia `X-User-Token` de la respuesta de `auth_request` y borra el que mande el cliente en todas las rutas. Ver `documentation/prototipo3/escenario-4-auth-servicios/README.md`.
 
 ### Formato de error común
 
@@ -47,8 +47,8 @@ Todas las respuestas de error tienen el mismo cuerpo:
 | --- | --- | --- |
 | 400 | `cuerpo_invalido` | JSON mal formado, campo faltante, de otro tipo o desconocido |
 | 400 | `falta_idempotency_key` | Ruta que exige `Idempotency-Key` y no llegó (o pasa de 128 caracteres) |
-| 401 | `sin_sesion` | Faltan o son inválidos los headers del Gateway |
-| 403 | `solo_jugadores` | `X-User-Rol` distinto de `player` |
+| 401 | `sin_sesion` | Falta `X-User-Token` o no verifica (firma, vencimiento, emisor, audiencia, id o rol) |
+| 403 | `solo_jugadores` | El `rol` de la identidad firmada es distinto de `player` |
 | 404 | `evento_no_existe` | El evento no existe |
 | 404 | `mercado_no_existe` | El mercado no existe |
 | 404 | `sin_apuesta` | El jugador no apostó en ese mercado (§3.7) |
@@ -343,13 +343,14 @@ Variables de entorno. Todas son obligatorias y sin valor por defecto (el servici
 | `USUARIOS_BASE_URL` | `http://usuarios:8001` en Compose |
 | `PAGOS_BASE_URL` | `http://pagos:8000` |
 | `MOTOR_BASE_URL` | `http://motor:8080` |
-| `INTERNAL_API_TOKEN` | Token de servicio, mínimo 32 caracteres (mismo nombre que usa el motor) |
+| `TOKEN_HACIA_USUARIOS`, `TOKEN_HACIA_PAGOS`, `TOKEN_HACIA_MOTOR` | Token de servicio de cada destino, mínimo 32 caracteres y distintos entre sí (escenario 4: cada servicio acepta solo el suyo) |
+| `IDENTIDAD_LLAVE_PUBLICA` | Ruta de la llave pública de Usuarios para verificar `X-User-Token` |
 
 ### Headers en cada llamada
 
 | Header | Valor |
 | --- | --- |
-| `X-Internal-Service-Token` | `INTERNAL_API_TOKEN` |
+| `X-Internal-Service-Token` | El token de ese destino (`TOKEN_HACIA_USUARIOS`, `TOKEN_HACIA_PAGOS` o `TOKEN_HACIA_MOTOR`) |
 | `Idempotency-Key` | La del flujo (tabla de abajo), cuando el destino la pide |
 | `X-Request-Id` | Id del flujo (el del Gateway si llega, si no uno nuevo) para seguirlo en los logs |
 | `Content-Type` | `application/json` |

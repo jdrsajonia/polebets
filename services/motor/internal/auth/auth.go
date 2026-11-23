@@ -1,22 +1,25 @@
-// Package auth valida el JWT que emite Pagos y usuarios.
+// Package auth verifica la identidad firmada que emite Usuarios.
 //
-// El motor no le pregunta a Pagos en cada peticion: verifica la firma por su
-// cuenta con el secreto compartido, asi el flujo en vivo no depende de Pagos.
-// El resto del motor usa la interfaz ValidarToken, de modo que cambiar luego
-// a llaves publica/privada u OAuth no toca los demas paquetes.
+// El motor no le pregunta a Usuarios en cada peticion: verifica la firma por
+// su cuenta con la llave publica, asi el flujo en vivo no depende de otro
+// servicio. El resto del motor usa la interfaz ValidarToken, de modo que el
+// cambio de HS256 a Ed25519 (escenario 4) no toco los demas paquetes.
 package auth
 
 import (
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
+	"strings"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
-	// ErrSinSesion: la peticion no trae la cookie de sesion.
+	// ErrSinSesion: la peticion no trae la identidad firmada.
 	ErrSinSesion = errors.New("no hay sesion")
 	// ErrTokenInvalido: el token esta vencido, mal firmado o mal formado.
 	ErrTokenInvalido = errors.New("token invalido")
@@ -35,34 +38,56 @@ type ValidarToken interface {
 
 var formatoUUID = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// ValidadorHS256 valida tokens firmados con el secreto compartido.
-type ValidadorHS256 struct {
-	secreto []byte
-	parser  *jwt.Parser
+// ValidadorEd25519 verifica tokens firmados con la llave privada de Usuarios.
+type ValidadorEd25519 struct {
+	llave  ed25519.PublicKey
+	parser *jwt.Parser
 }
 
-func NuevoValidador(secreto string) (*ValidadorHS256, error) {
-	if secreto == "" {
-		return nil, errors.New("el secreto del JWT no puede estar vacio")
+// NuevoValidador recibe la llave publica de Usuarios.
+func NuevoValidador(llave ed25519.PublicKey) (*ValidadorEd25519, error) {
+	if len(llave) != ed25519.PublicKeySize {
+		return nil, errors.New("la llave publica de identidad no es una llave Ed25519 valida")
 	}
-	return &ValidadorHS256{
-		secreto: []byte(secreto),
+	return &ValidadorEd25519{
+		llave: llave,
 		parser: jwt.NewParser(
-			// Fijar el algoritmo evita que un token con "alg": "none" u otro
-			// algoritmo pase la validacion.
+			// Fijar el algoritmo evita que pase un token con "alg": "none" o
+			// uno HS256 firmado con un secreto cualquiera.
 			jwt.WithValidMethods([]string{Algoritmo}),
 			// Un token sin exp nunca venceria: se exige.
 			jwt.WithExpirationRequired(),
+			// Solo vale lo que emitio Usuarios para los servicios de PoleBet.
+			jwt.WithIssuer(Emisor),
+			jwt.WithAudience(Audiencia),
 		),
 	}, nil
 }
 
-// Validar revisa firma, algoritmo y vencimiento, y devuelve el user_id y el
-// rol. Cualquier error envuelve ErrTokenInvalido.
-func (v *ValidadorHS256) Validar(token string) (Sesion, error) {
+// LeerLlavePublica carga la llave publica Ed25519 (PEM) del archivo dado.
+func LeerLlavePublica(ruta string) (ed25519.PublicKey, error) {
+	pem, err := os.ReadFile(ruta)
+	if err != nil {
+		return nil, fmt.Errorf("no se pudo leer la llave publica de identidad: %w", err)
+	}
+	llave, err := jwt.ParseEdPublicKeyFromPEM(pem)
+	if err != nil {
+		return nil, fmt.Errorf("la llave de %s no es una llave publica Ed25519: %w", ruta, err)
+	}
+	publica, ok := llave.(ed25519.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("la llave de %s no es una llave publica Ed25519", ruta)
+	}
+	return publica, nil
+}
+
+// Validar revisa firma, algoritmo, vencimiento, emisor y audiencia, y
+// devuelve el user_id (en minusculas) y el rol. Cualquier error envuelve
+// ErrTokenInvalido.
+func (v *ValidadorEd25519) Validar(token string) (Sesion, error) {
 	claims := jwt.MapClaims{}
 	if _, err := v.parser.ParseWithClaims(token, claims, func(*jwt.Token) (any, error) {
-		return v.secreto, nil
+		return v.llave, nil
 	}); err != nil {
 		return Sesion{}, fmt.Errorf("%w: %w", ErrTokenInvalido, err)
 	}
@@ -75,14 +100,14 @@ func (v *ValidadorHS256) Validar(token string) (Sesion, error) {
 	if rol != RolJugador && rol != RolAdmin {
 		return Sesion{}, fmt.Errorf("%w: rol %q desconocido", ErrTokenInvalido, rol)
 	}
-	return Sesion{UserID: userID, Rol: rol}, nil
+	return Sesion{UserID: strings.ToLower(userID), Rol: rol}, nil
 }
 
-// DesdeRequest lee el JWT de la cookie de sesion y lo valida.
+// DesdeRequest lee la identidad firmada que puso el Gateway y la valida.
 func DesdeRequest(v ValidarToken, r *http.Request) (Sesion, error) {
-	cookie, err := r.Cookie(NombreCookie)
-	if err != nil || cookie.Value == "" {
+	token := strings.TrimSpace(r.Header.Get(HeaderIdentidad))
+	if token == "" {
 		return Sesion{}, ErrSinSesion
 	}
-	return v.Validar(cookie.Value)
+	return v.Validar(token)
 }

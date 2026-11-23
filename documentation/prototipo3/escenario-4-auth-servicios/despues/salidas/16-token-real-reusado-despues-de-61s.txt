@@ -1,0 +1,8 @@
+$ COPIADO=$(token_de "$JAR_V"); echo "--- recien copiado:"; docker exec arqui_gateway curl -s -w '  HTTP %{http_code}\n' -H "X-User-Token: $COPIADO" http://orquestador:8081/billetera; sleep 61; echo "--- 61 s despues:"; docker exec arqui_gateway curl -s -w '  HTTP %{http_code}\n' -H "X-User-Token: $COPIADO" http://orquestador:8081/billetera
+--- recien copiado:
+{"saldo":80,"cop_por_token":1000}
+  HTTP 200
+--- 61 s despues:
+{"error":"No hay sesión","codigo":"sin_sesion"}
+  HTTP 401
+

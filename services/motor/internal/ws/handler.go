@@ -26,8 +26,9 @@ func mismoOrigen(r *http.Request) bool {
 }
 
 // Identificador obtiene el user_id de quien abre la conexion. La
-// implementacion real valida el JWT de la cookie de sesion (RNF-06); si
-// devuelve error la conexion se rechaza con 401.
+// implementacion real verifica la identidad firmada por Usuarios que reenvia
+// el Gateway (auth.Autenticador, escenario 4); si devuelve error la conexion
+// se rechaza con 401.
 type Identificador interface {
 	Identificar(r *http.Request) (userID string, err error)
 }
@@ -38,8 +39,9 @@ type IdentificadorFunc func(r *http.Request) (string, error)
 func (f IdentificadorFunc) Identificar(r *http.Request) (string, error) { return f(r) }
 
 // Register monta GET /ws. origenPermitido decide que paginas pueden abrir el
-// WebSocket: como la sesion viaja en una cookie, sin este filtro cualquier
-// sitio podria abrir una conexion a nombre del usuario.
+// WebSocket: como el navegador manda la cookie de sesion al Gateway por su
+// cuenta, sin este filtro cualquier sitio podria abrir una conexion a nombre
+// del usuario.
 func Register(mux *http.ServeMux, hub *Hub, id Identificador, origenPermitido func(origen string) bool) {
 	mux.Handle("GET /ws", Handler(hub, id, origenPermitido))
 }

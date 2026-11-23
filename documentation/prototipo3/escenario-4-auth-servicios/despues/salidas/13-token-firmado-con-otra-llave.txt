@@ -1,0 +1,6 @@
+$ openssl genpkey -algorithm ed25519 -out "$TMP/atacante.key"; CUERPO=$(python3 -I $H cuerpo $VICTIMA); printf %s "$CUERPO" > "$TMP/cuerpo"; FIRMA=$(openssl pkeyutl -sign -inkey "$TMP/atacante.key" -rawin -in "$TMP/cuerpo" | python3 -I $H b64url); echo "token del atacante: $CUERPO.$FIRMA" | cut -c1-110; docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' -H "X-User-Token: $CUERPO.$FIRMA" http://orquestador:8081/billetera
+token del atacante: eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMGMyZDI0ZS00YTFhLTQyNjYtOTE0NS1lYmVhMDg2N
+{"error":"No hay sesión","codigo":"sin_sesion"}
+
+HTTP 401
+

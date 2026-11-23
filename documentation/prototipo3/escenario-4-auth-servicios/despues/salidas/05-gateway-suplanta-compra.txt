@@ -1,0 +1,5 @@
+$ docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' -X POST -H 'Content-Type: application/json' -H 'Idempotency-Key: e4-ataque-2' -H "X-User-Id: $VICTIMA" -H "X-User-Rol: player" -d '{"monto_cop":5000}' http://orquestador:8081/billetera/compras
+{"error":"No hay sesión","codigo":"sin_sesion"}
+
+HTTP 401
+

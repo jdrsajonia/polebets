@@ -1,0 +1,4 @@
+$ docker exec arqui_pagos python -c "import http.client as h; c=h.HTTPConnection('orquestador', 8081); c.request('GET', '/billetera', headers={'X-User-Id': '$VICTIMA', 'X-User-Rol': 'player'}); r=c.getresponse(); print(r.status, r.read().decode())"
+401 {"error":"No hay sesión","codigo":"sin_sesion"}
+
+

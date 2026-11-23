@@ -1,0 +1,3 @@
+$ grep -c -E 'httpx|requests|urllib|X-Internal-Service-Token' services/pagos/app/consumer.py
+0
+

@@ -18,13 +18,15 @@ from decimal import Decimal
 import pytest
 
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://arqui:arqui_pass@localhost:5432/pagos_db")
-os.environ["INTERNAL_API_TOKEN"] = "token-interno-de-pruebas-de-pagos-32c"
+os.environ["TOKEN_DESDE_ORQUESTADOR"] = "token-de-pruebas-orquestador-a-pagos-32c"
+os.environ["TOKEN_DESDE_MOTOR"] = "token-de-pruebas-motor-a-pagos-32-caract"
 os.environ.setdefault("DB_CONNECT_RETRIES", "1")
 os.environ.setdefault("DB_CONNECT_RETRY_SECONDS", "0")
 
 from app.db import ping_db  # noqa: E402
 
-TOKEN = os.environ["INTERNAL_API_TOKEN"]
+TOKEN = os.environ["TOKEN_DESDE_ORQUESTADOR"]
+TOKEN_MOTOR = os.environ["TOKEN_DESDE_MOTOR"]
 DB_AVAILABLE = ping_db()
 requires_db = pytest.mark.skipif(not DB_AVAILABLE, reason="PostgreSQL no disponible")
 

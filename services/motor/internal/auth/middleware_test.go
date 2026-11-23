@@ -6,22 +6,20 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
-
 	"github.com/arquisoft/motor/internal/ws"
 )
 
 // Si Autenticador deja de cumplir ws.Identificador, esto no compila.
 var _ ws.Identificador = (*Autenticador)(nil)
 
-// peticion arma un GET con la cookie de sesion del rol dado ("" = sin cookie).
+// peticion arma un GET con la identidad firmada del rol dado ("" = sin identidad).
 func peticion(t *testing.T, rol string) *http.Request {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/", nil)
 	if rol != "" {
 		c := claimsValidos()
 		c[ClaimRol] = rol
-		r.AddCookie(&http.Cookie{Name: NombreCookie, Value: firmar(t, jwt.SigningMethodHS256, secretoPrueba, c)})
+		r.Header.Set(HeaderIdentidad, firmar(t, privadaPrueba, c))
 	}
 	return r
 }
@@ -37,7 +35,7 @@ func handlerOK(vista *Sesion) http.Handler {
 func TestExigirSesion(t *testing.T) {
 	a := NuevoAutenticador(validador(t))
 
-	t.Run("sin cookie da 401", func(t *testing.T) {
+	t.Run("sin identidad da 401", func(t *testing.T) {
 		var vista Sesion
 		rec := httptest.NewRecorder()
 		a.ExigirSesion(handlerOK(&vista)).ServeHTTP(rec, peticion(t, ""))
@@ -49,7 +47,7 @@ func TestExigirSesion(t *testing.T) {
 	t.Run("token invalido da 401", func(t *testing.T) {
 		var vista Sesion
 		r := httptest.NewRequest(http.MethodGet, "/", nil)
-		r.AddCookie(&http.Cookie{Name: NombreCookie, Value: "token-falso"})
+		r.Header.Set(HeaderIdentidad, "token-falso")
 		rec := httptest.NewRecorder()
 		a.ExigirSesion(handlerOK(&vista)).ServeHTTP(rec, r)
 		if rec.Code != http.StatusUnauthorized {
@@ -101,34 +99,26 @@ func TestIdentificar(t *testing.T) {
 	}
 
 	if _, err := a.Identificar(peticion(t, "")); !errors.Is(err, ErrSinSesion) {
-		t.Errorf("sin cookie: error = %v, se esperaba ErrSinSesion", err)
+		t.Errorf("sin identidad: error = %v, se esperaba ErrSinSesion", err)
 	}
 }
 
-func TestIdentificarConHeaderDelGateway(t *testing.T) {
+func TestIdentificarIgnoraXUserId(t *testing.T) {
 	a := NuevoAutenticador(validador(t))
-	const id = "0B6C2F1E-8D4A-4C3B-9F2E-1A2B3C4D5E6F"
+	const otro = "0B6C2F1E-8D4A-4C3B-9F2E-1A2B3C4D5E6F"
 
-	// Con X-User-Id del Gateway no hace falta la cookie.
+	// El ataque del escenario 4: X-User-Id escrito a mano ya no identifica.
 	r := peticion(t, "")
-	r.Header.Set(HeaderUsuarioGateway, id)
-	if got, err := a.Identificar(r); err != nil || got != "0b6c2f1e-8d4a-4c3b-9f2e-1a2b3c4d5e6f" {
-		t.Errorf("Identificar = %q, %v", got, err)
+	r.Header.Set("X-User-Id", otro)
+	if _, err := a.Identificar(r); !errors.Is(err, ErrSinSesion) {
+		t.Errorf("solo X-User-Id: error = %v, se esperaba ErrSinSesion", err)
 	}
 
-	// El header manda sobre la cookie: es lo que valido el Gateway.
+	// Con identidad firmada, X-User-Id no cambia a quien se identifica.
 	r = peticion(t, RolJugador)
-	r.Header.Set(HeaderUsuarioGateway, id)
-	if got, _ := a.Identificar(r); got == userPrueba {
-		t.Errorf("debio usar X-User-Id y uso la cookie")
-	}
-
-	for _, malo := range []string{"no-es-uuid", "0b6c2f1e8d4a4c3b9f2e1a2b3c4d5e6f", id + "x", "0b6c2f1e-8d4a-4c3b-9f2e-1a2b3c4d5e6g"} {
-		r = peticion(t, RolJugador)
-		r.Header.Set(HeaderUsuarioGateway, malo)
-		if _, err := a.Identificar(r); !errors.Is(err, ErrSinSesion) {
-			t.Errorf("X-User-Id %q: error = %v, se esperaba ErrSinSesion", malo, err)
-		}
+	r.Header.Set("X-User-Id", otro)
+	if got, err := a.Identificar(r); err != nil || got != userPrueba {
+		t.Errorf("Identificar = %q, %v; se esperaba el sub firmado", got, err)
 	}
 }
 

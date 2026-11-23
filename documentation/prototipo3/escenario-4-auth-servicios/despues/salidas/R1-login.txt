@@ -1,0 +1,4 @@
+$ curl -s -w '\nHTTP %{http_code}\n' --cacert $CA -c "$JAR_V" https://localhost/api/auth/login -H 'Content-Type: application/json' -d '{"email":"e4.victima@polebet.co","password":"Clave-e4-victima-123"}'
+{"id":"f0c2d24e-4a1a-4266-9145-ebea0867501f","nombre":"E4 victima","email":"e4.victima@polebet.co","rol":"player"}
+HTTP 200
+

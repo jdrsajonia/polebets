@@ -15,7 +15,8 @@ internal/billetera # GET /billetera, POST /billetera/compras (HU2-04)
 internal/registro  # POST /registro, público: billetera en Pagos y luego cuenta en Usuarios (HU2-01)
 internal/pagina    # GET /pagina-usuario: Usuarios + Pagos + Motor en paralelo para la página SSR (HU2-03)
 internal/errores  # formato {error, codigo} y la tabla de errores del contrato
-internal/sesion   # middleware: X-User-Id y X-User-Rol del Gateway → 401 / 403
+internal/sesion   # middleware: verifica la identidad firmada (X-User-Token) → 401 / 403
+internal/sesion/sesiontest # firma identidades de prueba para los tests de los módulos
 internal/traza    # X-Request-Id de cada petición
 internal/interno  # cliente HTTP hacia Usuarios, Pagos y Motor (token, timeout, reintentos)
 ```
@@ -33,7 +34,10 @@ mux.Handle("POST /apuestas", sesion.ExigirJugador(http.HandlerFunc(apostar)))
 | `USUARIOS_BASE_URL` | sí | URL de Usuarios, p. ej. `http://usuarios:8001` |
 | `PAGOS_BASE_URL` | sí | URL de Pagos, p. ej. `http://pagos:8000` |
 | `MOTOR_BASE_URL` | sí | URL del Motor, p. ej. `http://motor:8080` |
-| `INTERNAL_API_TOKEN` | sí | Token de servicio, mínimo 32 caracteres; el mismo que usan Pagos y el Motor |
+| `TOKEN_HACIA_USUARIOS` | sí | Token de servicio para Usuarios, mínimo 32 caracteres |
+| `TOKEN_HACIA_PAGOS` | sí | Token de servicio para Pagos; distinto de los otros dos |
+| `TOKEN_HACIA_MOTOR` | sí | Token de servicio para el Motor; distinto de los otros dos |
+| `IDENTIDAD_LLAVE_PUBLICA` | sí | Llave pública de Usuarios para verificar `X-User-Token` |
 | `HTTP_PORT` | no | Puerto de escucha; por defecto `8081` |
 
 Si falta una obligatoria, el servicio no arranca y el error dice cuáles faltan.
@@ -46,7 +50,11 @@ Con Go 1.25 o superior, desde `services/orquestador`:
 export USUARIOS_BASE_URL=http://localhost:8001
 export PAGOS_BASE_URL=http://localhost:8000
 export MOTOR_BASE_URL=http://localhost:8080
-export INTERNAL_API_TOKEN=$(openssl rand -hex 32)   # o el mismo valor que tengan Pagos y el Motor
+# Cada token debe ser el mismo que tenga su destino (TOKEN_DESDE_ORQUESTADOR allá)
+export TOKEN_HACIA_USUARIOS=$(openssl rand -hex 32)
+export TOKEN_HACIA_PAGOS=$(openssl rand -hex 32)
+export TOKEN_HACIA_MOTOR=$(openssl rand -hex 32)
+export IDENTIDAD_LLAVE_PUBLICA=../usuarios/llaves/identidad.pub
 go run .
 ```
 
@@ -65,13 +73,15 @@ curl -i localhost:8081/health
 # {"estado":"ok"}
 ```
 
-Sin Gateway, las rutas de jugador se prueban poniendo a mano los headers que él agregaría:
+Las rutas de jugador exigen `X-User-Token`, la identidad que firma Usuarios con su llave privada (escenario 4). Escribir `X-User-Id` a mano ya no sirve, así que se prueban por el Gateway con la cookie de una sesión:
 
 ```bash
-curl -i localhost:8081/eventos \
-  -H "X-User-Id: 0b6c2f1e-8d4a-4c3b-9f2e-1a2b3c4d5e6f" \
-  -H "X-User-Rol: player"
+curl -s --cacert services/gateway/certs/ca.crt -c sesion.jar https://localhost/api/auth/login \
+  -H "Content-Type: application/json" -d '{"email":"ana@correo.co","password":"clave-segura"}'
+curl -i --cacert services/gateway/certs/ca.crt -b sesion.jar https://localhost/api/eventos
 ```
+
+En los tests, `sesiontest.Identificar(req, id, rol)` pone una identidad firmada con una llave de prueba.
 
 El registro es público (sin headers):
 
@@ -82,4 +92,4 @@ curl -i localhost:8081/registro -H "Content-Type: application/json" \
 # 409 correo_registrado · 400 cuerpo_invalido · 503 servicio_no_disponible
 ```
 
-Sin esos headers la respuesta es `401 {"error":"No hay sesión","codigo":"sin_sesion"}`, y con `X-User-Rol: admin` es `403 solo_jugadores`. Las rutas de cada flujo (`/eventos`, `/apuestas`, …) se agregan una por una; mientras no exista una ruta, el servidor responde 404.
+Sin identidad válida la respuesta es `401 {"error":"No hay sesión","codigo":"sin_sesion"}`, y con rol `admin` es `403 solo_jugadores`. Las rutas de cada flujo (`/eventos`, `/apuestas`, …) se agregan una por una; mientras no exista una ruta, el servidor responde 404.

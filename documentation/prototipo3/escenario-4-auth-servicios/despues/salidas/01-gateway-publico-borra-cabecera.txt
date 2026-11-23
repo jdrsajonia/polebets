@@ -1,0 +1,3 @@
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' --cacert $CA -H "X-User-Id: $VICTIMA" -H "X-User-Rol: player" https://localhost/api/billetera
+HTTP 401
+

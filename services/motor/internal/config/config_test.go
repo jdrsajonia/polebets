@@ -12,12 +12,13 @@ func entorno(vars map[string]string) func(string) string {
 
 func entornoCompleto() map[string]string {
 	return map[string]string{
-		"MONGO_URI":          "mongodb://localhost:27017",
-		"MONGO_DB":           "apuestas_db",
-		"JWT_SECRET":         "secreto",
-		"PAGOS_BASE_URL":     "http://pagos:8000",
-		"INTERNAL_API_TOKEN": "token-interno-de-pruebas-para-hu07",
-		"ALLOWED_ORIGINS":    "http://localhost:5173, http://127.0.0.1:5173",
+		"MONGO_URI":               "mongodb://localhost:27017",
+		"MONGO_DB":                "apuestas_db",
+		"IDENTIDAD_LLAVE_PUBLICA": "/run/llaves/identidad.pub",
+		"PAGOS_BASE_URL":          "http://pagos:8000",
+		"TOKEN_DESDE_ORQUESTADOR": "token-de-pruebas-orquestador-a-motor-xx",
+		"TOKEN_HACIA_PAGOS":       "token-de-pruebas-motor-a-pagos-xxxxxxxx",
+		"ALLOWED_ORIGINS":         "http://localhost:5173, http://127.0.0.1:5173",
 	}
 }
 
@@ -39,14 +40,16 @@ func TestCargaConValoresPorDefecto(t *testing.T) {
 
 func TestFallaSiFaltanObligatorias(t *testing.T) {
 	vars := entornoCompleto()
-	delete(vars, "JWT_SECRET")
+	delete(vars, "IDENTIDAD_LLAVE_PUBLICA")
 	delete(vars, "MONGO_URI")
+	delete(vars, "TOKEN_DESDE_ORQUESTADOR")
+	delete(vars, "TOKEN_HACIA_PAGOS")
 
 	_, err := desde(entorno(vars))
 	if err == nil {
 		t.Fatal("se esperaba error por variables faltantes")
 	}
-	for _, clave := range []string{"JWT_SECRET", "MONGO_URI"} {
+	for _, clave := range []string{"IDENTIDAD_LLAVE_PUBLICA", "MONGO_URI", "TOKEN_DESDE_ORQUESTADOR", "TOKEN_HACIA_PAGOS"} {
 		if !strings.Contains(err.Error(), clave) {
 			t.Errorf("el error no menciona %s: %v", clave, err)
 		}
@@ -72,9 +75,23 @@ func TestVentanaInvalida(t *testing.T) {
 }
 
 func TestTokenInternoCorto(t *testing.T) {
+	for _, clave := range []string{"TOKEN_DESDE_ORQUESTADOR", "TOKEN_HACIA_PAGOS"} {
+		vars := entornoCompleto()
+		vars[clave] = "demasiado-corto"
+		_, err := desde(entorno(vars))
+		if err == nil || !strings.Contains(err.Error(), clave) {
+			t.Errorf("se esperaba rechazo de %s corto, llego %v", clave, err)
+		}
+	}
+}
+
+// Escenario 4: con el mismo valor, Pagos podria llamar al motor con el token
+// que el motor le manda. El motor no arranca.
+func TestTokensRepetidos(t *testing.T) {
 	vars := entornoCompleto()
-	vars["INTERNAL_API_TOKEN"] = "demasiado-corto"
-	if _, err := desde(entorno(vars)); err == nil {
-		t.Fatal("se esperaba rechazo de INTERNAL_API_TOKEN corto")
+	vars["TOKEN_HACIA_PAGOS"] = vars["TOKEN_DESDE_ORQUESTADOR"]
+	_, err := desde(entorno(vars))
+	if err == nil || !strings.Contains(err.Error(), "mismo valor") {
+		t.Fatalf("se esperaba error por tokens repetidos, llego %v", err)
 	}
 }

@@ -1,13 +1,12 @@
 """Hash de contraseñas y JWT de sesion (HU2-02, RNF-06).
 
-Usuarios es el unico que EMITE el JWT. Lo validan:
+Usuarios es el unico que EMITE y VALIDA este JWT: lo valida en GET
+/internal/auth, la subpeticion auth_request del Gateway en cada ruta protegida
+(T2-01). JWT_SECRET solo esta en Usuarios: con HS256, quien puede verificar
+tambien puede firmar, asi que ningun otro servicio debe tenerlo (escenario 4).
+Los demas servicios reciben la identidad firmada de core/identidad.py.
 
-  - Usuarios mismo, en GET /internal/auth, que es la subpeticion auth_request
-    del Gateway en cada ruta protegida (T2-01).
-  - El Motor, solo mientras el WebSocket no pase por el Gateway: hoy todavia
-    verifica la firma por su cuenta (services/motor/internal/auth/contrato.go).
-
-Contrato (el mismo del prototipo 1, para no romper al Motor):
+Contrato (el mismo del prototipo 1):
 
   - Algoritmo HS256 con el secreto compartido JWT_SECRET.
   - Viaja en la cookie HttpOnly "session".

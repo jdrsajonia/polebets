@@ -4,7 +4,7 @@ Dueño de PostgreSQL Usuarios (tabla users). Es el unico que emite el JWT de
 sesion y el que valida la cookie para el Gateway en cada ruta protegida.
 
     POST /auth/login, POST /auth/logout, GET /auth/me   (via Gateway, /api/auth/*)
-    GET  /internal/auth                                 (auth_request del Gateway)
+    GET  /internal/auth                                 (auth_request del Gateway; firma la identidad)
     POST /internal/users, GET /internal/users/{id}      (Orquestador, token de servicio)
     GET  /health
 
@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
 
+from app.core.identidad import llave_privada
 from app.db import SessionLocal, init_db, ping_db, wait_for_db
 from app.routers import ROUTERS
 from app.services.admin_bootstrap import aprovisionar_admin_desde_config
@@ -25,7 +26,9 @@ logger = logging.getLogger("usuarios")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Al arrancar: esperar a PostgreSQL, crear las tablas que falten y el admin.
+    # Al arrancar: leer la llave de identidad (si falta, no arranca), esperar a
+    # PostgreSQL, crear las tablas que falten y el admin.
+    llave_privada()
     wait_for_db()
     init_db()
     with SessionLocal() as db:

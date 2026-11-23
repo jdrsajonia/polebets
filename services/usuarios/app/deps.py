@@ -1,7 +1,7 @@
 """Dependencias de FastAPI compartidas por los routers.
 
     DbSession        sesion de SQLAlchemy por request
-    ServicioInterno  exige X-Internal-Service-Token (rutas /internal/* del Orquestador)
+    ServicioInterno  exige el token del Orquestador en X-Internal-Service-Token
     usuario_de_cookie  el dueño de la cookie de sesion, o None
 """
 from typing import Annotated
@@ -21,6 +21,7 @@ DbSession = Annotated[Session, Depends(get_db)]
 def verificar_servicio(
     token: Annotated[str | None, Header(alias="X-Internal-Service-Token")] = None,
 ) -> None:
+    """401 si el token no es el del Orquestador (falta, es otro o es de otro servicio)."""
     if not token_servicio_valido(token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token de servicio inválido")
 

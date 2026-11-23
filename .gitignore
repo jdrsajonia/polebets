@@ -49,3 +49,6 @@ services/ingestor/ingestor
 
 # Varios
 services/gateway/certs/
+
+# Escenario 4: llaves de identidad (scripts/generar-llaves-identidad.sh)
+services/usuarios/llaves/

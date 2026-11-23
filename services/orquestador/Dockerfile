@@ -3,10 +3,10 @@ FROM golang:1.25-alpine AS build
 
 WORKDIR /src
 
-# Dependencias primero para aprovechar la cache de Docker. El orquestador solo
-# usa la libreria estandar, asi que no hay go.sum; si algun dia se agrega una
-# dependencia, se copia aqui junto a go.mod (no se corre go mod tidy).
-COPY go.mod ./
+# Dependencias primero para aprovechar la cache de Docker. go.sum esta
+# versionado: el build usa exactamente esas versiones (no se corre go mod tidy).
+# La unica dependencia es golang-jwt (escenario 4), la misma version del Motor.
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .

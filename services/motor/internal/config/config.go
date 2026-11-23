@@ -13,13 +13,26 @@ import (
 	"time"
 )
 
+// LargoMinimoToken es el largo minimo de cada token de servicio.
+const LargoMinimoToken = 32
+
 type Config struct {
-	MongoURI         string
-	MongoDB          string
-	HTTPPort         string
-	JWTSecret        string
-	PagosBaseURL     string
-	InternalAPIToken string
+	MongoURI     string
+	MongoDB      string
+	HTTPPort     string
+	PagosBaseURL string
+
+	// Tokens de servicio (escenario 4, T3-05). TokenDesdeOrquestador es el
+	// unico que aceptan las rutas /internal/* del motor; TokenHaciaPagos es el
+	// que el motor manda a Pagos. Son distintos: Pagos no conoce el primero y
+	// por eso no puede llamar al motor.
+	TokenDesdeOrquestador string
+	TokenHaciaPagos       string
+
+	// IdentidadLlavePublica es la ruta de la llave publica Ed25519 de
+	// Usuarios, con la que se verifica X-User-Token (escenario 4, T3-05). El
+	// motor ya no recibe JWT_SECRET: con la publica solo se verifica.
+	IdentidadLlavePublica string
 
 	// OrigenesPermitidos son los origenes del front que pueden llamar al
 	// motor con cookies (CORS) y abrir el WebSocket.
@@ -62,20 +75,30 @@ func desde(getenv func(string) string) (Config, error) {
 	}
 
 	cfg := Config{
-		MongoURI:         requerida("MONGO_URI"),
-		MongoDB:          requerida("MONGO_DB"),
-		JWTSecret:        requerida("JWT_SECRET"),
-		PagosBaseURL:     requerida("PAGOS_BASE_URL"),
-		InternalAPIToken: requerida("INTERNAL_API_TOKEN"),
-		HTTPPort:         opcional(getenv, "HTTP_PORT", "8080"),
+		MongoURI:     requerida("MONGO_URI"),
+		MongoDB:      requerida("MONGO_DB"),
+		PagosBaseURL: requerida("PAGOS_BASE_URL"),
+		HTTPPort:     opcional(getenv, "HTTP_PORT", "8080"),
+
+		TokenDesdeOrquestador: requerida("TOKEN_DESDE_ORQUESTADOR"),
+		TokenHaciaPagos:       requerida("TOKEN_HACIA_PAGOS"),
+
+		IdentidadLlavePublica: requerida("IDENTIDAD_LLAVE_PUBLICA"),
 	}
 	origenes := separarLista(requerida("ALLOWED_ORIGINS"))
 
 	if len(faltan) > 0 {
 		return Config{}, fmt.Errorf("faltan variables de entorno obligatorias: %s", strings.Join(faltan, ", "))
 	}
-	if len(cfg.InternalAPIToken) < 32 {
-		return Config{}, fmt.Errorf("INTERNAL_API_TOKEN debe tener al menos 32 caracteres")
+	for _, t := range [][2]string{{"TOKEN_DESDE_ORQUESTADOR", cfg.TokenDesdeOrquestador}, {"TOKEN_HACIA_PAGOS", cfg.TokenHaciaPagos}} {
+		if len(t[1]) < LargoMinimoToken {
+			return Config{}, fmt.Errorf("%s debe tener al menos %d caracteres", t[0], LargoMinimoToken)
+		}
+	}
+	// Si fueran iguales, Pagos (que conoce TOKEN_HACIA_PAGOS) podria llamar
+	// a las rutas internas del motor: otra vez un token compartido.
+	if cfg.TokenDesdeOrquestador == cfg.TokenHaciaPagos {
+		return Config{}, fmt.Errorf("TOKEN_DESDE_ORQUESTADOR y TOKEN_HACIA_PAGOS tienen el mismo valor: cada uno necesita su propio token")
 	}
 	if len(origenes) == 0 {
 		return Config{}, fmt.Errorf("ALLOWED_ORIGINS no tiene ningun origen valido")
@@ -137,6 +160,7 @@ func porcentaje(getenv func(string) string, clave string, def float64) (float64,
 	return n, nil
 }
 
+// opcional lee una variable y usa el valor por defecto si esta vacia.
 func opcional(getenv func(string) string, clave, def string) string {
 	if v := strings.TrimSpace(getenv(clave)); v != "" {
 		return v

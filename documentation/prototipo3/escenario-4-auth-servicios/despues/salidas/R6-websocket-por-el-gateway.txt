@@ -1,0 +1,5 @@
+$ curl -s -i --max-time 3 --cacert $CA -b "$JAR_V" -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Origin: https://localhost' https://localhost/api/ws | head -1; sleep 1; docker logs arqui_motor 2>&1 | grep "cliente WS" | tail -2
+HTTP/1.1 101 Switching Protocols
+2026/11/23 15:08:40 cliente WS conectado user_id="f0c2d24e-4a1a-4266-9145-ebea0867501f" (total=1)
+2026/11/23 15:08:43 cliente WS desconectado user_id="f0c2d24e-4a1a-4266-9145-ebea0867501f" (total=0)
+

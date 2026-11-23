@@ -12,6 +12,7 @@ import (
 
 	"github.com/arquisoft/orquestador/internal/interno"
 	"github.com/arquisoft/orquestador/internal/sesion"
+	"github.com/arquisoft/orquestador/internal/sesion/sesiontest"
 )
 
 const (
@@ -53,10 +54,7 @@ func pedir(t *testing.T, pagos Pagos, metodo, ruta, cuerpo, clave, rol string) *
 	mux := http.NewServeMux()
 	Register(mux, pagos)
 	req := httptest.NewRequest(metodo, ruta, strings.NewReader(cuerpo))
-	req.Header.Set(sesion.HeaderUsuario, jugador)
-	if rol != "" {
-		req.Header.Set(sesion.HeaderRol, rol)
-	}
+	sesiontest.Identificar(req, jugador, rol)
 	if clave != "" {
 		req.Header.Set("Idempotency-Key", clave)
 	}

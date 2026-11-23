@@ -1,0 +1,16 @@
+$ for c in arqui_orquestador arqui_usuarios arqui_pagos arqui_pagos_consumer arqui_motor; do echo "--- $c"; docker exec $c sh -c 'env | grep -E "^(TOKEN_|INTERNAL_API_TOKEN)" | sort | while IFS="=" read -r n v; do printf "  %-24s sha256=%s\n" "$n" "$(printf %s "$v" | sha256sum | cut -c1-12)"; done; env | grep -qE "^(TOKEN_|INTERNAL_API_TOKEN)" || echo "  (ningun token de servicio)"'; done
+--- arqui_orquestador
+  TOKEN_HACIA_MOTOR        sha256=61e682f3f269
+  TOKEN_HACIA_PAGOS        sha256=4fd24199462b
+  TOKEN_HACIA_USUARIOS     sha256=75ea3c3a7135
+--- arqui_usuarios
+  TOKEN_DESDE_ORQUESTADOR  sha256=75ea3c3a7135
+--- arqui_pagos
+  TOKEN_DESDE_MOTOR        sha256=3c0cd689d528
+  TOKEN_DESDE_ORQUESTADOR  sha256=4fd24199462b
+--- arqui_pagos_consumer
+  (ningun token de servicio)
+--- arqui_motor
+  TOKEN_DESDE_ORQUESTADOR  sha256=61e682f3f269
+  TOKEN_HACIA_PAGOS        sha256=3c0cd689d528
+

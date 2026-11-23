@@ -1,0 +1,5 @@
+$ docker exec arqui_pagos python -c "import os,http.client as h
+for v in ('TOKEN_DESDE_ORQUESTADOR','TOKEN_DESDE_MOTOR'): c=h.HTTPConnection('usuarios',8001); c.request('GET','/internal/users/$VICTIMA',headers={'X-Internal-Service-Token':os.environ[v]}); r=c.getresponse(); print(f'{v:<24}', r.status, r.read().decode())"
+TOKEN_DESDE_ORQUESTADOR  401 {"detail":"Token de servicio inválido"}
+TOKEN_DESDE_MOTOR        401 {"detail":"Token de servicio inválido"}
+

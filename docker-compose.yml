@@ -293,8 +293,22 @@ services:
       USUARIOS_BASE_URL: http://usuarios:8001
       PAGOS_BASE_URL: http://pagos:8000
       MOTOR_BASE_URL: http://motor:8080
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Escenario 4: un token de servicio por destino (no uno compartido).
+      TOKEN_HACIA_USUARIOS: ${TOKEN_ORQUESTADOR_USUARIOS}
+      TOKEN_HACIA_PAGOS: ${TOKEN_ORQUESTADOR_PAGOS}
+      TOKEN_HACIA_MOTOR: ${TOKEN_ORQUESTADOR_MOTOR}
+      IDENTIDAD_LLAVE_PUBLICA: /etc/polebet/identidad.pub
       HTTP_PORT: "8081"
+    # Escenario 4: llave PÚBLICA de Usuarios para verificar X-User-Token. Solo
+    # sirve para verificar; sin ella el servicio no arranca
+    # (generarla con scripts/generar-llaves-identidad.sh).
+    volumes:
+      - type: bind
+        source: ./services/usuarios/llaves/identidad.pub
+        target: /etc/polebet/identidad.pub
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       - usuarios
       - pagos
@@ -321,13 +335,21 @@ services:
     environment:
       SESSION_COOKIE_SECURE: "true"
       DATABASE_URL: postgresql+psycopg://${USUARIOS_DB_USER}:${USUARIOS_DB_PASSWORD}@postgres-usuarios:5432/${USUARIOS_DB_NAME}
+      # JWT_SECRET firma la cookie de sesión. Solo lo tiene Usuarios (escenario 4):
+      # con HS256 quien verifica también puede firmar.
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRE_MINUTES: ${JWT_EXPIRE_MINUTES}
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Escenario 4: solo el Orquestador llama a /internal/users.
+      TOKEN_DESDE_ORQUESTADOR: ${TOKEN_ORQUESTADOR_USUARIOS}
+      # Escenario 4: firma la identidad (X-User-Token) con esta llave privada.
+      IDENTIDAD_LLAVE_PRIVADA: /run/secrets/identidad_llave_privada
       # Administrador inicial (RF-21): Usuarios lo crea al arrancar si falta.
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       ADMIN_NAME: ${ADMIN_NAME}
+    # La llave PRIVADA de identidad: único contenedor que la recibe.
+    secrets:
+      - identidad_llave_privada
     depends_on:
       postgres-usuarios:
         condition: service_healthy
@@ -354,7 +376,9 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://${PAGOS_DB_USER}:${PAGOS_DB_PASSWORD}@postgres-pagos:5432/${PAGOS_DB_NAME}
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Escenario 4: acepta solo al Orquestador y al Motor, cada uno con el suyo.
+      TOKEN_DESDE_ORQUESTADOR: ${TOKEN_ORQUESTADOR_PAGOS}
+      TOKEN_DESDE_MOTOR: ${TOKEN_MOTOR_PAGOS}
       COP_PER_TOKEN: ${COP_PER_TOKEN}
     depends_on:
       postgres-pagos:
@@ -384,7 +408,7 @@ services:
     command: ["python", "-m", "app.consumer"]
     environment:
       DATABASE_URL: postgresql+psycopg://${PAGOS_DB_USER}:${PAGOS_DB_PASSWORD}@postgres-pagos:5432/${PAGOS_DB_NAME}
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Sin tokens de servicio (escenario 4): no recibe ni hace llamadas HTTP.
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
     depends_on:
       postgres-pagos:
@@ -406,9 +430,14 @@ services:
       MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/${MONGO_DB}?authSource=admin
       MONGO_DB: ${MONGO_DB}
       REDIS_URL: redis://redis:6379/0
-      JWT_SECRET: ${JWT_SECRET}
+      # Sin JWT_SECRET desde el escenario 4: el motor verifica la identidad
+      # firmada con la llave pública y ya no puede fabricar sesiones.
+      IDENTIDAD_LLAVE_PUBLICA: /etc/polebet/identidad.pub
       PAGOS_BASE_URL: http://pagos:8000
-      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      # Escenario 4: acepta solo el token del Orquestador y llama a Pagos con
+      # el suyo. Son distintos: Pagos no puede llamar al Motor.
+      TOKEN_DESDE_ORQUESTADOR: ${TOKEN_ORQUESTADOR_MOTOR}
+      TOKEN_HACIA_PAGOS: ${TOKEN_MOTOR_PAGOS}
       BETTING_WINDOW_SECONDS: ${BETTING_WINDOW_SECONDS}
       OBSERVATION_WINDOW_SECONDS: ${OBSERVATION_WINDOW_SECONDS}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
@@ -419,6 +448,16 @@ services:
       EVENT_INITIAL_CHIPS: ${EVENT_INITIAL_CHIPS:-1000}
       EVENT_COMMISSION_PCT: ${EVENT_COMMISSION_PCT:-10}
       EVENT_MIN_WAGER_PCT: ${EVENT_MIN_WAGER_PCT:-50}
+    # Escenario 4: llave PÚBLICA de Usuarios para verificar X-User-Token. Solo
+    # sirve para verificar; sin ella el servicio no arranca
+    # (generarla con scripts/generar-llaves-identidad.sh).
+    volumes:
+      - type: bind
+        source: ./services/usuarios/llaves/identidad.pub
+        target: /etc/polebet/identidad.pub
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       mongo:
         condition: service_healthy
@@ -527,6 +566,14 @@ networks:
     internal: true
   ingestor_salida:
     driver: bridge
+
+# Escenario 4 (T3-05): llave privada con la que Usuarios firma la identidad.
+# Se genera con scripts/generar-llaves-identidad.sh (services/usuarios/llaves/
+# está en .gitignore). La pública no es secreta: va como volumen de solo
+# lectura al Orquestador y al Motor.
+secrets:
+  identidad_llave_privada:
+    file: ./services/usuarios/llaves/identidad.key
 
 volumes:
   pg_usuarios_data:

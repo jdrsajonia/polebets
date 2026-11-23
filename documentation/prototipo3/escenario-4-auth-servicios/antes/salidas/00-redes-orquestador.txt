@@ -1,0 +1,12 @@
+$ for red in gw_backend orq_backend; do echo "--- $red ---"; docker network inspect arquisoft-prototipo2_$red --format '{{range .Containers}}{{.Name}}{{"\n"}}{{end}}' | sed '/^$/d' | sort; done
+--- gw_backend ---
+arqui_gateway
+arqui_motor
+arqui_orquestador
+arqui_usuarios
+--- orq_backend ---
+arqui_motor
+arqui_orquestador
+arqui_pagos
+arqui_usuarios
+

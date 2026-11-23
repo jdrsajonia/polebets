@@ -1,0 +1,5 @@
+$ curl -s -w '\nHTTP %{http_code}\n' --cacert $CA -b "$JAR_V" https://localhost/api/billetera/compras -H 'Content-Type: application/json' -H "Idempotency-Key: e4-regresion-$(date +%s)" -d '{"monto_cop":10000}'
+{"compra_id":15,"tokens_acreditados":10,"saldo":100,"creada_en":"2026-11-23T15:08:40.617568Z"}
+
+HTTP 201
+

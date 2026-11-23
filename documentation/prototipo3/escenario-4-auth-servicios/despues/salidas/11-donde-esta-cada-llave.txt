@@ -1,0 +1,10 @@
+$ for c in arqui_usuarios arqui_orquestador arqui_motor arqui_gateway arqui_pagos; do echo "--- $c"; docker exec $c sh -c 'ls /run/secrets/ 2>/dev/null | sed "s/^/privada: \/run\/secrets\//"; ls /etc/polebet/ 2>/dev/null | sed "s/^/publica: \/etc\/polebet\//"; true'; done
+--- arqui_usuarios
+privada: /run/secrets/identidad_llave_privada
+--- arqui_orquestador
+publica: /etc/polebet/identidad.pub
+--- arqui_motor
+publica: /etc/polebet/identidad.pub
+--- arqui_gateway
+--- arqui_pagos
+
