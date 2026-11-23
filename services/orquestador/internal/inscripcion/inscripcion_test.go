@@ -12,6 +12,7 @@ import (
 
 	"github.com/arquisoft/orquestador/internal/interno"
 	"github.com/arquisoft/orquestador/internal/sesion"
+	"github.com/arquisoft/orquestador/internal/sesion/sesiontest"
 )
 
 const (
@@ -54,12 +55,7 @@ func pedir(t *testing.T, pagos Pagos, eventoID, usuario, rol string) *httptest.R
 	mux := http.NewServeMux()
 	Register(mux, pagos)
 	req := httptest.NewRequest(http.MethodPost, "/eventos/"+eventoID+"/inscripcion", nil)
-	if usuario != "" {
-		req.Header.Set(sesion.HeaderUsuario, usuario)
-	}
-	if rol != "" {
-		req.Header.Set(sesion.HeaderRol, rol)
-	}
+	sesiontest.Identificar(req, usuario, rol)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec

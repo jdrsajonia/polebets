@@ -47,8 +47,9 @@ choca con `/admin`, que es una ruta de la SPA y la sirve el Front.
 En las rutas protegidas de los jugadores:
 
 - Hace `auth_request` a Usuarios (`GET /internal/auth`); sin sesión válida → 401.
-- **Neutraliza** `X-User-Id` / `X-User-Rol` en toda petición y reinyecta solo los
-  que devuelve Usuarios, para que el cliente no pueda suplantar a otro (RNF-17).
+- **Neutraliza** `X-User-Id`, `X-User-Rol` y `X-User-Token` en toda petición y
+  reenvía solo la identidad firmada que devuelve Usuarios (`X-User-Token`), que
+  el Orquestador y el Motor verifican con la llave pública (escenario 4).
 - El WebSocket usa `proxy_read_timeout 1h`, así no se corta a los 60 s.
 
 En `/api/admin/` **no** hay `auth_request`: la CLI manda
@@ -81,15 +82,13 @@ docker compose exec gateway ls /etc/nginx/certs
 
 ## Sesión (HU2-02)
 
-`GET /internal/auth` de Usuarios responde `204` con `X-User-Id` y `X-User-Rol`
-(el rol sale de la base, no del token) o `401`. El mock de `/_auth` que trae
+`GET /internal/auth` de Usuarios responde `204` con `X-User-Token` (identidad
+firmada con Ed25519, 60 s) además de `X-User-Id` y `X-User-Rol` (el rol sale de la
+base, no del token), o `401`. El Gateway reenvía solo `X-User-Token`. El mock de `/_auth` que trae
 `rutas.conf` comentado ya no hace falta.
 
 ## Pendiente
 
-- El Motor todavía valida el JWT de la cookie por su cuenta al abrir el
-  WebSocket; HU2-02 pide que identifique al jugador por `X-User-Id`. Como la
-  cookie también le llega por `/api/ws`, funciona igual mientras tanto.
 - El server del 8080 incluye `admin.conf`, así que `/api/admin/` también
   responde por HTTP dentro de la red `borde`. Habría que sacarlo de ese server
   (`nginx.conf`, escenario 1).

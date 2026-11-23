@@ -265,12 +265,12 @@ func (validadorFalso) Validar(token string) (auth.Sesion, error) {
 	return auth.Sesion{UserID: "00000000-0000-0000-0000-000000000002", Rol: auth.RolJugador}, nil
 }
 
-func pedir(tab *Tablero, conCookie bool) *httptest.ResponseRecorder {
+func pedir(tab *Tablero, conSesion bool) *httptest.ResponseRecorder {
 	mux := http.NewServeMux()
 	Register(mux, tab, auth.NuevoAutenticador(validadorFalso{}).ExigirSesion, "")
 	r := httptest.NewRequest(http.MethodGet, "/posiciones", nil)
-	if conCookie {
-		r.AddCookie(&http.Cookie{Name: auth.NombreCookie, Value: "ok"})
+	if conSesion {
+		r.Header.Set(auth.HeaderIdentidad, "ok")
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, r)

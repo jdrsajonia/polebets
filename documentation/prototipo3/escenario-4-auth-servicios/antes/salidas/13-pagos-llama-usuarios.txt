@@ -1,0 +1,3 @@
+$ docker exec arqui_pagos python -c "import os,urllib.request as u; r=u.urlopen(u.Request('http://usuarios:8001/internal/users/f0c2d24e-4a1a-4266-9145-ebea0867501f', headers={'X-Internal-Service-Token':os.environ['INTERNAL_API_TOKEN']})); print(r.status, r.read().decode())"
+200 {"id":"f0c2d24e-4a1a-4266-9145-ebea0867501f","nombre":"E4 victima","email":"e4.victima@polebet.co","rol":"player"}
+

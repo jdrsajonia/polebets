@@ -1,0 +1,5 @@
+$ docker exec arqui_pagos python -c "import os,http.client as h
+for v in ('TOKEN_DESDE_ORQUESTADOR','TOKEN_DESDE_MOTOR'): c=h.HTTPConnection('motor',8080); c.request('GET','/internal/posiciones',headers={'X-Internal-Service-Token':os.environ[v]}); r=c.getresponse(); print(f'{v:<24}', r.status, r.read().decode().strip())"
+TOKEN_DESDE_ORQUESTADOR  401 {"error":"servicio no autorizado"}
+TOKEN_DESDE_MOTOR        401 {"error":"servicio no autorizado"}
+

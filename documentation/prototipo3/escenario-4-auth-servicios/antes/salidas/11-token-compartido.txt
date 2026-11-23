@@ -1,0 +1,7 @@
+$ for c in arqui_orquestador arqui_usuarios arqui_pagos arqui_pagos_consumer arqui_motor; do printf '%-22s ' $c; docker exec $c sh -c 'printf %s "$INTERNAL_API_TOKEN" | sha256sum'; done
+arqui_orquestador      b35235b32b3292578acba16b1c826264326cf00b262fdb4e94f9811dae9c26bf  -
+arqui_usuarios         b35235b32b3292578acba16b1c826264326cf00b262fdb4e94f9811dae9c26bf  -
+arqui_pagos            b35235b32b3292578acba16b1c826264326cf00b262fdb4e94f9811dae9c26bf  -
+arqui_pagos_consumer   b35235b32b3292578acba16b1c826264326cf00b262fdb4e94f9811dae9c26bf  -
+arqui_motor            b35235b32b3292578acba16b1c826264326cf00b262fdb4e94f9811dae9c26bf  -
+

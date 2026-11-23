@@ -8,6 +8,7 @@ import (
 
 	"github.com/arquisoft/orquestador/internal/interno"
 	"github.com/arquisoft/orquestador/internal/sesion"
+	"github.com/arquisoft/orquestador/internal/sesion/sesiontest"
 )
 
 const (
@@ -43,12 +44,7 @@ func pedir(t *testing.T, motor Servicio, rol string) *httptest.ResponseRecorder 
 	mux := http.NewServeMux()
 	Register(mux, motor)
 	req := httptest.NewRequest(http.MethodGet, "/posiciones", nil)
-	if jugador != "" {
-		req.Header.Set(sesion.HeaderUsuario, jugador)
-	}
-	if rol != "" {
-		req.Header.Set(sesion.HeaderRol, rol)
-	}
+	sesiontest.Identificar(req, jugador, rol)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec

@@ -32,10 +32,12 @@ tests/                    # pytest
    `router = APIRouter(prefix="/internal/<tema>", dependencies=[ServicioInterno])`.
 4. Agregar el router a `ROUTERS` en `app/routers/__init__.py`.
 
-Todas las rutas `/internal/*` exigen el header `X-Internal-Service-Token`,
-igual a `INTERNAL_API_TOKEN` (mínimo 32 caracteres; sin él el servicio no
-arranca). Sin token o con uno distinto: 401. El rol del jugador no se valida
-aquí: lo valida el Orquestador con `X-User-Rol`.
+Todas las rutas `/internal/*` exigen el header `X-Internal-Service-Token` con
+el token de uno de los dos servicios que llaman a Pagos (escenario 4):
+`TOKEN_DESDE_ORQUESTADOR` o `TOKEN_DESDE_MOTOR` (mínimo 32 caracteres y
+distintos; sin ellos la app HTTP no arranca, el consumidor AMQP no los
+necesita). Sin token, con otro o con el de otro par: 401. El rol del jugador no se valida
+aquí: lo valida el Orquestador con el `rol` de la identidad firmada (`X-User-Token`).
 
 ## Billetera (T2-03, HU2-04)
 

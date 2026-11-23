@@ -9,6 +9,8 @@ from functools import lru_cache
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+LARGO_MINIMO_TOKEN = 32
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -22,8 +24,13 @@ class Settings(BaseSettings):
     db_connect_retries: int = 10
     db_connect_retry_seconds: float = 2.0
 
-    # ---- Token de servicio para /internal/* (RNF-17) ----
-    internal_api_token: str
+    # ---- Tokens de servicio para /internal/* (RNF-17, escenario 4) ----
+    # Uno por cada servicio que llama a Pagos. Ninguno de los dos sirve contra
+    # Usuarios ni contra el Motor. Vacios por defecto porque el consumidor AMQP
+    # usa esta misma configuracion y no recibe llamadas HTTP: la app HTTP los
+    # exige al arrancar (tokens_servicio_configurados).
+    token_desde_orquestador: str = ""
+    token_desde_motor: str = ""
 
     # ---- Economia del token (RF-05) ----
     cop_per_token: float = 1000.0
@@ -38,19 +45,38 @@ class Settings(BaseSettings):
     event_min_players: int = 4  # con menos, el torneo se cancela y se devuelve el buy_in
     event_min_wager_pct: int = 50  # % de fichas que hay que apostar para cobrar (HU2-12)
 
-    @field_validator("internal_api_token")
+    @field_validator("token_desde_orquestador", "token_desde_motor")
     @classmethod
-    def _internal_api_token_required(cls, value: str) -> str:
+    def _token_largo(cls, value: str) -> str:
+        """Vacio se permite (consumidor); si viene, con el largo minimo."""
         value = value.strip()
-        if not value:
-            raise ValueError("INTERNAL_API_TOKEN no puede estar vacío")
-        if len(value) < 32:
-            raise ValueError("INTERNAL_API_TOKEN debe tener al menos 32 caracteres")
+        if value and len(value) < LARGO_MINIMO_TOKEN:
+            raise ValueError(f"los tokens de servicio deben tener al menos {LARGO_MINIMO_TOKEN} caracteres")
         return value
+
+    def tokens_servicio_configurados(self) -> None:
+        """Lanza ValueError si falta alguno de los dos tokens o si son iguales.
+
+        Si fueran iguales, el Motor podria hacerse pasar por el Orquestador
+        (y al reves): otra vez un token compartido.
+        """
+        faltan = [
+            nombre
+            for nombre, valor in (
+                ("TOKEN_DESDE_ORQUESTADOR", self.token_desde_orquestador),
+                ("TOKEN_DESDE_MOTOR", self.token_desde_motor),
+            )
+            if not valor
+        ]
+        if faltan:
+            raise ValueError(f"faltan variables de entorno obligatorias: {', '.join(faltan)}")
+        if self.token_desde_orquestador == self.token_desde_motor:
+            raise ValueError("TOKEN_DESDE_ORQUESTADOR y TOKEN_DESDE_MOTOR tienen el mismo valor: cada servicio necesita su propio token")
 
 
 @lru_cache
 def get_settings() -> Settings:
+    """Lee la configuracion una sola vez."""
     return Settings()
 
 

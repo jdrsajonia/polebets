@@ -60,14 +60,20 @@ Desde la raíz del repositorio:
 ```bash
 cp .env.example .env         # solo la primera vez
 scripts/generar-certs.sh     # solo la primera vez: certificados TLS del Gateway
+scripts/generar-llaves-identidad.sh  # solo la primera vez: llaves de la identidad firmada
+scripts/generar-tokens-servicio.sh   # opcional: tokens de servicio aleatorios en el .env
 docker compose up --build
 ```
 
-En Windows, los mismos tres comandos desde **Git Bash** (el script es de bash).
+En Windows, los mismos comandos desde **Git Bash** (los scripts son de bash).
 
 Para desarrollo local los valores por defecto de `.env.example` ya funcionan.
-Antes de un entorno compartido, cambia `JWT_SECRET`, `INTERNAL_API_TOKEN`
-(mínimo 32 caracteres) y `ADMIN_PASSWORD`.
+Antes de un entorno compartido, cambia `JWT_SECRET`, los cuatro `TOKEN_*`
+(con `scripts/generar-tokens-servicio.sh --forzar`) y `ADMIN_PASSWORD`.
+
+Si tu `.env` es anterior al escenario 4 y todavía tiene `INTERNAL_API_TOKEN`,
+corre `scripts/generar-tokens-servicio.sh`: agrega los tokens que faltan (sin
+ellos el Orquestador, el Motor, Usuarios y Pagos no arrancan).
 
 El Gateway solo atiende HTTPS (escenario 1). Sus certificados no se suben al
 repo: `scripts/generar-certs.sh` crea en `services/gateway/certs/` una CA local
@@ -78,6 +84,13 @@ confían en el Gateway con `ca.crt` (`curl --cacert`, la CLI con `--ca` o
 `polebet.crt` y `polebet.key`: la llave de la CA (`ca.key`) no entra a ningún
 contenedor. Duran 365 días (`CERT_DIAS` para cambiarlo); para renovarlos,
 `scripts/generar-certs.sh --forzar` y `docker compose restart gateway`.
+
+Los servicios internos no confían en cabeceras escritas a mano (escenario 4):
+Usuarios firma la identidad de cada petición con una llave privada Ed25519 y el
+Orquestador y el Motor la verifican con la pública.
+`scripts/generar-llaves-identidad.sh` crea el par en `services/usuarios/llaves/`
+(tampoco se sube al repo). La privada solo se monta en Usuarios. Sin las llaves,
+Usuarios, el Orquestador y el Motor no arrancan.
 
 Cuando el stack esté arriba, todo entra por el Gateway:
 
@@ -159,8 +172,8 @@ Todo se configura en `.env` (copiado de `.env.example`). Variables clave:
 | `PAGOS_DB_*`                               | Credenciales de la PostgreSQL de Pagos         |
 | `MONGO_*`                                  | Credenciales de MongoDB                        |
 | `RABBITMQ_*`                               | Credenciales del Broker                        |
-| `JWT_SECRET`                               | Secreto JWT (lo emite Usuarios, lo validan los servicios) |
-| `INTERNAL_API_TOKEN`                       | Token de servicio para `/internal/*` (mín. 32 caracteres) |
+| `JWT_SECRET`                               | Secreto de la cookie de sesión (solo lo tiene Usuarios) |
+| `TOKEN_ORQUESTADOR_USUARIOS`, `TOKEN_ORQUESTADOR_PAGOS`, `TOKEN_ORQUESTADOR_MOTOR`, `TOKEN_MOTOR_PAGOS` | Tokens de servicio para `/internal/*`, uno por par llamador → destino (mín. 32 caracteres, distintos entre sí; escenario 4) |
 | `COP_PER_TOKEN`                            | Tasa fija COP → token (RF-05)                  |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` | Credenciales del admin inicial            |
 | `BETTING_WINDOW_SECONDS` / `OBSERVATION_WINDOW_SECONDS` | Ciclo del mercado (RF-10/13, RNF-19) |

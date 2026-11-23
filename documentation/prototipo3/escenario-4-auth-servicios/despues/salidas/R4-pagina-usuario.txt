@@ -1,0 +1,3 @@
+$ curl -s -o /dev/null -w 'HTTP %{http_code}\n' --cacert $CA -b "$JAR_V" https://localhost/api/pagina-usuario
+HTTP 200
+

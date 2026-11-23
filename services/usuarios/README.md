@@ -10,12 +10,14 @@ PostgreSQL **Usuarios** (tabla `users`) y el único que emite el JWT de sesión.
 | `POST /auth/login` | Front, vía Gateway (`/api/auth/login`); Admin (RF-21) | Valida correo y contraseña y deja el JWT en la cookie `session` (HttpOnly, SameSite=Lax). 401 «Correo o contraseña incorrectos» |
 | `POST /auth/logout` | Front, vía Gateway | Borra la cookie. Siempre 204 |
 | `GET /auth/me` | Front, vía Gateway | El usuario de la cookie, o 401. El front lo usa al recargar |
-| `GET /internal/auth` | Gateway (`auth_request`) | 204 + `X-User-Id` y `X-User-Rol` si la cookie es válida; 401 si no |
+| `GET /internal/auth` | Gateway (`auth_request`); Admin | 204 + `X-User-Id`, `X-User-Rol` y `X-User-Token` (identidad firmada, escenario 4) si la cookie es válida; 401 si no |
 | `POST /internal/users` | Orquestador (registro, HU2-01) | Crea el jugador con el `id` que manda el Orquestador. 201 · 200 si ese `id` ya existía con el mismo correo · 409 correo repetido · 422 datos inválidos |
 | `GET /internal/users/{id}` | Orquestador (página SSR, HU2-03) | `{id, nombre, email, rol}` o 404 |
 | `GET /health` | Docker | 200, o 503 si PostgreSQL no responde |
 
-Las rutas `/internal/users*` exigen `X-Internal-Service-Token`. `POST
+Las rutas `/internal/users*` exigen `X-Internal-Service-Token` con el token
+del Orquestador (`TOKEN_DESDE_ORQUESTADOR`, escenario 4): el Motor y Pagos no
+lo tienen y reciben 401. `POST
 /internal/users` acepta `Idempotency-Key: user:{id}` para que el cliente del
 Orquestador pueda reintentarla; si llega otra clave, 400.
 
@@ -25,8 +27,13 @@ Usuarios no está publicado al host, así que solo el Gateway la alcanza.
 ## Decisiones
 
 - **JWT igual al del prototipo 1:** HS256 con `JWT_SECRET`, claims `sub`
-  (uuid), `rol` (`player` | `admin`) y `exp`, en la cookie `session`. Así el
-  Motor, que todavía valida el WebSocket por su cuenta, sigue funcionando.
+  (uuid), `rol` (`player` | `admin`) y `exp`, en la cookie `session`. Solo
+  Usuarios tiene `JWT_SECRET` (escenario 4).
+- **Identidad firmada (escenario 4):** en cada `/internal/auth`, un JWT EdDSA
+  (Ed25519) de 60 s con `sub`, `rol`, `iss=usuarios` y `aud=polebet`, firmado con
+  la llave privada (`IDENTIDAD_LLAVE_PRIVADA`, de
+  `scripts/generar-llaves-identidad.sh`). El Orquestador y el Motor lo verifican
+  con la pública. Ver `app/core/identidad.py`.
 - **El rol sale de la base, no del token**, en `/internal/auth` y `/auth/me`:
   un usuario borrado pierde la sesión y un token alterado no sube de rol.
 - **Mensaje único** para cualquier credencial inválida, y un hash señuelo para
@@ -46,8 +53,9 @@ Usuarios no está publicado al host, así que solo el Gateway la alcanza.
 
 ```
 app/main.py                      # arranque, routers y /health
-app/config.py                    # variables de entorno (JWT_SECRET e INTERNAL_API_TOKEN obligatorias)
-app/core/security.py             # bcrypt y JWT
+app/config.py                    # variables de entorno (JWT_SECRET, TOKEN_DESDE_ORQUESTADOR e IDENTIDAD_LLAVE_PRIVADA obligatorias)
+app/core/security.py             # bcrypt y JWT de la cookie
+app/core/identidad.py            # identidad firmada (Ed25519) para Orquestador y Motor
 app/core/session.py              # cookie de sesión
 app/core/internal_auth.py        # token de servicio
 app/deps.py                      # sesión de BD, token de servicio, usuario de la cookie

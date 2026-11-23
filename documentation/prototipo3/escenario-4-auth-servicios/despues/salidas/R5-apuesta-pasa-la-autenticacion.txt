@@ -1,0 +1,5 @@
+$ curl -s -w '\nHTTP %{http_code}\n' --cacert $CA -b "$JAR_V" https://localhost/api/apuestas -H 'Content-Type: application/json' -H "Idempotency-Key: e4-apuesta-$(date +%s)" -d '{"mercado_id":"0f8a6121-807b-5ef8-b1a9-b3651c545099","opcion":"LEC","monto":5}'
+{"error":"Mercado cerrado","codigo":"mercado_cerrado"}
+
+HTTP 409
+

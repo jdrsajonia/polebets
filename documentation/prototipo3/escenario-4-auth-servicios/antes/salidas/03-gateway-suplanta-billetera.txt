@@ -1,0 +1,5 @@
+$ docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' -H 'X-User-Id: f0c2d24e-4a1a-4266-9145-ebea0867501f' -H 'X-User-Rol: player' http://orquestador:8081/billetera
+{"saldo":75,"cop_por_token":1000}
+
+HTTP 200
+

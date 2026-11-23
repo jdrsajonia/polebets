@@ -1,0 +1,5 @@
+$ docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' -H 'X-User-Id: f0c2d24e-4a1a-4266-9145-ebea0867501f' -H 'X-User-Rol: player' http://orquestador:8081/pagina-usuario
+{"usuario":{"id":"f0c2d24e-4a1a-4266-9145-ebea0867501f","nombre":"E4 victima","email":"e4.victima@polebet.co","rol":"player"},"saldo":75,"eventos":[],"apuestas_activas":[],"transacciones":[{"tipo":"purchase","tokens":75,"evento_id":null,"creada_en":"2026-11-23T12:47:08.136350Z"}],"avisos":[]}
+
+HTTP 200
+

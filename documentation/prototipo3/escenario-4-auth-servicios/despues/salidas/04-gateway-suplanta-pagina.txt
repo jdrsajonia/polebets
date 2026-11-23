@@ -1,0 +1,5 @@
+$ docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' -H "X-User-Id: $VICTIMA" -H "X-User-Rol: player" http://orquestador:8081/pagina-usuario
+{"error":"No hay sesión","codigo":"sin_sesion"}
+
+HTTP 401
+

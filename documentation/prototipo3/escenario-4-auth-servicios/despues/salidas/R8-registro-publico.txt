@@ -1,0 +1,5 @@
+$ curl -s -w '\nHTTP %{http_code}\n' --cacert $CA https://localhost/api/registro -H 'Content-Type: application/json' -d "{\"nombre\":\"E4 regresion\",\"email\":\"e4.regresion.$(date +%s)@polebet.co\",\"contrasena\":\"Clave-e4-regresion-123\"}"
+{"usuario":{"id":"b30bd786-06e1-49d2-8225-775f75a51b75","nombre":"E4 regresion","email":"e4.regresion.1795446525@polebet.co","rol":"player"}}
+
+HTTP 201
+

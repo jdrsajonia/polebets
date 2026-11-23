@@ -1,0 +1,8 @@
+$ PROPIO=$(token_de "$JAR_A"); echo "--- con su propio token, el atacante ve SU billetera:"; docker exec arqui_gateway curl -s -w '  HTTP %{http_code}\n' -H "X-User-Token: $PROPIO" http://orquestador:8081/billetera; echo "--- el mismo token con el sub de la victima:"; ALTERADO=$(python3 -I $H cambiar-sub "$PROPIO" $VICTIMA); docker exec arqui_gateway curl -s -w '  HTTP %{http_code}\n' -H "X-User-Token: $ALTERADO" http://orquestador:8081/billetera
+--- con su propio token, el atacante ve SU billetera:
+{"saldo":0,"cop_por_token":1000}
+  HTTP 200
+--- el mismo token con el sub de la victima:
+{"error":"No hay sesión","codigo":"sin_sesion"}
+  HTTP 401
+

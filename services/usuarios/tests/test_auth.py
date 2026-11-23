@@ -9,7 +9,7 @@ from app.config import settings
 from app.core.security import create_access_token, decode_access_token
 from app.db import SessionLocal
 from app.models import User
-from tests.conftest import requires_db
+from tests.conftest import LLAVE_PUBLICA_PRUEBA, requires_db
 
 COOKIE = settings.session_cookie_name
 
@@ -94,6 +94,25 @@ def test_sesion_valida_devuelve_los_headers_del_gateway(client, jugador):
 
 
 @requires_db
+def test_sesion_valida_devuelve_la_identidad_firmada(client, jugador):
+    # Escenario 4: el mismo id y rol, firmados con la llave privada de Usuarios.
+    _login(client, jugador["email"], jugador["contrasena"])
+    token = client.get("/internal/auth").headers["x-user-token"]
+
+    claims = jwt.decode(token, LLAVE_PUBLICA_PRUEBA, algorithms=["EdDSA"], audience="polebet", issuer="usuarios")
+    assert claims["sub"] == jugador["id"]
+    assert claims["rol"] == "player"
+    assert claims["exp"] - claims["iat"] == 60
+
+
+@requires_db
+def test_sin_sesion_no_hay_identidad_firmada(client):
+    r = client.get("/internal/auth")
+    assert r.status_code == 401
+    assert "x-user-token" not in r.headers
+
+
+@requires_db
 def test_sin_cookie_o_token_alterado_es_401(client, jugador):
     assert client.get("/internal/auth").status_code == 401
 
@@ -115,7 +134,11 @@ def test_sin_cookie_o_token_alterado_es_401(client, jugador):
 def test_el_rol_sale_de_la_bd_y_un_usuario_borrado_pierde_la_sesion(client, jugador):
     # Un token que dice "admin" no convierte en admin a un jugador.
     client.cookies.set(COOKIE, create_access_token(jugador["id"], "admin"))
-    assert client.get("/internal/auth").headers["x-user-rol"] == "player"
+    r = client.get("/internal/auth")
+    assert r.headers["x-user-rol"] == "player"
+    # La identidad firmada tambien lleva el rol de la BD.
+    assert jwt.decode(r.headers["x-user-token"], LLAVE_PUBLICA_PRUEBA, algorithms=["EdDSA"],
+                      audience="polebet")["rol"] == "player"
 
     with SessionLocal() as db:
         db.execute(delete(User).where(User.id == uuid.UUID(jugador["id"])))

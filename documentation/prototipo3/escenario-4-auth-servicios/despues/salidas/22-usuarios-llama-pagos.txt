@@ -1,0 +1,4 @@
+$ docker exec arqui_usuarios python -c "import os,http.client as h
+c=h.HTTPConnection('pagos',8000); c.request('GET','/internal/wallets/$VICTIMA',headers={'X-Internal-Service-Token':os.environ['TOKEN_DESDE_ORQUESTADOR']}); r=c.getresponse(); print('TOKEN_DESDE_ORQUESTADOR ', r.status, r.read().decode())"
+TOKEN_DESDE_ORQUESTADOR  401 {"detail":"Servicio no autorizado"}
+

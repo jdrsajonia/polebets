@@ -1,0 +1,5 @@
+$ for v in TOKEN_HACIA_PAGOS TOKEN_HACIA_MOTOR TOKEN_HACIA_USUARIOS; do printf '%-21s -> usuarios  ' $v; echo "$(docker exec arqui_orquestador sh -c "wget -qO- --header \"X-Internal-Service-Token: \$$v\" http://usuarios:8001/internal/users/$VICTIMA 2>&1")"; done
+TOKEN_HACIA_PAGOS     -> usuarios  wget: server returned error: HTTP/1.1 401 Unauthorized
+TOKEN_HACIA_MOTOR     -> usuarios  wget: server returned error: HTTP/1.1 401 Unauthorized
+TOKEN_HACIA_USUARIOS  -> usuarios  {"id":"f0c2d24e-4a1a-4266-9145-ebea0867501f","nombre":"E4 victima","email":"e4.victima@polebet.co","rol":"player"}
+

@@ -2,7 +2,8 @@
 
 En el prototipo 2 Pagos solo recibe llamadas de otros servicios (Orquestador y
 Motor), nunca del navegador: no lee cookies ni JWT. Cada ruta /internal/*
-exige el token de servicio.
+exige el token de uno de esos dos servicios (escenario 4: cada uno tiene el
+suyo).
 
 Uso en un router:
 
@@ -24,7 +25,7 @@ DbSession = Annotated[Session, Depends(get_db)]
 def verificar_servicio(
     token: Annotated[str | None, Header(alias="X-Internal-Service-Token")] = None,
 ) -> None:
-    """401 si falta el token de servicio o no coincide con INTERNAL_API_TOKEN."""
+    """401 si falta el token o no es el del Orquestador ni el del Motor."""
     if not token_servicio_valido(token):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Servicio no autorizado")
 

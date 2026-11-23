@@ -1,0 +1,5 @@
+$ docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' -X POST -H 'Content-Type: application/json' -H 'Idempotency-Key: e4-ataque-1' -H 'X-User-Id: f0c2d24e-4a1a-4266-9145-ebea0867501f' -H 'X-User-Rol: player' -d '{"monto_cop":5000}' http://orquestador:8081/billetera/compras
+{"compra_id":13,"tokens_acreditados":5,"saldo":80,"creada_en":"2026-11-23T12:48:08.271920Z"}
+
+HTTP 201
+

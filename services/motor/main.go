@@ -76,9 +76,13 @@ func main() {
 
 	origenes := httpx.NuevosOrigenes(cfg.OrigenesPermitidos)
 
-	// El JWT lo emite Pagos; el motor solo verifica la firma con el secreto
-	// compartido (RNF-06). Contrato en internal/auth/contrato.go.
-	validador, err := auth.NuevoValidador(cfg.JWTSecret)
+	// La identidad la firma Usuarios con su llave privada; el motor solo la
+	// verifica con la publica (escenario 4). Contrato en internal/auth/contrato.go.
+	llave, err := auth.LeerLlavePublica(cfg.IdentidadLlavePublica)
+	if err != nil {
+		log.Fatal(err)
+	}
+	validador, err := auth.NuevoValidador(llave)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -93,17 +97,17 @@ func main() {
 	fuenteCarrera := carrera.NuevaMongoFuente(db.DB)
 	// HU2-09: POST /internal/apuestas, la llama el Orquestador. Con Redis, las
 	// dinamicas de un inscrito van en fichas del torneo (almacen de HU2-11).
-	svcApostar := apostar.NuevoServicio(apostar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken), cfg.MaxApuestaIndividual)
+	svcApostar := apostar.NuevoServicio(apostar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos), cfg.MaxApuestaIndividual)
 	if t, ok := liquidadorTorneo.(adaptadorTorneo); ok {
 		svcApostar.Fichas = fichasApuesta{almacen: t.almacen}
 	}
 	svcApostar.Carrera = vueltaCarrera{fuente: fuenteCarrera}
-	apostar.Register(mux, svcApostar, cfg.InternalAPIToken)
+	apostar.Register(mux, svcApostar, cfg.TokenDesdeOrquestador)
 	// HU2-10: liquida los mercados del P2 (Pagos) que ya tienen opcion
 	// ganadora: las individuales en tokens y, con Redis, las de torneo en
 	// fichas (almacen de HU2-11). Sin Redis las de torneo esperan.
 	workerP2 := liquidar.NuevoWorker(
-		liquidar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		liquidar.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos),
 		avisoWS{hub: hub},
 		5*time.Second,
 	)
@@ -115,8 +119,8 @@ func main() {
 		// HU2-12: con la carrera finalizada y nada pendiente en Pagos, reparte
 		// el botin y limpia Redis. Sin Redis no hay torneo que cerrar.
 		go cierre.NuevoWorker(
-			cierreTorneo{adaptadorTorneo: t, pagos: fichas.NuevoPagosCierreHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)},
-			cierre.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+			cierreTorneo{adaptadorTorneo: t, pagos: fichas.NuevoPagosCierreHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos)},
+			cierre.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos),
 			simulacionCarrera{fuente: fuenteCarrera},
 			5*time.Second,
 		).Run(ctx)
@@ -127,14 +131,14 @@ func main() {
 	// decide con el tiempo de carrera (RNF-19); event_id = _id de la simulacion.
 	workerDinamicas := dinamicas.NuevoWorker(
 		dinamicas.NuevoLectorMongo(db.DB),
-		dinamicas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		dinamicas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos),
 		difusionWS{hub: hub},
 		cfg.VentanaApuestas,
 		cfg.VentanaObservacion,
 	)
 	// GET /internal/dinamica-actual: la foto inicial del mercado dinamico, que
 	// el Orquestador sirve al front sin esperar al reenvio del WebSocket.
-	dinamicas.Register(mux, workerDinamicas, cfg.InternalAPIToken)
+	dinamicas.Register(mux, workerDinamicas, cfg.TokenDesdeOrquestador)
 	go workerDinamicas.Run(ctx)
 	registrarMercados(ctx, mux, db, hub, cfg, autenticador) // HU-11
 	// HU-07: el worker liquida los mercados cerrados cuya observacion termino.
@@ -157,14 +161,14 @@ func main() {
 	}
 	go estaticas.NuevoWorker(
 		estaticas.NuevoLectorMongo(db.DB),
-		estaticas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken),
+		estaticas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos),
 		torneoEstaticas,
 	).Run(ctx)
 
 	// HU-05: la reproduccion de HU-04 avisa al difusor, que mantiene el
 	// tablero y difunde la foto de posiciones; GET /posiciones lee el tablero.
 	tablero := posiciones.NuevoTablero()
-	posiciones.Register(mux, tablero, autenticador.ExigirSesion, cfg.InternalAPIToken) // HU-05 / HU2-14
+	posiciones.Register(mux, tablero, autenticador.ExigirSesion, cfg.TokenDesdeOrquestador) // HU-05 / HU2-14
 	// HU2-14: lee de Mongo la carrera que reproduce el Ingestor y alimenta el
 	// tablero; cada cambio sale por WebSocket ("posiciones").
 	go carrera.NuevoLector(
@@ -267,7 +271,7 @@ func construirTorneo(ctx context.Context, cfg config.Config, hub *ws.Hub) (liqui
 		MinWagerPct:     cfg.MinApostadoPct,
 	})
 	// El botin de cada evento (events.pot) lo da Pagos; el difusor lo guarda.
-	difusor.Pagos = fichas.NuevoPagosBotinHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)
+	difusor.Pagos = fichas.NuevoPagosBotinHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos)
 	return adaptadorTorneo{almacen: almacen, difusor: difusor}, func() { _ = rdb.Close() }
 }
 
@@ -446,7 +450,7 @@ func (f fichasApuesta) Reservar(ctx context.Context, eventoID string, r apostar.
 // registrarApuestas arma HU-06 (POST /apuestas, solo jugadores). Devuelve el
 // cliente REST de Pagos para que el worker de liquidación (HU-07) lo reuse.
 func registrarApuestas(mux *http.ServeMux, db *mongodb.Conexion, cfg config.Config, a *auth.Autenticador) *apuestas.PagosHTTP {
-	pagos := apuestas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.InternalAPIToken)
+	pagos := apuestas.NuevoPagosHTTP(cfg.PagosBaseURL, cfg.TokenHaciaPagos)
 	svc := apuestas.NuevoServicio(
 		apuestas.NuevosMercadosMongo(db.DB),
 		pagos,

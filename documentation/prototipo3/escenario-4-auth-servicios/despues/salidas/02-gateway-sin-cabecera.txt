@@ -1,0 +1,5 @@
+$ docker exec arqui_gateway curl -s -w '\nHTTP %{http_code}\n' http://orquestador:8081/billetera
+{"error":"No hay sesión","codigo":"sin_sesion"}
+
+HTTP 401
+

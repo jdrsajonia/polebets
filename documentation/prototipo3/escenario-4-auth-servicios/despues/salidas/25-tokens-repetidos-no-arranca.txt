@@ -1,0 +1,4 @@
+$ docker run --rm -e USUARIOS_BASE_URL=http://usuarios:8001 -e PAGOS_BASE_URL=http://pagos:8000 -e MOTOR_BASE_URL=http://motor:8080 -e IDENTIDAD_LLAVE_PUBLICA=/x.pub -e TOKEN_HACIA_USUARIOS=un-token-de-prueba-de-32-caracteres-aaaa -e TOKEN_HACIA_PAGOS=el-mismo-token-copiado-en-dos-destinos-xx -e TOKEN_HACIA_MOTOR=el-mismo-token-copiado-en-dos-destinos-xx arquisoft-prototipo2-orquestador 2>&1; echo "codigo de salida: $?"
+2026/11/23 15:08:12 configuracion invalida: TOKEN_HACIA_PAGOS y TOKEN_HACIA_MOTOR tienen el mismo valor: cada destino necesita su propio token
+codigo de salida: 1
+

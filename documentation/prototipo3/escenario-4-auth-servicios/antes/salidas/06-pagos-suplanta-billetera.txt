@@ -1,0 +1,4 @@
+$ docker exec arqui_pagos python -c "import urllib.request as u; r=u.urlopen(u.Request('http://orquestador:8081/billetera', headers={'X-User-Id':'f0c2d24e-4a1a-4266-9145-ebea0867501f','X-User-Rol':'player'})); print(r.status, r.read().decode())"
+200 {"saldo":80,"cop_por_token":1000}
+
+

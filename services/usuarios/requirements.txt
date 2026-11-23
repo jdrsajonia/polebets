@@ -7,4 +7,6 @@ pydantic-settings==2.7.0
 email-validator==2.2.0
 # HU2-02: hash de contraseñas y JWT de sesion (mismas versiones del prototipo 1)
 PyJWT==2.10.1
+# Escenario 4: firma Ed25519 (EdDSA) de la identidad para los servicios internos
+cryptography==44.0.0
 bcrypt==4.2.1

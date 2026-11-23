@@ -9,7 +9,7 @@ Estructura:
     app/
     ├── main.py              # crea la app (este archivo)
     ├── core/config.py       # variables de entorno
-    ├── core/internal_auth.py # token de servicio
+    ├── core/internal_auth.py # tokens de servicio (Orquestador y Motor)
     ├── db.py                # engine, sesiones, espera e inicializacion de la BD
     ├── deps.py              # dependencias: DbSession, ServicioInterno
     ├── models.py            # tablas (ver documentation/modelo-datos-p2.pdf)
@@ -33,6 +33,8 @@ logger = logging.getLogger("pagos")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Escenario 4: sin los tokens de quienes lo llaman, Pagos no arranca.
+    settings.tokens_servicio_configurados()
     # Al arrancar: esperar a PostgreSQL y crear las tablas que falten.
     wait_for_db()
     init_db()

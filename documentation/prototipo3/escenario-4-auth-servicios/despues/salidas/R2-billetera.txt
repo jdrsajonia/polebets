@@ -1,0 +1,5 @@
+$ curl -s -w '\nHTTP %{http_code}\n' --cacert $CA -b "$JAR_V" https://localhost/api/billetera
+{"saldo":90,"cop_por_token":1000}
+
+HTTP 200
+

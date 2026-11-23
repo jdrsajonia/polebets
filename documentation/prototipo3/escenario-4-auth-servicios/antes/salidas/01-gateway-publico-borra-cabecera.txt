@@ -1,0 +1,11 @@
+$ curl -s -w '\nHTTP %{http_code}\n' --cacert services/gateway/certs/ca.crt -H 'X-User-Id: f0c2d24e-4a1a-4266-9145-ebea0867501f' -H 'X-User-Rol: player' https://localhost/api/billetera
+<html>
+<head><title>401 Authorization Required</title></head>
+<body>
+<center><h1>401 Authorization Required</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
+
+HTTP 401
+

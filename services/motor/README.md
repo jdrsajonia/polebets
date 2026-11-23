@@ -31,17 +31,18 @@ func Register(mux *http.ServeMux, db *mongo.Database, hub *ws.Hub, a *auth.Auten
 
 ## Autenticación (RNF-06)
 
-Pagos emite el JWT al iniciar sesión y lo guarda en una cookie HttpOnly. El motor **no le pregunta a Pagos**: verifica la firma por su cuenta con el secreto compartido `JWT_SECRET`.
+Escenario 4 (T3-05): el Gateway valida la cookie con Usuarios y le reenvía al motor la **identidad firmada** que devuelve Usuarios (`X-User-Token`). El motor **no le pregunta a Usuarios**: verifica la firma por su cuenta con la llave **pública** de Usuarios. Ya no tiene `JWT_SECRET` ni lee `X-User-Id` ni la cookie: con la pública solo se verifica, así que un motor comprometido no puede fabricar identidades.
 
-Contrato acordado (en `internal/auth/contrato.go`, **pendiente de confirmar con Pagos**):
+Contrato (en `internal/auth/contrato.go`; el emisor es `services/usuarios/app/core/identidad.py`):
 
 | Qué | Valor |
 | --- | --- |
-| Algoritmo | `HS256` (cualquier otro, incluido `none`, se rechaza) |
-| Cookie | `session` |
+| Algoritmo | `EdDSA` / Ed25519 (cualquier otro, incluidos `none` y `HS256`, se rechaza) |
+| Header | `X-User-Token` |
 | Claim del usuario | `sub`: UUID como string |
 | Claim del rol | `rol`: `player` o `admin` |
-| Vencimiento | `exp` obligatorio (Pagos lo fija con `JWT_EXPIRE_MINUTES`) |
+| Emisor y audiencia | `iss` = `usuarios`, `aud` = `polebet` |
+| Vencimiento | `exp` obligatorio (60 s, `IDENTIDAD_TTL_SEGUNDOS` en Usuarios) |
 
 Cómo proteger una ruta:
 
@@ -58,9 +59,10 @@ Dentro del handler, `sesion, _ := auth.SesionDe(r.Context())` entrega `sesion.Us
 | --- | --- | --- |
 | `MONGO_URI` | sí | `mongodb://arqui:arqui_pass@mongo:27017/apuestas_db?authSource=admin` |
 | `MONGO_DB` | sí | `apuestas_db` |
-| `JWT_SECRET` | sí | el mismo que usa Pagos |
+| `IDENTIDAD_LLAVE_PUBLICA` | sí | `/etc/polebet/identidad.pub` (llave pública de Usuarios) |
 | `PAGOS_BASE_URL` | sí | `http://pagos:8000` |
-| `INTERNAL_API_TOKEN` | sí | Token compartido con Pagos para `/internal/*` |
+| `TOKEN_DESDE_ORQUESTADOR` | sí | Único token que aceptan las rutas `/internal/*` del Motor (lo manda el Orquestador); mín. 32 caracteres |
+| `TOKEN_HACIA_PAGOS` | sí | Token con el que el Motor llama a Pagos; distinto del anterior |
 | `ALLOWED_ORIGINS` | sí | `http://localhost:5173,http://127.0.0.1:5173` |
 | `HTTP_PORT` | no (8080) | `8080` |
 | `BETTING_WINDOW_SECONDS` | no (30) | `30` |

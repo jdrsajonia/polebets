@@ -1,0 +1,4 @@
+$ for v in TOKEN_DESDE_ORQUESTADOR TOKEN_HACIA_PAGOS; do printf '%-24s ' $v; echo "$(docker exec arqui_motor sh -c "wget -qO- --header \"X-Internal-Service-Token: \$$v\" http://usuarios:8001/internal/users/$VICTIMA 2>&1")"; done
+TOKEN_DESDE_ORQUESTADOR  wget: server returned error: HTTP/1.1 401 Unauthorized
+TOKEN_HACIA_PAGOS        wget: server returned error: HTTP/1.1 401 Unauthorized
+

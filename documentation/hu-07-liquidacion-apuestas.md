@@ -108,9 +108,11 @@ Con `factor` > 1 los 60 s de observación cubren más carrera (con `factor=10`,
   ledger. El débito y la liquidación actualizan sus datos dentro de una
   transacción local a PostgreSQL. No existe una transacción distribuida entre
   PostgreSQL y MongoDB.
-- Motor→Pagos requiere `INTERNAL_API_TOKEN` configurado en ambos servicios,
-  de al menos 32 caracteres aleatorios y enviado en
-  `X-Internal-Service-Token`. No se acepta una ruta interna sin ese token.
+- Motor→Pagos requiere un token de servicio de al menos 32 caracteres
+  aleatorios, enviado en `X-Internal-Service-Token`. No se acepta una ruta
+  interna sin ese token. Desde el escenario 4 (P3) es un token propio de ese
+  par, `TOKEN_MOTOR_PAGOS` (en el Motor `TOKEN_HACIA_PAGOS`, en Pagos
+  `TOKEN_DESDE_MOTOR`), en lugar del `INTERNAL_API_TOKEN` compartido.
 - `POST /internal/debit` recibe el ID de apuesta, usuario, mercado, opción y
   monto, además del header `Idempotency-Key`; crea la apuesta, debita tokens
   y registra el débito en un ledger de forma atómica. Responde con

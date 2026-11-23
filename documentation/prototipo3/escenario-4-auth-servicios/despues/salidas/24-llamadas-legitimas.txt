@@ -1,0 +1,9 @@
+$ echo "--- Motor -> Pagos con TOKEN_HACIA_PAGOS:"; docker exec arqui_motor sh -c 'wget -qO- --header "X-Internal-Service-Token: $TOKEN_HACIA_PAGOS" http://pagos:8000/internal/wallets/'$VICTIMA; echo; echo "--- Orquestador -> Pagos con TOKEN_HACIA_PAGOS:"; docker exec arqui_orquestador sh -c 'wget -qO- --header "X-Internal-Service-Token: $TOKEN_HACIA_PAGOS" http://pagos:8000/internal/wallets/'$VICTIMA; echo; echo "--- Orquestador -> Motor (GET /internal/dinamica-actual):"; for v in TOKEN_HACIA_PAGOS TOKEN_HACIA_MOTOR; do printf '  con %-18s ' $v; echo "$(docker exec arqui_orquestador sh -c "wget -qO- --header \"X-Internal-Service-Token: \$$v\" http://motor:8080/internal/dinamica-actual 2>&1")"; done
+--- Motor -> Pagos con TOKEN_HACIA_PAGOS:
+{"user_id":"f0c2d24e-4a1a-4266-9145-ebea0867501f","balance":90,"cop_por_token":1000}
+--- Orquestador -> Pagos con TOKEN_HACIA_PAGOS:
+{"user_id":"f0c2d24e-4a1a-4266-9145-ebea0867501f","balance":90,"cop_por_token":1000}
+--- Orquestador -> Motor (GET /internal/dinamica-actual):
+  con TOKEN_HACIA_PAGOS  wget: server returned error: HTTP/1.1 401 Unauthorized
+  con TOKEN_HACIA_MOTOR  wget: server returned error: HTTP/1.1 404 Not Found
+

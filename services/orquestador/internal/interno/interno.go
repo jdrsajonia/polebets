@@ -5,7 +5,7 @@
 //
 // Cada llamada lleva:
 //
-//	X-Internal-Service-Token  token de servicio (INTERNAL_API_TOKEN)
+//	X-Internal-Service-Token  token de servicio del destino (TOKEN_HACIA_*)
 //	X-Request-Id              el de la peticion del jugador, o uno nuevo
 //	Content-Type              application/json, si hay cuerpo
 //	Idempotency-Key           solo si el flujo la pasa

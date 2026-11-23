@@ -1,14 +1,16 @@
 """Rutas internas de Usuarios. Ninguna se publica: el Gateway no las enruta hacia afuera.
 
 router_gateway (sin token de servicio):
-    GET /internal/auth   subpeticion auth_request del Gateway (T2-01, RNF-17)
+    GET /internal/auth   subpeticion auth_request del Gateway (T2-01, RNF-17).
+                         Devuelve ademas X-User-Token, la identidad firmada que
+                         verifican el Orquestador y el Motor (escenario 4).
 
     Nginx no puede leer el .env para mandar el token de servicio, y esta ruta
     no revela nada que el dueño de la cookie no tenga ya. Usuarios no esta
     publicado al host (solo vive en la red interna), asi que solo el Gateway
     la alcanza.
 
-router_servicio (exigen X-Internal-Service-Token, las llama el Orquestador):
+router_servicio (exigen el token del Orquestador en X-Internal-Service-Token):
     POST /internal/users        registro orquestado, paso 2 (HU2-01)
     GET  /internal/users/{id}   perfil para la pagina SSR (HU2-03)
 """
@@ -17,6 +19,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Header, HTTPException, Request, Response, status
 
+from app.core.identidad import HEADER_IDENTIDAD, firmar_identidad
 from app.core.session import sin_cache
 from app.deps import DbSession, ServicioInterno, usuario_de_cookie
 from app.schemas.usuarios import CrearUsuarioIn, UsuarioOut
@@ -36,20 +39,29 @@ router_servicio = APIRouter(prefix="/internal", tags=["internal"], dependencies=
 @router_gateway.get(
     "/auth",
     status_code=status.HTTP_204_NO_CONTENT,
-    responses={204: {"description": "Sesion valida: headers X-User-Id y X-User-Rol"}, 401: {"description": "Sin sesion"}},
+    responses={
+        204: {"description": "Sesion valida: headers X-User-Id, X-User-Rol y X-User-Token (identidad firmada)"},
+        401: {"description": "Sin sesion"},
+    },
 )
 def validar_sesion(request: Request, response: Response, db: DbSession) -> None:
-    """204 + X-User-Id y X-User-Rol si la cookie es valida; 401 si no.
+    """204 + X-User-Id, X-User-Rol y X-User-Token si la cookie es valida; 401 si no.
 
     auth_request solo mira el codigo: 2xx deja pasar, 401 corta la peticion.
     El rol sale de la BD (no del token): un usuario borrado o con otro rol
     queda reflejado en la siguiente peticion.
+
+    X-User-Token es lo que el Gateway reenvia al Orquestador y al Motor: el
+    mismo id y rol, firmados con la llave privada de Usuarios (escenario 4).
+    X-User-Id y X-User-Rol se mantienen para Admin, que llama esta ruta directo
+    y los lee de la respuesta (services/admin/app/sesion.py).
     """
     user = usuario_de_cookie(request, db)
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No hay sesión")
     response.headers[HEADER_USUARIO] = str(user.id)
     response.headers[HEADER_ROL] = user.role
+    response.headers[HEADER_IDENTIDAD] = firmar_identidad(user.id, user.role)
     sin_cache(response)
 
 
