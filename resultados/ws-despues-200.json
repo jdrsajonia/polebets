@@ -1,0 +1,154 @@
+{
+    "metrics": {
+        "http_req_duration": {
+            "avg": 238.2438,
+            "min": 238.2438,
+            "med": 238.2438,
+            "max": 238.2438,
+            "p(90)": 238.2438,
+            "p(95)": 238.2438
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 238.2438,
+            "min": 238.2438,
+            "med": 238.2438,
+            "max": 238.2438,
+            "p(90)": 238.2438,
+            "p(95)": 238.2438
+        },
+        "http_req_connecting": {
+            "med": 1.6579,
+            "max": 1.6579,
+            "p(90)": 1.6579,
+            "p(95)": 1.6579,
+            "avg": 1.6579,
+            "min": 1.6579
+        },
+        "checks": {
+            "fails": 152,
+            "passes": 48,
+            "value": 0.24
+        },
+        "ws_rechazadas": {
+            "count": 152,
+            "rate": 26.17877603268296
+        },
+        "http_req_tls_handshaking": {
+            "p(90)": 3.1981,
+            "p(95)": 3.1981,
+            "avg": 3.1981,
+            "min": 3.1981,
+            "med": 3.1981,
+            "max": 3.1981
+        },
+        "ws_connecting": {
+            "avg": 290.35457750000006,
+            "min": 94.4045,
+            "med": 273.32135,
+            "max": 522.8716,
+            "p(90)": 460.39597,
+            "p(95)": 495.67334999999986
+        },
+        "http_req_receiving": {
+            "med": 0.508,
+            "max": 0.508,
+            "p(90)": 0.508,
+            "p(95)": 0.508,
+            "avg": 0.508,
+            "min": 0.508
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 1,
+            "value": 0
+        },
+        "data_received": {
+            "count": 445922,
+            "rate": 76800.60635556612
+        },
+        "ws_sessions": {
+            "count": 200,
+            "rate": 34.44575793774074
+        },
+        "http_reqs": {
+            "count": 1,
+            "rate": 0.1722287896887037
+        },
+        "ws_session_duration": {
+            "min": 191.9719,
+            "med": 293.85455,
+            "max": 5525.0672,
+            "p(90)": 5461.30469,
+            "p(95)": 5498.14307,
+            "avg": 1490.9175770000004
+        },
+        "iteration_duration": {
+            "max": 5525.5482,
+            "p(90)": 5461.86431,
+            "p(95)": 5498.17007,
+            "avg": 1491.3454945000003,
+            "min": 191.9719,
+            "med": 294.11045
+        },
+        "vus_max": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        },
+        "http_req_blocked": {
+            "avg": 24.2462,
+            "min": 24.2462,
+            "med": 24.2462,
+            "max": 24.2462,
+            "p(90)": 24.2462,
+            "p(95)": 24.2462
+        },
+        "data_sent": {
+            "count": 410429,
+            "rate": 70687.68992314496
+        },
+        "vus": {
+            "value": 48,
+            "min": 48,
+            "max": 48
+        },
+        "http_req_sending": {
+            "med": 0.5345,
+            "max": 0.5345,
+            "p(90)": 0.5345,
+            "p(95)": 0.5345,
+            "avg": 0.5345,
+            "min": 0.5345
+        },
+        "http_req_waiting": {
+            "avg": 237.2013,
+            "min": 237.2013,
+            "med": 237.2013,
+            "max": 237.2013,
+            "p(90)": 237.2013,
+            "p(95)": 237.2013
+        },
+        "iterations": {
+            "count": 200,
+            "rate": 34.44575793774074
+        }
+    },
+    "setup_data": {
+        "cookie": "session=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzIzOTdiMS1iYzYwLTRhMmUtOTE4ZC0wM2ZhOTE1YTk3NDUiLCJyb2wiOiJwbGF5ZXIiLCJpYXQiOjE3OTUzOTgxOTcsImV4cCI6MTc5NTQwNTM5N30.Ug63b6iR6JWGv6FIKReGYssoYhy7fSgspdVIOUL9H0I"
+    },
+    "root_group": {
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+            "conexión abierta (101)": {
+                "name": "conexión abierta (101)",
+                "path": "::conexión abierta (101)",
+                "id": "6729b40c785ff509775ec70bbab11745",
+                "passes": 48,
+                "fails": 152
+            }
+        },
+        "name": "",
+        "path": ""
+    }
+}
