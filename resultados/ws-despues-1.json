@@ -1,0 +1,150 @@
+{
+    "metrics": {
+        "http_req_duration": {
+            "p(95)": 256.4114,
+            "avg": 256.4114,
+            "min": 256.4114,
+            "med": 256.4114,
+            "max": 256.4114,
+            "p(90)": 256.4114
+        },
+        "iteration_duration": {
+            "max": 5063.4706,
+            "p(90)": 5063.4706,
+            "p(95)": 5063.4706,
+            "avg": 5063.4706,
+            "min": 5063.4706,
+            "med": 5063.4706
+        },
+        "http_reqs": {
+            "count": 1,
+            "rate": 0.1867104017111635
+        },
+        "http_req_tls_handshaking": {
+            "p(90)": 4.6943,
+            "p(95)": 4.6943,
+            "avg": 4.6943,
+            "min": 4.6943,
+            "med": 4.6943,
+            "max": 4.6943
+        },
+        "http_req_failed": {
+            "fails": 1,
+            "passes": 0,
+            "value": 0
+        },
+        "iterations": {
+            "count": 1,
+            "rate": 0.1867104017111635
+        },
+        "ws_connecting": {
+            "avg": 35.0457,
+            "min": 35.0457,
+            "med": 35.0457,
+            "max": 35.0457,
+            "p(90)": 35.0457,
+            "p(95)": 35.0457
+        },
+        "ws_session_duration": {
+            "med": 5055.8901,
+            "max": 5055.8901,
+            "p(90)": 5055.8901,
+            "p(95)": 5055.8901,
+            "avg": 5055.8901,
+            "min": 5055.8901
+        },
+        "http_req_receiving": {
+            "min": 2.7294,
+            "med": 2.7294,
+            "max": 2.7294,
+            "p(90)": 2.7294,
+            "p(95)": 2.7294,
+            "avg": 2.7294
+        },
+        "http_req_connecting": {
+            "avg": 1.7047,
+            "min": 1.7047,
+            "med": 1.7047,
+            "max": 1.7047,
+            "p(90)": 1.7047,
+            "p(95)": 1.7047
+        },
+        "vus_max": {
+            "value": 1,
+            "min": 1,
+            "max": 1
+        },
+        "http_req_duration{expected_response:true}": {
+            "p(95)": 256.4114,
+            "avg": 256.4114,
+            "min": 256.4114,
+            "med": 256.4114,
+            "max": 256.4114,
+            "p(90)": 256.4114
+        },
+        "ws_sessions": {
+            "count": 1,
+            "rate": 0.1867104017111635
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 1
+        },
+        "http_req_blocked": {
+            "p(90)": 30.6839,
+            "p(95)": 30.6839,
+            "avg": 30.6839,
+            "min": 30.6839,
+            "med": 30.6839,
+            "max": 30.6839
+        },
+        "http_req_sending": {
+            "avg": 0.5412,
+            "min": 0.5412,
+            "med": 0.5412,
+            "max": 0.5412,
+            "p(90)": 0.5412,
+            "p(95)": 0.5412
+        },
+        "data_sent": {
+            "count": 3855,
+            "rate": 719.7685985965352
+        },
+        "http_req_waiting": {
+            "min": 253.1408,
+            "med": 253.1408,
+            "max": 253.1408,
+            "p(90)": 253.1408,
+            "p(95)": 253.1408,
+            "avg": 253.1408
+        },
+        "data_received": {
+            "count": 4611,
+            "rate": 860.9216622901748
+        },
+        "checks": {
+            "passes": 1,
+            "fails": 0,
+            "value": 1
+        }
+    },
+    "setup_data": {
+        "cookie": "session=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzIzOTdiMS1iYzYwLTRhMmUtOTE4ZC0wM2ZhOTE1YTk3NDUiLCJyb2wiOiJwbGF5ZXIiLCJpYXQiOjE3OTUzOTgwNjEsImV4cCI6MTc5NTQwNTI2MX0.JJ-xEQAVh8-bLrfTppmh13JBlDyQ4PgyKBtlivbbgFM"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+            "conexión abierta (101)": {
+                "passes": 1,
+                "fails": 0,
+                "name": "conexión abierta (101)",
+                "path": "::conexión abierta (101)",
+                "id": "6729b40c785ff509775ec70bbab11745"
+            }
+        }
+    }
+}

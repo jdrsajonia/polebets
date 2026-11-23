@@ -1,0 +1,150 @@
+{
+    "metrics": {
+        "http_req_receiving": {
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0
+        },
+        "http_reqs": {
+            "count": 1,
+            "rate": 0.1817119728219944
+        },
+        "http_req_duration{expected_response:true}": {
+            "max": 242.7029,
+            "p(90)": 242.7029,
+            "p(95)": 242.7029,
+            "avg": 242.7029,
+            "min": 242.7029,
+            "med": 242.7029
+        },
+        "ws_connecting": {
+            "max": 193.9564,
+            "p(90)": 189.43232,
+            "p(95)": 192.51063999999997,
+            "avg": 154.972908,
+            "min": 39.0042,
+            "med": 170.7585
+        },
+        "ws_session_duration": {
+            "p(90)": 5191.265,
+            "p(95)": 5200.4808,
+            "avg": 5157.348552,
+            "min": 5040.6277,
+            "med": 5171.9787,
+            "max": 5206.6061
+        },
+        "vus_max": {
+            "max": 25,
+            "value": 25,
+            "min": 25
+        },
+        "checks": {
+            "passes": 25,
+            "fails": 0,
+            "value": 1
+        },
+        "iterations": {
+            "count": 25,
+            "rate": 4.54279932054986
+        },
+        "http_req_waiting": {
+            "max": 242.1683,
+            "p(90)": 242.1683,
+            "p(95)": 242.1683,
+            "avg": 242.1683,
+            "min": 242.1683,
+            "med": 242.1683
+        },
+        "ws_sessions": {
+            "count": 25,
+            "rate": 4.54279932054986
+        },
+        "vus": {
+            "min": 25,
+            "max": 25,
+            "value": 25
+        },
+        "iteration_duration": {
+            "p(90)": 5207.80822,
+            "p(95)": 5214.10186,
+            "avg": 5163.99952,
+            "min": 5041.1732,
+            "med": 5174.4871,
+            "max": 5220.0518
+        },
+        "http_req_connecting": {
+            "avg": 1.0966,
+            "min": 1.0966,
+            "med": 1.0966,
+            "max": 1.0966,
+            "p(90)": 1.0966,
+            "p(95)": 1.0966
+        },
+        "http_req_duration": {
+            "avg": 242.7029,
+            "min": 242.7029,
+            "med": 242.7029,
+            "max": 242.7029,
+            "p(90)": 242.7029,
+            "p(95)": 242.7029
+        },
+        "http_req_sending": {
+            "med": 0.5346,
+            "max": 0.5346,
+            "p(90)": 0.5346,
+            "p(95)": 0.5346,
+            "avg": 0.5346,
+            "min": 0.5346
+        },
+        "data_sent": {
+            "count": 53439,
+            "rate": 9710.506115634558
+        },
+        "http_req_blocked": {
+            "max": 27.2507,
+            "p(90)": 27.2507,
+            "p(95)": 27.2507,
+            "avg": 27.2507,
+            "min": 27.2507,
+            "med": 27.2507
+        },
+        "data_received": {
+            "count": 55323,
+            "rate": 10052.851472431195
+        },
+        "http_req_tls_handshaking": {
+            "avg": 4.5381,
+            "min": 4.5381,
+            "med": 4.5381,
+            "max": 4.5381,
+            "p(90)": 4.5381,
+            "p(95)": 4.5381
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 1,
+            "value": 0
+        }
+    },
+    "setup_data": {
+        "cookie": "session=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzIzOTdiMS1iYzYwLTRhMmUtOTE4ZC0wM2ZhOTE1YTk3NDUiLCJyb2wiOiJwbGF5ZXIiLCJpYXQiOjE3OTUzOTgwNzgsImV4cCI6MTc5NTQwNTI3OH0.jckn0Zn-PhzD4plt_6S2e15vSW7jvS6bOBt4jo_NdEQ"
+    },
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+            "conexión abierta (101)": {
+                "path": "::conexión abierta (101)",
+                "id": "6729b40c785ff509775ec70bbab11745",
+                "passes": 25,
+                "fails": 0,
+                "name": "conexión abierta (101)"
+            }
+        }
+    }
+}

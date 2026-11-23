@@ -1,0 +1,154 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {
+            "conexión abierta (101)": {
+                "name": "conexión abierta (101)",
+                "path": "::conexión abierta (101)",
+                "id": "6729b40c785ff509775ec70bbab11745",
+                "passes": 49,
+                "fails": 51
+            }
+        }
+    },
+    "metrics": {
+        "iteration_duration": {
+            "med": 262.79224999999997,
+            "max": 5515.0527,
+            "p(90)": 5486.71088,
+            "p(95)": 5492.887,
+            "avg": 2756.292518999999,
+            "min": 129.0815
+        },
+        "vus": {
+            "value": 49,
+            "min": 49,
+            "max": 49
+        },
+        "http_req_sending": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_waiting": {
+            "min": 254.1259,
+            "med": 254.1259,
+            "max": 254.1259,
+            "p(90)": 254.1259,
+            "p(95)": 254.1259,
+            "avg": 254.1259
+        },
+        "data_sent": {
+            "rate": 35580.66407400952,
+            "count": 206859
+        },
+        "data_received": {
+            "count": 220785,
+            "rate": 37975.99774522835
+        },
+        "checks": {
+            "passes": 49,
+            "fails": 51,
+            "value": 0.49
+        },
+        "http_req_receiving": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_duration{expected_response:true}": {
+            "min": 254.1259,
+            "med": 254.1259,
+            "max": 254.1259,
+            "p(90)": 254.1259,
+            "p(95)": 254.1259,
+            "avg": 254.1259
+        },
+        "ws_connecting": {
+            "avg": 305.28146499999997,
+            "min": 91.2003,
+            "med": 254.12630000000001,
+            "max": 513.18,
+            "p(90)": 485.69718,
+            "p(95)": 489.98443499999996
+        },
+        "iterations": {
+            "rate": 17.20044284948178,
+            "count": 100
+        },
+        "http_req_tls_handshaking": {
+            "min": 5.1194,
+            "med": 5.1194,
+            "max": 5.1194,
+            "p(90)": 5.1194,
+            "p(95)": 5.1194,
+            "avg": 5.1194
+        },
+        "ws_sessions": {
+            "count": 100,
+            "rate": 17.20044284948178
+        },
+        "http_reqs": {
+            "count": 1,
+            "rate": 0.1720044284948178
+        },
+        "http_req_connecting": {
+            "med": 1.5969,
+            "max": 1.5969,
+            "p(90)": 1.5969,
+            "p(95)": 1.5969,
+            "avg": 1.5969,
+            "min": 1.5969
+        },
+        "vus_max": {
+            "value": 100,
+            "min": 100,
+            "max": 100
+        },
+        "ws_rechazadas": {
+            "rate": 8.772225853235708,
+            "count": 51
+        },
+        "http_req_blocked": {
+            "p(90)": 32.1199,
+            "p(95)": 32.1199,
+            "avg": 32.1199,
+            "min": 32.1199,
+            "med": 32.1199,
+            "max": 32.1199
+        },
+        "http_req_failed": {
+            "fails": 1,
+            "passes": 0,
+            "value": 0
+        },
+        "http_req_duration": {
+            "p(95)": 254.1259,
+            "avg": 254.1259,
+            "min": 254.1259,
+            "med": 254.1259,
+            "max": 254.1259,
+            "p(90)": 254.1259
+        },
+        "ws_session_duration": {
+            "max": 5514.0436,
+            "p(90)": 5486.71088,
+            "p(95)": 5491.3764,
+            "avg": 2755.869551,
+            "min": 129.0815,
+            "med": 262.79224999999997
+        }
+    },
+    "setup_data": {
+        "cookie": "session=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjNzIzOTdiMS1iYzYwLTRhMmUtOTE4ZC0wM2ZhOTE1YTk3NDUiLCJyb2wiOiJwbGF5ZXIiLCJpYXQiOjE3OTUzOTgxMjksImV4cCI6MTc5NTQwNTMyOX0.egX1n2bYmHqQD1q3SubLWXomV-0cB8Cs2mx8_TUaXbs"
+    }
+}
